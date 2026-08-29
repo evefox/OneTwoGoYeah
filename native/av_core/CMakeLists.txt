@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(av_core STATIC
+  src/audio/pcm16.cpp
   src/version.cpp
 )
 add_library(OneTwoGoYeah::av_core ALIAS av_core)
