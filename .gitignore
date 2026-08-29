@@ -1,0 +1,20 @@
+# 构建产物
+/build/
+/native/build/
+
+# Flutter / Dart 生成文件
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/GeneratedPluginRegistrant.*
+
+# 编辑器与系统文件
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# 本地示例音频版权状态尚未确认，不纳入版本控制
+/example/*.mp3
+/example/*.ogg
