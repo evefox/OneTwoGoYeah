@@ -6,10 +6,11 @@ project(
   OneTwoGoYeahNative
   VERSION 0.1.0
   DESCRIPTION "OneTwoGoYeah shared native core"
-  LANGUAGES CXX
+  LANGUAGES C CXX
 )
 
 include(CTest)
 
+add_subdirectory(third_party)
 add_subdirectory(av_core)
 add_subdirectory(tools/avtool)

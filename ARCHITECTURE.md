@@ -309,6 +309,16 @@ App 私有存储中最多存在一个恢复快照。每次已提交的谱面修�
 
 初始兼容目标是已检查的 ArrowVortex 源码树。
 
+解码依赖固定为与该参考树相同的仓库内源码快照：libmad `0.15.1 beta`、
+ArrowVortex 随附 libogg 快照（公开 `ogg.h` 修订 `18044`，源文件修订最高
+`19149`）、libVorbis `1.3.5`。源码、许可证和
+内容摘要保存在 `native/third_party`，常规配置、构建和测试不得从网络下载依赖，
+也不得搜索或链接系统安装的同名库。libmad 统一定义 `HAVE_CONFIG_H`、
+`FPM_64BIT`、`ASO_ZEROCHECK`，三个依赖目标都明确禁用 `fast-math` 并构建为
+位置无关静态库。当前 libVorbis 目标只提供核心与 `vorbisfile` 解码入口；因
+上游对象共享清理和注册符号而同时保留少量分析翻译单元，但不编译
+`vorbisenc.c` 与编码模式表，因此本阶段不提供音频编码入口。
+
 - MP3 使用固定版本和配置的 libmad。
 - Ogg Vorbis 使用固定版本和配置的 libogg/libvorbis。
 - 规范解码音频为平面双声道有符号 16 位 PCM，并保留原始采样率。
