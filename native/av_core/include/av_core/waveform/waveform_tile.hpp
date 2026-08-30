@@ -37,7 +37,7 @@ enum class WaveformError : std::uint8_t {
 
 class WaveformTileResult;
 
-/// One 128-row, uniform-luminance, 1x Alpha tile.
+/// One 128-row, 1x Alpha tile.
 ///
 /// Left and Right are independently owned row-major Alpha planes. Each plane
 /// has channel_width() columns and kHeight rows. The Alpha values are the
@@ -84,10 +84,18 @@ class WaveformTile final {
       const Pcm16&, double, double, std::uint64_t) noexcept;
   friend WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
+  friend WaveformTileResult generate_signed_amplitude_waveform_tile_1x(
+      const Pcm16&, double, double, std::uint64_t) noexcept;
 
-  [[nodiscard]] static WaveformTileResult generate_uniform_waveform_tile_1x(
+  enum class Variant : std::uint8_t {
+    SignedUniform,
+    RectifiedUniform,
+    SignedAmplitude,
+  };
+
+  [[nodiscard]] static WaveformTileResult generate_waveform_tile_1x(
       const Pcm16& pcm, double ui_zoom, double scale,
-      std::uint64_t block_index, bool rectified_shape) noexcept;
+      std::uint64_t block_index, Variant variant) noexcept;
 
   WaveformTile(std::uint64_t block_index, std::uint32_t pixels_per_second,
                std::uint16_t channel_width, std::uint16_t channel_spacing,
@@ -135,10 +143,20 @@ class WaveformTileResult final {
 /// Generates the rectified ArrowVortex-compatible waveform slice.
 ///
 /// Geometry, sampling edges and parameter ranges are identical to the signed
-/// entry point. Only the edge projection is rectified around the channel
-/// center. Amplitude luminance and 2x/3x/4x downsampling remain outside both
-/// entry points.
+/// uniform entry point. Only the edge projection is rectified around the
+/// channel center. Rectified amplitude luminance and 2x/3x/4x downsampling
+/// remain outside this entry point.
 [[nodiscard]] WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept;
+
+/// Generates the signed, amplitude-luminance ArrowVortex waveform slice.
+///
+/// Geometry, sampling edges, signed projection and parameter ranges are
+/// identical to the signed uniform entry point. Only each row's Alpha changes
+/// to ArrowVortex's integer amplitude luminance. Rectified amplitude luminance
+/// and 2x/3x/4x downsampling remain outside this entry point.
+[[nodiscard]] WaveformTileResult generate_signed_amplitude_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
 
