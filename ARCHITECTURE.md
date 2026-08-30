@@ -454,6 +454,28 @@ waveformSpacing = scaledPixels(24)
 
 支持的核心参考范围为 UI Zoom `1..19`、内部 Zoom `-2..16`、Scale `1..10`。Windows 和 macOS 暴露 Scale 调节，并以 ArrowVortex 的 `0.25` 步长提交；iOS 和 Android 的公开 UI、手势及无障碍操作始终使用固定 Scale `4.0`，不发送其他 Scale 值。核心、C ABI 和黄金测试仍支持完整 `1..10` 范围，不能为移动端另写波形算法。移动端双指缩放只累积 Zoom 并提供连续反馈，最终提交到最近的 `0.25` Zoom 参考级别，任何手势轴都不得修改 Scale。缩放时当前时间光标/判定线保持固定。相同逻辑视口、参数、PCM 和设备像素策略必须生成相同的 Alpha 图块。
 
+当前首个权威入口为
+`generate_signed_uniform_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`。
+它只实现 ArrowVortex 有符号形状、均匀亮度和抗锯齿级别 `0`，也就是 1x
+采样结果；返回拥有所有权的 Left、Right 两个行主序 Alpha 平面。每个平面高度
+固定为 `128`，宽度为上述 `waveformChannelWidth`，Alpha 仅为透明 `0` 或不透明
+`255`，UI 之后再独立着色。结果同时返回 `blockIndex`、`pixelsPerSecond`、声道
+宽度和声道间距；不包含 GPU 纹理、颜色、Flutter 对象或全局视图状态。
+
+每个 block 覆盖连续 128 个垂直像素，源起点按
+`trunc(128 * samplesPerPixel * blockIndex)` 计算。每个输出行使用参考实现相同的
+`sampleSkip = max(0.001, samplesPerPixel / 200)`、最接近整数采样索引、最小/最大
+幅度、限制范围和整数幅度缩放。负数缩放显式实现与 ArrowVortex 目标工具链的
+算术右移相同的向负无穷取整，不依赖 C++17 对负数右移的实现定义行为。最后一个
+不完整图块中，若四舍五入索引落到输入末尾后一帧，核心把它限制到最后一个有效
+帧，避免复制参考代码的越界读取；音频结束后的行和完整 block 返回全透明 Alpha。
+
+UI Zoom 或 Scale 非有限或超出上述范围时分别返回稳定
+`InvalidUiZoom`/`InvalidScale`，不返回部分图块；两个 Alpha 平面任一分配失败返回
+`AllocationFailure`。`WaveformTile` 深复制两个平面，移动则转移所有权。当前入口
+有意不接受形状、亮度或抗锯齿参数；整流形状、振幅亮度、2x/3x/4x 降采样、
+过滤波形和缓存仍属于后续独立切片。
+
 ## BPM 与 Offset 兼容契约
 
 - 移植 ArrowVortex 的起音、BPM 和 Offset 算法，并保持操作顺序、常量、线程语义和候选顺序不变。

@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 1：规范 PCM 与音频解码已完成；直接 C++ API、黄金测试和 `avtool decode` 已对规范 PCM 结果建立一致性，下一切片进入阶段 2 的 CPU 波形基础路径。
+阶段 2：ArrowVortex 兼容波形进行中；有符号形状、均匀亮度、1x 采样的单个 CPU Alpha 图块及 Zoom/Scale 几何已完成。
 
 ## 本次范围
 
@@ -28,7 +28,11 @@
 - 在 `av_core` 增加规范 PCM16LE SHA-256 查询，固定 Left 后 Right、每样本小端字节和小写十六进制契约；空 PCM 与五份黄金 PCM 均直接验证。
 - 实现 `avtool decode <audio> --pcm-hash`，CLI 只读取文件、选择现有 MP3/Ogg 权威入口并输出独立于区域设置的 schema v1 JSON。
 - 增加直接 C++ 探针与真实 CLI 的运行时集成比较，覆盖五份夹具的格式、采样率、帧数和哈希，以及大小写扩展名、参数、格式、读取和解码错误。
-- 暂不实现波形、时序、SLK、C ABI 或 Ogg 编码行为。
+- 从固定 ArrowVortex `Waveform.cpp`/`View.cpp` 参考提取 CPU 波形采样边缘、负幅值整数缩放和有符号均匀 Alpha 填充，核心不依赖全局视图、GPU 或纹理。
+- 增加拥有 Left/Right 平面的 `WaveformTile` 和稳定结果/错误类型；支持 UI Zoom `1..19`、Scale `1..10`、128 行 block、空音频和音频末尾透明图块。
+- 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
+- 增加 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；覆盖几何边界、错误、所有权和末帧安全性。
+- 暂不实现整流形状、振幅亮度、2x/3x/4x 降采样、波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -59,19 +63,23 @@
 - `native/av_core/include/av_core/audio/ogg_vorbis_decoder.hpp`
 - `native/av_core/include/av_core/audio/pcm16.hpp`
 - `native/av_core/include/av_core/audio/pcm16_hash.hpp`
+- `native/av_core/include/av_core/waveform/waveform_tile.hpp`
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
 - `native/av_core/src/audio/ogg_vorbis_decoder.cpp`
 - `native/av_core/src/audio/pcm16.cpp`
 - `native/av_core/src/audio/pcm16_hash.cpp`
+- `native/av_core/src/waveform/waveform_tile.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
 - `native/av_core/tests/fixtures/mp3/`
 - `native/av_core/tests/fixtures/ogg_vorbis/`
+- `native/av_core/tests/fixtures/waveform/`
 - `native/av_core/tests/mp3_decoder_test.cpp`
 - `native/av_core/tests/ogg_vorbis_decoder_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
 - `native/av_core/tests/version_test.cpp`
+- `native/av_core/tests/waveform_tile_test.cpp`
 - `native/tools/avtool/CMakeLists.txt`
 - `native/tools/avtool/main.cpp`
 - `native/tools/avtool/tests/`
@@ -81,13 +89,13 @@
 2026-08-30 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-avtool-clean -DBUILD_TESTING=ON
-cmake --build build/native-avtool-clean --parallel 2
-ctest --test-dir build/native-avtool-clean --output-on-failure
+cmake -S native -B build/native-waveform-clean -DBUILD_TESTING=ON
+cmake --build build/native-waveform-clean --parallel 2
+ctest --test-dir build/native-waveform-clean --output-on-failure
 git diff --check
 ```
 
-结果：配置和构建成功；原有 6 项测试、五份夹具的 CLI/直接 API 对比、大小写扩展名和错误契约共 13 项测试全部通过。MP3 两份、Ogg Vorbis 三份 CLI 输出的格式、采样率、帧数和完整平面 PCM16LE SHA-256 均与直接 C++ API 一致，核心哈希另与黄金摘要精确一致。AddressSanitizer 全量重建后 13/13 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下，不经过第三方解码器的 `av_core.pcm16` 非空黄金哈希路径通过。
+结果：配置和构建成功；新增 `av_core.waveform_tile` 后共 14 项测试全部通过。固定双声道 PCM 在 UI Zoom `11`、Scale `4`、block `1` 下得到 `594` pixels/s、`256` 声道宽度、`24` 声道间距，两个 `256 * 128` Alpha 平面与 ArrowVortex 捕获的 65536 字节黄金文件逐字节相同。AddressSanitizer 全量重建后 14/14 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.waveform_tile` 通过。
 
 ## 已知问题
 
@@ -98,4 +106,4 @@ git diff --check
 
 ## 唯一下一步
 
-进入阶段 2 的首个克制切片：从 ArrowVortex 参考实现提取 `av_core` 的 CPU 波形基础路径，只实现有符号形状、均匀亮度、1x 采样模式下单个 128 逻辑像素 Alpha 图块及其 Zoom/Scale 几何；用固定规范 PCM 捕获逐字节黄金结果。本切片不实现整流、振幅亮度、2x/3x/4x、CLI 波形命令、C ABI 或 Flutter。
+在同一采样边缘与 1x 路径上增加 ArrowVortex 整流形状，只覆盖均匀亮度，并为同一固定 PCM、UI Zoom `11`、Scale `4`、block `1` 捕获独立逐字节黄金 Alpha；保持现有有符号输出完全不变。本切片不实现振幅亮度、2x/3x/4x、过滤、CLI、C ABI 或 Flutter。

@@ -31,6 +31,19 @@
 
 PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确定性导出都要求精确比较。在支持的平台上，原始浮点值按位比较。任何架构特定容差都必须明确、足够小且有理由，并且不能改变投影后的兼容值。
 
+首个波形黄金测试使用
+`native/av_core/tests/fixtures/waveform/generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha`。
+输入是已经锁定的 11025 Hz、9216 帧 CC0 双声道平面 PCM；参数为 UI Zoom
+`11`、内部 Zoom `8`、Scale `4`、block `1`、有符号形状、均匀亮度和 1x。
+参考结果必须为 `pixelsPerSecond = 594`、声道宽度 `256`、声道间距 `24`，并把
+完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，与 65536 字节黄金文件
+逐字节相同；黄金 SHA-256 固定为
+`aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`。
+测试还必须覆盖 UI Zoom/Scale 最小值、最大值和 `0.25` 步长映射、空 PCM、音频
+结束后的透明 block、末帧四舍五入边界、左右声道差异、深复制/移动所有权，以及
+非有限和越界参数的稳定错误。测试直接调用 `av_core`，不得启动 GPU、窗口、音频
+设备或子进程。
+
 固定音频依赖构建测试必须在离线 CMake 构建中直接编译仓库内 libmad、libogg
 和 libVorbis 静态目标，并校验运行时版本分别为 `MPEG Audio Decoder 0.15.1
 (beta)` 与 `Xiph.Org libVorbis 1.3.5`，同时调用 libogg 初始化/清理入口证明最终

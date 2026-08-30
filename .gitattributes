@@ -15,6 +15,7 @@ native/third_party/**/COPYING text eol=lf
 *.mp3 binary
 *.ogg binary
 *.pcm16le binary
+*.alpha binary
 
 # SLK 的固定字节、CRLF 和乱码标题必须保持原样。
 *.slk binary
