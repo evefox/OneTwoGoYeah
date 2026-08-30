@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 2：ArrowVortex 兼容波形进行中；有符号/整流形状与均匀/振幅亮度四种组合、1x 采样的 CPU Alpha 图块及 Zoom/Scale 几何已完成。
+阶段 2：ArrowVortex 兼容波形进行中；有符号/整流形状与均匀/振幅亮度四种 1x 组合，以及有符号均匀亮度 2x 的 CPU Alpha 图块及 Zoom/Scale 几何已完成。
 
 ## 本次范围
 
@@ -33,9 +33,10 @@
 - 增加 `generate_rectified_uniform_waveform_tile_1x`，与既有有符号入口共享全部几何、采样边缘、限制、错误和所有权路径，只按 ArrowVortex 规则把每行最大绝对幅值对称投影到声道中心两侧。
 - 增加 `generate_signed_amplitude_waveform_tile_1x`，保持既有有符号覆盖范围，只按 ArrowVortex 的声道宽度相关整数标量把每行最大绝对幅值转换为 Alpha。
 - 增加 `generate_rectified_amplitude_waveform_tile_1x`，复用相同采样边缘、整流投影和振幅整数算术完成第四种 1x 组合；没有开放通用形状、亮度或抗锯齿配置。
+- 增加 `generate_signed_uniform_waveform_tile_2x`，按 ArrowVortex 抗锯齿级别 `1` 以两倍宽高执行有符号均匀投影，再把每个 2×2 Alpha 块用非负整数平均降采样到原图块尺寸；没有开放通用抗锯齿参数或其他 2x 组合。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
-- 增加有符号均匀、整流均匀、有符号振幅和整流振幅四份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖每行单一中间 Alpha、中心对称、形状差异和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现 2x/3x/4x 降采样、波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
+- 增加四份 1x 与一份有符号均匀 2x、共五份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖 2x 的 `0/63/127/191/255` 整数平均、每行单一振幅 Alpha、中心对称、形状差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
+- 暂不实现其他形状/亮度的 2x、3x/4x 降采样、波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -92,30 +93,30 @@
 2026-08-30 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-waveform-rectified-amplitude-clean -DBUILD_TESTING=ON
-cmake --build build/native-waveform-rectified-amplitude-clean --parallel 2
-ctest --test-dir build/native-waveform-rectified-amplitude-clean --output-on-failure
+cmake -S native -B build/native-waveform-signed-uniform-2x-clean -DBUILD_TESTING=ON
+cmake --build build/native-waveform-signed-uniform-2x-clean --parallel 2
+ctest --test-dir build/native-waveform-signed-uniform-2x-clean --output-on-failure
 
-cmake -S native -B build/native-waveform-rectified-amplitude-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-waveform-rectified-amplitude-asan --parallel 2
-ctest --test-dir build/native-waveform-rectified-amplitude-asan --output-on-failure
+cmake -S native -B build/native-waveform-signed-uniform-2x-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-waveform-signed-uniform-2x-asan --parallel 2
+ctest --test-dir build/native-waveform-signed-uniform-2x-asan --output-on-failure
 
-cmake -S native -B build/native-waveform-rectified-amplitude-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-waveform-rectified-amplitude-asan-ubsan --parallel 2 --target av_core_waveform_tile_test
-ctest --test-dir build/native-waveform-rectified-amplitude-asan-ubsan -R '^av_core.waveform_tile$' --output-on-failure
+cmake -S native -B build/native-waveform-signed-uniform-2x-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-waveform-signed-uniform-2x-asan-ubsan --parallel 2 --target av_core_waveform_tile_test
+ctest --test-dir build/native-waveform-signed-uniform-2x-asan-ubsan -R '^av_core.waveform_tile$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，14/14 测试通过；全新 AddressSanitizer 构建后 14/14 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.waveform_tile` 1/1 通过。固定双声道 PCM 在 UI Zoom `11`、Scale `4`、block `1` 下继续得到 `594` pixels/s、`256` 声道宽度、`24` 声道间距；新增整流振幅 Left/Right Alpha 与独立 ArrowVortex 捕获的 65536 字节黄金逐字节相同，SHA-256 为 `5272c1d45caf622592a74dc5129d290c9c36eb6b715107e39621996e4c5c6065`，每行围绕声道中心对称，非透明 Alpha 精确为 `95/97/105/107`。既有有符号均匀、整流均匀和有符号振幅三份黄金仍逐字节相同，SHA-256 分别保持 `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`、`9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161` 和 `f085dceeff95f50a60f97b8b9875489ad51e662874dc68cd80c01ee71f98e8c7`；最小 Scale 的单帧边界还精确得到满负幅 `247` 与满正幅 `239` Alpha。
+结果：全新普通配置和构建成功，14/14 测试通过；全新 AddressSanitizer 构建后 14/14 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.waveform_tile` 1/1 通过。固定双声道 PCM 在 UI Zoom `11`、Scale `4`、block `1` 下继续得到 `594` pixels/s、`256` 声道宽度、`24` 声道间距；新增有符号均匀 2x Left/Right Alpha 与独立 ArrowVortex 捕获的 65536 字节黄金逐字节相同，SHA-256 为 `2243a44abad0fcec5ec1114895c16068bcc8248f3560a02027fcf3dc1daff9e5`，Alpha 精确只包含 `0/63/127/191/255` 且实际覆盖三个中间值。既有四份 1x 黄金仍逐字节相同，SHA-256 分别保持 `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`、`9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161`、`f085dceeff95f50a60f97b8b9875489ad51e662874dc68cd80c01ee71f98e8c7` 和 `5272c1d45caf622592a74dc5129d290c9c36eb6b715107e39621996e4c5c6065`；2x 末帧四舍五入索引继续被限制到最后一个有效 PCM 帧，音频结束后的 block 保持全透明。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；本次新增的整流振幅波形路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；本次新增的 2x 波形路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-在现有有符号均匀亮度 1x 权威路径上增加 ArrowVortex 抗锯齿级别 `1` 的 2x 采样与参考整数降采样，并为同一固定 PCM、UI Zoom `11`、Scale `4`、block `1` 捕获独立逐字节黄金 Alpha；保持当前四份 1x 输出完全不变。本切片只增加有符号均匀亮度 2x，不实现其他形状/亮度的 2x、3x/4x、过滤、CLI、C ABI 或 Flutter。
+在现有共享 2x 超采样与参考整数降采样路径上增加 ArrowVortex 整流均匀亮度 2x，并为同一固定 PCM、UI Zoom `11`、Scale `4`、block `1` 捕获独立逐字节黄金 Alpha；保持当前四份 1x 与有符号均匀 2x 输出完全不变。本切片只增加整流均匀亮度 2x，不实现振幅亮度 2x、3x/4x、过滤、CLI、C ABI 或 Flutter。

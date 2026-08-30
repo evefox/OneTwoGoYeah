@@ -71,7 +71,7 @@ enum class WaveformLuminance : std::uint8_t {
 void render_channel(const Pcm16& pcm, PcmChannel channel,
                     const WaveformGeometry& geometry,
                     std::uint64_t block_index, WaveformShape shape,
-                    WaveformLuminance luminance,
+                    WaveformLuminance luminance, std::size_t sampling_factor,
                     std::vector<std::uint8_t>& alpha) noexcept {
   const double samples_per_pixel =
       static_cast<double>(pcm.sample_rate()) /
@@ -99,16 +99,18 @@ void render_channel(const Pcm16& pcm, PcmChannel channel,
   }
 
   const double sample_skip = std::max(0.001, samples_per_pixel / 200.0);
-  const int width = static_cast<int>(geometry.channel_width);
+  const int width = static_cast<int>(geometry.channel_width) *
+                    static_cast<int>(sampling_factor);
+  const auto height = WaveformTile::kHeight * sampling_factor;
   const int half_width = width / 2 - 1;
   const auto* input = pcm.channel_data(channel) + sample_position;
   const double advance =
       samples_per_pixel * static_cast<double>(WaveformTile::kHeight) /
-      static_cast<double>(WaveformTile::kHeight);
+      static_cast<double>(height);
 
-  std::array<WaveEdge, WaveformTile::kHeight> edges{};
+  std::array<WaveEdge, WaveformTile::kHeight * 2U> edges{};
   double offset = 0.0;
-  for (std::size_t y = 0U; y < WaveformTile::kHeight; ++y) {
+  for (std::size_t y = 0U; y < height; ++y) {
     const double end = std::min(
         sample_count, static_cast<double>(y + 1U) * advance);
     int minimum = std::numeric_limits<Pcm16::Sample>::max();
@@ -143,7 +145,7 @@ void render_channel(const Pcm16& pcm, PcmChannel channel,
 
   const int center = width / 2;
   const int amplitude_scalar = ((255 << 16) * 2) / width;
-  for (std::size_t y = 0U; y < WaveformTile::kHeight; ++y) {
+  for (std::size_t y = 0U; y < height; ++y) {
     const int magnitude =
         std::max(std::abs(edges[y].left), std::abs(edges[y].right));
     int left = 0;
@@ -159,9 +161,28 @@ void render_channel(const Pcm16& pcm, PcmChannel channel,
         luminance == WaveformLuminance::Amplitude
             ? static_cast<std::uint8_t>((magnitude * amplitude_scalar) >> 16)
             : static_cast<std::uint8_t>(255U);
-    auto row = alpha.begin() +
-               static_cast<std::ptrdiff_t>(y * geometry.channel_width);
+    auto row = alpha.begin() + static_cast<std::ptrdiff_t>(
+                                   y * static_cast<std::size_t>(width));
     std::fill(row + left, row + right, alpha_value);
+  }
+}
+
+void downsample_2x(const std::vector<std::uint8_t>& source,
+                   const WaveformGeometry& geometry,
+                   std::vector<std::uint8_t>& destination) noexcept {
+  const auto width = static_cast<std::size_t>(geometry.channel_width);
+  const auto source_width = width * 2U;
+  for (std::size_t y = 0U; y < WaveformTile::kHeight; ++y) {
+    const auto source_row = (y * 2U) * source_width;
+    const auto destination_row = y * width;
+    for (std::size_t x = 0U; x < width; ++x) {
+      const auto top_left = source_row + x * 2U;
+      const auto bottom_left = top_left + source_width;
+      const int sum = source[top_left] + source[top_left + 1U] +
+                      source[bottom_left] + source[bottom_left + 1U];
+      destination[destination_row + x] =
+          static_cast<std::uint8_t>(sum / 4);
+    }
   }
 }
 
@@ -219,9 +240,9 @@ WaveformTile WaveformTileResult::take_tile() && {
   return std::move(std::get<WaveformTile>(storage_));
 }
 
-WaveformTileResult WaveformTile::generate_waveform_tile_1x(
+WaveformTileResult WaveformTile::generate_waveform_tile(
     const Pcm16& pcm, double ui_zoom, double scale,
-    std::uint64_t block_index, Variant variant) noexcept {
+    std::uint64_t block_index, Variant variant, Sampling sampling) noexcept {
   if (!std::isfinite(ui_zoom) || ui_zoom < kMinUiZoom ||
       ui_zoom > kMaxUiZoom) {
     return WaveformTileResult{WaveformError::InvalidUiZoom};
@@ -247,10 +268,21 @@ WaveformTileResult WaveformTile::generate_waveform_tile_1x(
                 variant == Variant::RectifiedAmplitude
             ? WaveformLuminance::Amplitude
             : WaveformLuminance::Uniform;
-    render_channel(pcm, PcmChannel::Left, geometry, block_index, shape,
-                   luminance, left);
-    render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
-                   luminance, right);
+    if (sampling == Sampling::TwoX) {
+      std::vector<std::uint8_t> supersampled(channel_size * 4U, 0U);
+      render_channel(pcm, PcmChannel::Left, geometry, block_index, shape,
+                     luminance, 2U, supersampled);
+      downsample_2x(supersampled, geometry, left);
+      std::fill(supersampled.begin(), supersampled.end(), 0U);
+      render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
+                     luminance, 2U, supersampled);
+      downsample_2x(supersampled, geometry, right);
+    } else {
+      render_channel(pcm, PcmChannel::Left, geometry, block_index, shape,
+                     luminance, 1U, left);
+      render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
+                     luminance, 1U, right);
+    }
     return WaveformTileResult{WaveformTile{
         block_index,
         geometry.pixels_per_second,
@@ -267,32 +299,44 @@ WaveformTileResult WaveformTile::generate_waveform_tile_1x(
 WaveformTileResult generate_signed_uniform_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept {
-  return WaveformTile::generate_waveform_tile_1x(
-      pcm, ui_zoom, scale, block_index, WaveformTile::Variant::SignedUniform);
+  return WaveformTile::generate_waveform_tile(
+      pcm, ui_zoom, scale, block_index, WaveformTile::Variant::SignedUniform,
+      WaveformTile::Sampling::OneX);
 }
 
 WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept {
-  return WaveformTile::generate_waveform_tile_1x(
+  return WaveformTile::generate_waveform_tile(
       pcm, ui_zoom, scale, block_index,
-      WaveformTile::Variant::RectifiedUniform);
+      WaveformTile::Variant::RectifiedUniform,
+      WaveformTile::Sampling::OneX);
 }
 
 WaveformTileResult generate_signed_amplitude_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept {
-  return WaveformTile::generate_waveform_tile_1x(
+  return WaveformTile::generate_waveform_tile(
       pcm, ui_zoom, scale, block_index,
-      WaveformTile::Variant::SignedAmplitude);
+      WaveformTile::Variant::SignedAmplitude,
+      WaveformTile::Sampling::OneX);
 }
 
 WaveformTileResult generate_rectified_amplitude_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept {
-  return WaveformTile::generate_waveform_tile_1x(
+  return WaveformTile::generate_waveform_tile(
       pcm, ui_zoom, scale, block_index,
-      WaveformTile::Variant::RectifiedAmplitude);
+      WaveformTile::Variant::RectifiedAmplitude,
+      WaveformTile::Sampling::OneX);
+}
+
+WaveformTileResult generate_signed_uniform_waveform_tile_2x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept {
+  return WaveformTile::generate_waveform_tile(
+      pcm, ui_zoom, scale, block_index, WaveformTile::Variant::SignedUniform,
+      WaveformTile::Sampling::TwoX);
 }
 
 }  // namespace otgy::core

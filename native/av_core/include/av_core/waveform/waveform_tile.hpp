@@ -37,11 +37,11 @@ enum class WaveformError : std::uint8_t {
 
 class WaveformTileResult;
 
-/// One 128-row, 1x Alpha tile.
+/// One 128-row Alpha tile.
 ///
 /// Left and Right are independently owned row-major Alpha planes. Each plane
 /// has channel_width() columns and kHeight rows. The Alpha values are the
-/// ArrowVortex-compatible 1x result before UI colorization.
+/// ArrowVortex-compatible result before UI colorization.
 class WaveformTile final {
  public:
   static constexpr std::size_t kHeight = 128U;
@@ -88,6 +88,8 @@ class WaveformTile final {
       const Pcm16&, double, double, std::uint64_t) noexcept;
   friend WaveformTileResult generate_rectified_amplitude_waveform_tile_1x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
+  friend WaveformTileResult generate_signed_uniform_waveform_tile_2x(
+      const Pcm16&, double, double, std::uint64_t) noexcept;
 
   enum class Variant : std::uint8_t {
     SignedUniform,
@@ -96,9 +98,14 @@ class WaveformTile final {
     RectifiedAmplitude,
   };
 
-  [[nodiscard]] static WaveformTileResult generate_waveform_tile_1x(
+  enum class Sampling : std::uint8_t {
+    OneX,
+    TwoX,
+  };
+
+  [[nodiscard]] static WaveformTileResult generate_waveform_tile(
       const Pcm16& pcm, double ui_zoom, double scale,
-      std::uint64_t block_index, Variant variant) noexcept;
+      std::uint64_t block_index, Variant variant, Sampling sampling) noexcept;
 
   WaveformTile(std::uint64_t block_index, std::uint32_t pixels_per_second,
                std::uint16_t channel_width, std::uint16_t channel_spacing,
@@ -171,6 +178,17 @@ class WaveformTileResult final {
 /// entry point.
 [[nodiscard]] WaveformTileResult
 generate_rectified_amplitude_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept;
+
+/// Generates the signed, uniform-luminance ArrowVortex 2x waveform slice.
+///
+/// Geometry and parameter ranges are identical to the signed uniform 1x entry
+/// point. Sampling and signed projection use twice the final width and height,
+/// then each 2x2 Alpha block is reduced with ArrowVortex's integer average.
+/// Other shape/luminance combinations and 3x/4x remain outside this entry
+/// point.
+[[nodiscard]] WaveformTileResult generate_signed_uniform_waveform_tile_2x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
 
