@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 1：规范 PCM 与音频解码进行中；纯内存 MP3/Ogg Vorbis 解码已完成，下一切片连接 `avtool decode` 诊断入口。
+阶段 1：规范 PCM 与音频解码已完成；直接 C++ API、黄金测试和 `avtool decode` 已对规范 PCM 结果建立一致性，下一切片进入阶段 2 的 CPU 波形基础路径。
 
 ## 本次范围
 
@@ -25,7 +25,10 @@
 - 单声道复制到 Left/Right，双声道和多声道只保留编码通道 0/1；串联流改变采样率或声道数时失败且不返回部分 PCM。
 - 增加稳定 `OggVorbisDecodeError`，覆盖空、空指针、尺寸、非 Ogg、页损坏、截断和串联格式变化。
 - 增加 CC0-1.0 的单、双、三声道生成 Ogg 及完整平面 PCM16LE 黄金字节，在配置阶段固定六份 SHA-256；三份 PCM 均与实际编译的 ArrowVortex `LoadOgg.cpp` 逐字节相同。
-- 暂不实现 CLI 音频命令、波形、时序、SLK 或 Ogg 编码行为。
+- 在 `av_core` 增加规范 PCM16LE SHA-256 查询，固定 Left 后 Right、每样本小端字节和小写十六进制契约；空 PCM 与五份黄金 PCM 均直接验证。
+- 实现 `avtool decode <audio> --pcm-hash`，CLI 只读取文件、选择现有 MP3/Ogg 权威入口并输出独立于区域设置的 schema v1 JSON。
+- 增加直接 C++ 探针与真实 CLI 的运行时集成比较，覆盖五份夹具的格式、采样率、帧数和哈希，以及大小写扩展名、参数、格式、读取和解码错误。
+- 暂不实现波形、时序、SLK、C ABI 或 Ogg 编码行为。
 
 ## 工具链
 
@@ -55,10 +58,12 @@
 - `native/av_core/include/av_core/audio/mp3_decoder.hpp`
 - `native/av_core/include/av_core/audio/ogg_vorbis_decoder.hpp`
 - `native/av_core/include/av_core/audio/pcm16.hpp`
+- `native/av_core/include/av_core/audio/pcm16_hash.hpp`
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
 - `native/av_core/src/audio/ogg_vorbis_decoder.cpp`
 - `native/av_core/src/audio/pcm16.cpp`
+- `native/av_core/src/audio/pcm16_hash.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
 - `native/av_core/tests/fixtures/mp3/`
@@ -69,27 +74,28 @@
 - `native/av_core/tests/version_test.cpp`
 - `native/tools/avtool/CMakeLists.txt`
 - `native/tools/avtool/main.cpp`
+- `native/tools/avtool/tests/`
 
 ## 最后成功验证
 
 2026-08-30 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-ogg-clean -DBUILD_TESTING=ON
-cmake --build build/native-ogg-clean --parallel 2
-ctest --test-dir build/native-ogg-clean --output-on-failure
+cmake -S native -B build/native-avtool-clean -DBUILD_TESTING=ON
+cmake --build build/native-avtool-clean --parallel 2
+ctest --test-dir build/native-avtool-clean --output-on-failure
 git diff --check
 ```
 
-结果：配置和构建成功；`third_party.audio_codec_snapshot`、`av_core.version`、`av_core.pcm16`、`av_core.mp3_decoder`、`av_core.ogg_vorbis_decoder`、`avtool.version` 共 6 项测试全部通过。
-另以 AddressSanitizer 和 UndefinedBehaviorSanitizer 全量重建并运行相同 6 项测试，全部通过。MP3 两份、Ogg Vorbis 三份 PCM16LE 黄金文件均与实际编译的 ArrowVortex 对应加载器输出逐字节相同。
+结果：配置和构建成功；原有 6 项测试、五份夹具的 CLI/直接 API 对比、大小写扩展名和错误契约共 13 项测试全部通过。MP3 两份、Ogg Vorbis 三份 CLI 输出的格式、采样率、帧数和完整平面 PCM16LE SHA-256 均与直接 C++ API 一致，核心哈希另与黄金摘要精确一致。AddressSanitizer 全量重建后 13/13 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下，不经过第三方解码器的 `av_core.pcm16` 非空黄金哈希路径通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；本次新增的不经解码器 PCM 哈希路径已单独通过 UBSan。
 
 ## 唯一下一步
 
-实现计划中的 `avtool decode <audio> --pcm-hash`：CLI 只负责读取文件和展示稳定、独立于区域设置的机器可读结果，MP3/Ogg 解码及规范 PCM 必须调用现有 `av_core` 权威入口；集成测试对同一夹具比较 CLI 与直接 C++ API 的格式、采样率、帧数和完整平面 PCM16 哈希。本切片不实现波形、检测器、C ABI 或 Ogg 编码。
+进入阶段 2 的首个克制切片：从 ArrowVortex 参考实现提取 `av_core` 的 CPU 波形基础路径，只实现有符号形状、均匀亮度、1x 采样模式下单个 128 逻辑像素 Alpha 图块及其 Zoom/Scale 几何；用固定规范 PCM 捕获逐字节黄金结果。本切片不实现整流、振幅亮度、2x/3x/4x、CLI 波形命令、C ABI 或 Flutter。

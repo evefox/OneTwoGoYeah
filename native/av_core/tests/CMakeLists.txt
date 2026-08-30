@@ -17,6 +17,9 @@ add_executable(av_core_pcm16_test
   pcm16_test.cpp
 )
 target_link_libraries(av_core_pcm16_test PRIVATE OneTwoGoYeah::av_core)
+target_compile_definitions(av_core_pcm16_test PRIVATE
+  OTGY_PCM16_HASH_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/mp3"
+)
 
 if(MSVC)
   target_compile_options(av_core_pcm16_test PRIVATE /W4 /permissive-)

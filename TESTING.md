@@ -59,6 +59,11 @@ Ogg Vorbis 解码黄金测试使用 `native/av_core/tests/fixtures/ogg_vorbis` �
 稳定错误且不暴露部分 PCM。夹具来源、生成方法、许可证、输入/输出 SHA-256、
 采样率、声道数和预期帧数由同目录 `README.md` 固定，普通测试不得重新生成。
 
+规范 PCM 哈希测试必须直接调用 `pcm16le_sha256_hex`，证明零帧 PCM 得到标准空
+输入 SHA-256，并证明全部 MP3/Ogg 黄金 PCM 的哈希分别等于夹具清单中已经锁定的
+PCM16LE SHA-256。哈希输入严格为 Left 全通道后 Right 全通道、每个样本两个小端
+字节；不得散列主机原生对象表示，也不得把采样率或帧数混入哈希。
+
 SLK 位置转换单元测试必须覆盖 `beat` 和 `sixteenth` 在 `0..3` 内的全部组合、小节边界、公式 `totalSixteenth = measure * 16 + beat * 4 + sixteenth`、从总 1/16 位置反向分解，以及导出四列一致性。导入行两种位置表示不一致时必须返回明确解析错误，绝不能静默修复或只接受其中一种表示。
 
 SLK 规范字节导出测试必须把 `example/z3116_lv5.slk` 锁定为唯一基准，并首先校验其 SHA-256 为 `8d203601373b3be426d220f002d8d945c7d94b8c44670cbee4ceab82dd723a12`。严格导入该文件再导出未修改的 `FinishedChart` 时，完整输出必须与基准逐字节相同，而不仅是能被 Excel 打开或重新导入后语义相同。`example/谎话成品.slk` 继续验证导入兼容性，但任何导出都不能采用它的前导、格式编号或六列外壳。
@@ -156,6 +161,16 @@ avtool export-slk <project> --output <chart.slk>
 ```
 
 机器可读输出使用带版本、稳定且独立于区域设置的 JSON 架构。可以提供人类可读输出，但自动测试绝不解析该输出。
+
+当前已经实现的 `decode` 成功输出只包含一行 schema v1 ASCII JSON，字段按
+`schemaVersion`、`codec`、`pcmFormat`、`sampleRate`、`frameCount`、
+`pcmSha256` 的固定顺序输出，`pcmFormat` 必须为
+`pcm16le-planar-left-right`。MP3 单/双声道和 Ogg 单/双/三声道五份测试各自运行
+一个直接链接 `av_core` 的 C++ 探针和真实 `avtool` 进程，从同一输入逐字段比较
+格式、采样率、帧数与完整 PCM 哈希；直接解码器测试再独立与黄金 SHA-256 比较，
+避免 CLI 与探针共享的核心错误互相掩盖。测试还必须覆盖大小写不敏感扩展名、
+严格的 `decode <audio> --pcm-hash` 参数形态、未知扩展名、文件读取失败和解码失败，
+并精确比较退出码、stdout/stderr 分流及稳定错误 JSON。
 
 ### 4. C ABI 一致性测试
 

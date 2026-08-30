@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "av_core/audio/ogg_vorbis_decoder.hpp"
+#include "av_core/audio/pcm16_hash.hpp"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,7 @@
 #include <iterator>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -48,6 +50,7 @@ using otgy::core::PcmChannel;
 void assert_matches_golden(const std::string& ogg_name,
                            const std::string& pcm_name,
                            std::uint32_t expected_sample_rate,
+                           std::string_view expected_pcm_sha256,
                            bool expect_identical_channels) {
   const auto encoded = read_fixture(ogg_name);
   const auto expected_pcm = read_fixture(pcm_name);
@@ -62,6 +65,8 @@ void assert_matches_golden(const std::string& ogg_name,
   assert(pcm.frame_count() == 8'192U);
   assert(pcm.total_byte_size() == expected_pcm.size());
   assert(planar_pcm16le_bytes(pcm) == expected_pcm);
+  const auto hash = otgy::core::pcm16le_sha256_hex(pcm);
+  assert(std::string_view(hash.data(), hash.size()) == expected_pcm_sha256);
 
   const auto* left = pcm.channel_data(PcmChannel::Left);
   const auto* right = pcm.channel_data(PcmChannel::Right);
@@ -78,13 +83,18 @@ void assert_matches_golden(const std::string& ogg_name,
 
 void test_generated_golden_fixtures() {
   assert_matches_golden("generated_mono_8000.ogg",
-                        "generated_mono_8000.planar.pcm16le", 8'000U, true);
+                        "generated_mono_8000.planar.pcm16le", 8'000U,
+                        "47f4ad0d6677be6728ddc280eb6269f2d8e5c50de935d84f798be1da0f176f56",
+                        true);
   assert_matches_golden("generated_stereo_11025.ogg",
                         "generated_stereo_11025.planar.pcm16le", 11'025U,
+                        "176275320fa9703e04e26040b18e0f5e5e91c6405e75f2b317c9acbd8ff8f58e",
                         false);
   assert_matches_golden("generated_three_channel_16000.ogg",
                         "generated_three_channel_16000.planar.pcm16le",
-                        16'000U, false);
+                        16'000U,
+                        "ed097f42dfeb0679fddd4ae6d2f3ce987e520c0509c4bc6abd1c744311f69987",
+                        false);
 }
 
 void assert_failure_has_no_pcm(otgy::core::OggVorbisDecodeResult result,

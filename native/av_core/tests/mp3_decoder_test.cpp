@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "av_core/audio/mp3_decoder.hpp"
+#include "av_core/audio/pcm16_hash.hpp"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,7 @@
 #include <iterator>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -49,6 +51,7 @@ void assert_matches_golden(const std::string& mp3_name,
                            const std::string& pcm_name,
                            std::uint32_t expected_sample_rate,
                            std::size_t expected_frame_count,
+                           std::string_view expected_pcm_sha256,
                            bool expect_identical_channels) {
   const auto encoded = read_fixture(mp3_name);
   const auto expected_pcm = read_fixture(pcm_name);
@@ -62,6 +65,8 @@ void assert_matches_golden(const std::string& mp3_name,
   assert(pcm.frame_count() == expected_frame_count);
   assert(pcm.total_byte_size() == expected_pcm.size());
   assert(planar_pcm16le_bytes(pcm) == expected_pcm);
+  const auto hash = otgy::core::pcm16le_sha256_hex(pcm);
+  assert(std::string_view(hash.data(), hash.size()) == expected_pcm_sha256);
 
   const auto* left = pcm.channel_data(PcmChannel::Left);
   const auto* right = pcm.channel_data(PcmChannel::Right);
@@ -79,7 +84,9 @@ void assert_matches_golden(const std::string& mp3_name,
 void test_generated_golden_fixtures() {
   assert_matches_golden("generated_mono_8000.mp3",
                         "generated_mono_8000.planar.pcm16le", 8'000U,
-                        9'216U, true);
+                        9'216U,
+                        "b1d85a34af1e9e16f7530f6efdbde26e3f8e5e5a71fc8c7345aed2345a77a451",
+                        true);
 
   const auto stereo = read_fixture("generated_stereo_11025.mp3");
   constexpr std::array<std::uint8_t, 4> kXing{{'X', 'i', 'n', 'g'}};
@@ -87,7 +94,9 @@ void test_generated_golden_fixtures() {
          stereo.end());
   assert_matches_golden("generated_stereo_11025.mp3",
                         "generated_stereo_11025.planar.pcm16le", 11'025U,
-                        9'216U, false);
+                        9'216U,
+                        "a5ba7143a10ad4cc9d235d00069e81ea41029127e29a4bfbf04a15a10f9ad460",
+                        false);
 }
 
 void test_leading_id3_tag_is_skipped() {

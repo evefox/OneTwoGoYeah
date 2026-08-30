@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "av_core/audio/pcm16.hpp"
+#include "av_core/audio/pcm16_hash.hpp"
 
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -83,6 +88,55 @@ void test_zero_frames() {
   assert(pcm.channel_data(PcmChannel::Right) == nullptr);
   assert(pcm.mutable_channel_data(PcmChannel::Left) == nullptr);
   assert(pcm.mutable_channel_data(PcmChannel::Right) == nullptr);
+
+  const auto hash = otgy::core::pcm16le_sha256_hex(pcm);
+  assert(std::string_view(hash.data(), hash.size()) ==
+         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  assert(otgy::core::kPlanarPcm16LeFormat ==
+         "pcm16le-planar-left-right");
+}
+
+void test_golden_pcm16le_hash_projection() {
+  const std::string path =
+      std::string{OTGY_PCM16_HASH_FIXTURE_DIR} +
+      "/generated_mono_8000.planar.pcm16le";
+  std::ifstream input(path, std::ios::binary);
+  assert(input.is_open());
+  const std::vector<std::uint8_t> bytes{
+      std::istreambuf_iterator<char>{input},
+      std::istreambuf_iterator<char>{},
+  };
+  assert(bytes.size() % (Pcm16::kChannelCount * Pcm16::kBytesPerSample) ==
+         0U);
+
+  const auto frame_count =
+      bytes.size() / (Pcm16::kChannelCount * Pcm16::kBytesPerSample);
+  std::vector<Pcm16::Sample> left(frame_count);
+  std::vector<Pcm16::Sample> right(frame_count);
+  for (std::size_t channel = 0U; channel < Pcm16::kChannelCount; ++channel) {
+    auto& samples = channel == 0U ? left : right;
+    const auto channel_offset = channel * frame_count * 2U;
+    for (std::size_t frame = 0U; frame < frame_count; ++frame) {
+      const auto byte_offset = channel_offset + frame * 2U;
+      const auto bits = static_cast<std::uint16_t>(
+          static_cast<std::uint16_t>(bytes[byte_offset]) |
+          (static_cast<std::uint16_t>(bytes[byte_offset + 1U]) << 8U));
+      const auto signed_value =
+          bits <= static_cast<std::uint16_t>(
+                      std::numeric_limits<Pcm16::Sample>::max())
+              ? static_cast<std::int32_t>(bits)
+              : static_cast<std::int32_t>(bits) - 65'536;
+      samples[frame] = static_cast<Pcm16::Sample>(signed_value);
+    }
+  }
+
+  auto result = Pcm16::copy_from_channels(
+      8'000U, left.data(), left.size(), right.data(), right.size());
+  assert(result);
+  assert(result.pcm()->frame_count() == 9'216U);
+  const auto hash = otgy::core::pcm16le_sha256_hex(*result.pcm());
+  assert(std::string_view(hash.data(), hash.size()) ==
+         "b1d85a34af1e9e16f7530f6efdbde26e3f8e5e5a71fc8c7345aed2345a77a451");
 }
 
 void test_stable_errors() {
@@ -130,6 +184,7 @@ int main() {
   test_allocate_and_dimensions();
   test_copy_owns_samples();
   test_zero_frames();
+  test_golden_pcm16le_hash_projection();
   test_stable_errors();
   test_dimension_validation_precedes_access();
   return 0;

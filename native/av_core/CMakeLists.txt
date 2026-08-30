@@ -4,6 +4,7 @@ add_library(av_core STATIC
   src/audio/mp3_decoder.cpp
   src/audio/ogg_vorbis_decoder.cpp
   src/audio/pcm16.cpp
+  src/audio/pcm16_hash.cpp
   src/version.cpp
 )
 add_library(OneTwoGoYeah::av_core ALIAS av_core)
