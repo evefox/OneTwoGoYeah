@@ -323,3 +323,52 @@ else()
 endif()
 
 add_test(NAME av_core.waveform_tile COMMAND av_core_waveform_tile_test)
+
+set(OTGY_ONSET_FIXTURE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/onset"
+)
+
+function(otgy_assert_onset_fixture_sha256 file_name expected_sha256)
+  file(SHA256 "${OTGY_ONSET_FIXTURE_DIR}/${file_name}" actual_sha256)
+  if(NOT actual_sha256 STREQUAL expected_sha256)
+    message(FATAL_ERROR
+      "Unexpected SHA-256 for onset fixture ${file_name}: ${actual_sha256}"
+    )
+  endif()
+endfunction()
+
+otgy_assert_onset_fixture_sha256(
+  generated_stereo_11025.onsets
+  ee9c8105536060b3a64f3ee3918a207e110c110ddeb6a3d39f8b5b323294d017
+)
+otgy_assert_onset_fixture_sha256(
+  generated_repeated_stereo_11025.planar.pcm16le
+  b7f77e9568452852d849fce37b25f10cdb83a1fe0e383915c50c173c8641344e
+)
+otgy_assert_onset_fixture_sha256(
+  generated_repeated_stereo_11025.onsets
+  a7d339e0824edc1e4540ef128796839e3ebe9bf4880982978c42738a96a0e145
+)
+
+add_executable(av_core_onset_detector_test
+  onset_detector_test.cpp
+)
+target_link_libraries(av_core_onset_detector_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_onset_detector_test PRIVATE
+  OTGY_MP3_FIXTURE_DIR="${OTGY_MP3_FIXTURE_DIR}"
+  OTGY_ONSET_FIXTURE_DIR="${OTGY_ONSET_FIXTURE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_onset_detector_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_onset_detector_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.onset_detector COMMAND av_core_onset_detector_test)

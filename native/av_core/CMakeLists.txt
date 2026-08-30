@@ -5,6 +5,10 @@ add_library(av_core STATIC
   src/audio/ogg_vorbis_decoder.cpp
   src/audio/pcm16.cpp
   src/audio/pcm16_hash.cpp
+  src/timing/arrowvortex/Aubio.cpp
+  src/timing/arrowvortex/FFT.cpp
+  src/timing/arrowvortex/FindOnsets.cpp
+  src/timing/onset_detector.cpp
   src/waveform/waveform_tile.cpp
   src/version.cpp
 )
@@ -15,6 +19,8 @@ target_include_directories(av_core
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:include>"
+  PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/timing/arrowvortex/include"
 )
 target_link_libraries(av_core PRIVATE otgy_libmad otgy_libvorbis)
 
@@ -27,6 +33,13 @@ if(MSVC)
   target_compile_options(av_core PRIVATE /W4 /permissive- /fp:strict)
 else()
   target_compile_options(av_core PRIVATE -Wall -Wextra -Wpedantic -fno-fast-math)
+  set_source_files_properties(
+    src/timing/arrowvortex/Aubio.cpp
+    src/timing/arrowvortex/FFT.cpp
+    src/timing/arrowvortex/FindOnsets.cpp
+    PROPERTIES COMPILE_OPTIONS
+      "-Wno-write-strings;-Wno-register;-Wno-unknown-pragmas;-Wno-unused-function;-Wno-unused-parameter;-Wno-unused-but-set-variable"
+  )
 endif()
 
 if(BUILD_TESTING)

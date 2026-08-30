@@ -102,6 +102,22 @@ PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确�
 非有限和越界参数的稳定错误。测试直接调用 `av_core`，不得启动 GPU、窗口、音频
 设备或子进程。
 
+首组起音黄金测试使用现有
+`fixtures/mp3/generated_stereo_11025.planar.pcm16le` 和
+`fixtures/onset/generated_repeated_stereo_11025.planar.pcm16le`。后者是在 32768 帧
+零 PCM 中，把前者前 3072 帧依次复制到帧 0、5120、10240、15360、20480、25600
+得到的 CC0 派生夹具。测试直接调用 `detect_onsets`，原始 PCM 必须精确返回帧
+`992`，派生 PCM 必须按顺序精确返回 `992/6112/11232/16352/21472/26592`；每个
+strength 的 binary64 位模式都必须是精确 `1.0`。结果按每条“小端 uint64 帧索引，
+随后是小端 binary64 strength”共 16 字节序列化后，分别与 16 字节和 96 字节独立
+ArrowVortex 捕获逐字节相同，SHA-256 固定为
+`ee9c8105536060b3a64f3ee3918a207e110c110ddeb6a3d39f8b5b323294d017` 与
+`a7d339e0824edc1e4540ef128796839e3ebe9bf4880982978c42738a96a0e145`。
+测试还必须覆盖空 PCM、少于 256 帧、静音、左右交换及保持逐帧左右整数和不变的
+重新分配，证明混音按参考双声道算术执行；覆盖参考 `int` 输入范围、稳定错误文本、
+无部分结果以及序列深复制/移动所有权。普通测试不得重新生成黄金文件，不得启动
+窗口、音频设备、Flutter 或子进程。
+
 固定音频依赖构建测试必须在离线 CMake 构建中直接编译仓库内 libmad、libogg
 和 libVorbis 静态目标，并校验运行时版本分别为 `MPEG Audio Decoder 0.15.1
 (beta)` 与 `Xiph.Org libVorbis 1.3.5`，同时调用 libogg 初始化/清理入口证明最终
