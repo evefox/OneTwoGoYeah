@@ -159,6 +159,20 @@ void assert_amplitude_luminance(const WaveformTile& tile) {
   assert(found_intermediate_alpha);
 }
 
+void assert_downsampled_amplitude_luminance(const WaveformTile& tile) {
+  bool found_intermediate_alpha = false;
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* begin = tile.channel_alpha(channel);
+    for (const auto* value = begin;
+         value != begin + tile.channel_byte_size(); ++value) {
+      assert(*value != 255U);
+      found_intermediate_alpha =
+          found_intermediate_alpha || (*value != 0U);
+    }
+  }
+  assert(found_intermediate_alpha);
+}
+
 void test_empty_pcm_geometry() {
   auto pcm_result =
       Pcm16::copy_from_channels(8'000U, nullptr, 0U, nullptr, 0U);
@@ -340,6 +354,39 @@ void test_signed_amplitude_reference_golden_tile() {
   assert_amplitude_luminance(*amplitude.tile());
 }
 
+void test_signed_amplitude_2x_reference_golden_tile() {
+  const auto pcm = load_stereo_pcm_fixture();
+  auto amplitude =
+      otgy::core::generate_signed_amplitude_waveform_tile_2x(
+          pcm, 11.0, 4.0, 1U);
+  assert(amplitude);
+  assert(amplitude.tile()->pixels_per_second() == 594U);
+  assert(amplitude.tile()->channel_width() == 256U);
+  assert(amplitude.tile()->channel_spacing() == 24U);
+  assert(amplitude.tile()->channel_byte_size() == 256U * 128U);
+  assert_matches_golden(
+      *amplitude.tile(),
+      "generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_2x.alpha");
+  assert_downsampled_amplitude_luminance(*amplitude.tile());
+
+  auto uniform =
+      otgy::core::generate_signed_uniform_waveform_tile_2x(
+          pcm, 11.0, 4.0, 1U);
+  auto one_x =
+      otgy::core::generate_signed_amplitude_waveform_tile_1x(
+          pcm, 11.0, 4.0, 1U);
+  assert(uniform);
+  assert(one_x);
+  const auto channel_size = amplitude.tile()->channel_byte_size();
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* amplitude_alpha = amplitude.tile()->channel_alpha(channel);
+    assert(!std::equal(amplitude_alpha, amplitude_alpha + channel_size,
+                       uniform.tile()->channel_alpha(channel)));
+    assert(!std::equal(amplitude_alpha, amplitude_alpha + channel_size,
+                       one_x.tile()->channel_alpha(channel)));
+  }
+}
+
 void test_rectified_amplitude_reference_golden_tile() {
   const auto pcm = load_stereo_pcm_fixture();
   auto amplitude =
@@ -479,6 +526,11 @@ void test_stable_errors() {
           *pcm_result.pcm(), 0.999, 4.0, 0U);
   assert(!rectified_two_x_error);
   assert(rectified_two_x_error.error() == WaveformError::InvalidUiZoom);
+  auto amplitude_two_x_error =
+      otgy::core::generate_signed_amplitude_waveform_tile_2x(
+          *pcm_result.pcm(), 11.0, 10.001, 0U);
+  assert(!amplitude_two_x_error);
+  assert(amplitude_two_x_error.error() == WaveformError::InvalidScale);
 
   assert(otgy::core::waveform_error_message(WaveformError::None).empty());
   for (const auto error : {
@@ -502,6 +554,7 @@ int main() {
   test_signed_uniform_2x_reference_golden_tile();
   test_rectified_uniform_2x_reference_golden_tile();
   test_signed_amplitude_reference_golden_tile();
+  test_signed_amplitude_2x_reference_golden_tile();
   test_rectified_amplitude_reference_golden_tile();
   test_terminal_rounding_is_bounded();
   test_stable_errors();
