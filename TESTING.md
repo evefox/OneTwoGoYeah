@@ -39,31 +39,34 @@ PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确�
 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_1x.alpha`、
 `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_2x.alpha`、
 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_2x.alpha`、
-以及 `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_2x.alpha`。
+`generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_2x.alpha`、
+以及 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_2x.alpha`。
 输入是已经锁定的 11025 Hz、9216 帧 CC0 双声道平面 PCM；参数为 UI Zoom
 `11`、内部 Zoom `8`、Scale `4` 和 block `1`。前四份使用 1x，并分别覆盖
-有符号/均匀、整流/均匀、有符号/振幅与整流/振幅亮度组合；后三份分别使用
-有符号/均匀、整流/均匀与有符号/振幅，均为 2x 抗锯齿级别 `1`。
+有符号/均匀、整流/均匀、有符号/振幅与整流/振幅亮度组合；后四份使用相同四种
+组合，均为 2x 抗锯齿级别 `1`。
 参考结果必须为 `pixelsPerSecond = 594`、声道宽度 `256`、声道间距 `24`，并把
-完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与七份 65536 字节
-黄金文件逐字节相同；上述七份 SHA-256 依次固定为
+完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与八份 65536 字节
+黄金文件逐字节相同；上述八份 SHA-256 依次固定为
 `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`、
 `9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161`、
 `f085dceeff95f50a60f97b8b9875489ad51e662874dc68cd80c01ee71f98e8c7`、
 `5272c1d45caf622592a74dc5129d290c9c36eb6b715107e39621996e4c5c6065`、
 `2243a44abad0fcec5ec1114895c16068bcc8248f3560a02027fcf3dc1daff9e5`、
 `f912279c24fa66d0c508c455d970b7640b074a2dc8ce64c9e3220947a476dc88`、
-以及 `1218049f713c135283487d9553ab5e3e0d28cdc800062f3c02d7ffc2591ef7b9`。
+`1218049f713c135283487d9553ab5e3e0d28cdc800062f3c02d7ffc2591ef7b9`、
+以及 `44eb3412dfb110695eb0cfa87635283e7eee360b904c76858ae79830d6c47f03`。
 两份 1x 均匀亮度结果只允许 Alpha `0/255`；两份 1x 整流结果每行必须围绕声道中心
 对称，并与对应亮度的有符号结果不同。两份 1x 振幅亮度结果必须在每个非透明行
 的覆盖范围内使用单一中间 Alpha，并与对应形状的均匀结果不同。最小 Scale 的
 满负/满正幅边界还必须精确验证基于 64 像素声道宽度计算出的 `247/239` Alpha。两份均匀
 2x 结果只允许 2×2 二值 Alpha 整数平均产生的 `0/63/127/191/255`，必须实际包含
-三个中间值，并与对应 1x 结果不同；整流 2x 还必须围绕声道中心对称，并与有符号
-2x 不同。有符号振幅亮度 2x 必须按两倍渲染宽度在超采样行上计算中间 Alpha，
-再执行 2×2 整数平均；结果不得包含不透明 `255`，并与有符号均匀亮度 2x 和有符号
-振幅亮度 1x 都不同。新增形状、亮度或采样行为时仍须重新逐字节验证全部原有波形
-黄金不变。
+三个中间值，并与对应 1x 结果不同；整流均匀亮度 2x 还必须围绕声道中心对称，
+并与有符号均匀亮度 2x 不同。两份振幅亮度 2x 必须按两倍渲染宽度在超采样行上
+计算中间 Alpha，再执行 2×2 整数平均；结果不得包含不透明 `255`，并与对应形状的
+均匀亮度 2x 和同组合的 1x 都不同。整流振幅亮度 2x 还必须围绕声道中心对称，
+并与有符号振幅亮度 2x 不同。新增形状、亮度或采样行为时仍须重新逐字节验证
+全部原有波形黄金不变。
 测试还必须覆盖 UI Zoom/Scale 最小值、最大值和 `0.25` 步长映射、空 PCM、音频
 结束后的透明 block、末帧四舍五入边界、左右声道差异、深复制/移动所有权，以及
 非有限和越界参数的稳定错误。测试直接调用 `av_core`，不得启动 GPU、窗口、音频

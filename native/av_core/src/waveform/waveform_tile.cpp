@@ -357,4 +357,13 @@ WaveformTileResult generate_signed_amplitude_waveform_tile_2x(
       WaveformTile::Sampling::TwoX);
 }
 
+WaveformTileResult generate_rectified_amplitude_waveform_tile_2x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept {
+  return WaveformTile::generate_waveform_tile(
+      pcm, ui_zoom, scale, block_index,
+      WaveformTile::Variant::RectifiedAmplitude,
+      WaveformTile::Sampling::TwoX);
+}
+
 }  // namespace otgy::core

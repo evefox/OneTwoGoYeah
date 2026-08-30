@@ -35,7 +35,8 @@ shape / luminance = signed / uniform, rectified / uniform,
                     captured separately
 sampling / anti-aliasing = 1x / level 0 for all four combinations,
                            2x / level 1 for signed / uniform and
-                           rectified / uniform and signed / amplitude
+                           rectified / uniform and signed / amplitude and
+                           rectified / amplitude
 pixels per second = 594
 first source frame = 2375
 channel width = 256
@@ -49,10 +50,10 @@ file contains exactly 65536 bytes. The 1x uniform fixtures contain only `0` or
 `255`. Both uniform 2x fixtures contain `0`, `63`, `127`, `191`, and `255`, as
 produced by the integer average of each 2x2 Alpha block. Both amplitude 1x
 fixtures contain transparent `0` plus the four captured row luminance values
-`95`, `97`, `105`, and `107`. The signed amplitude 2x fixture contains
-transparent `0` plus intermediate values ranging from `20` to `107`, produced
-by applying amplitude luminance to the supersampled rows before the 2x2
-integer average.
+`95`, `97`, `105`, and `107`. The amplitude 2x fixtures contain transparent
+`0` plus intermediate values ranging from `20` to `107` for signed shape and
+from `24` to `107` for rectified shape, produced by applying amplitude
+luminance to the supersampled rows before the 2x2 integer average.
 
 | Fixture | SHA-256 |
 |---|---|
@@ -63,6 +64,7 @@ integer average.
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_2x.alpha` | `2243a44abad0fcec5ec1114895c16068bcc8248f3560a02027fcf3dc1daff9e5` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_2x.alpha` | `f912279c24fa66d0c508c455d970b7640b074a2dc8ce64c9e3220947a476dc88` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_2x.alpha` | `1218049f713c135283487d9553ab5e3e0d28cdc800062f3c02d7ffc2591ef7b9` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_2x.alpha` | `44eb3412dfb110695eb0cfa87635283e7eee360b904c76858ae79830d6c47f03` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.

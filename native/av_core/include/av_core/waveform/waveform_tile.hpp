@@ -94,6 +94,8 @@ class WaveformTile final {
       const Pcm16&, double, double, std::uint64_t) noexcept;
   friend WaveformTileResult generate_signed_amplitude_waveform_tile_2x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
+  friend WaveformTileResult generate_rectified_amplitude_waveform_tile_2x(
+      const Pcm16&, double, double, std::uint64_t) noexcept;
 
   enum class Variant : std::uint8_t {
     SignedUniform,
@@ -212,6 +214,17 @@ generate_rectified_amplitude_waveform_tile_1x(
 /// row's Alpha uses ArrowVortex's integer amplitude luminance. Rectified
 /// amplitude luminance and 3x/4x remain outside this entry point.
 [[nodiscard]] WaveformTileResult generate_signed_amplitude_waveform_tile_2x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept;
+
+/// Generates the rectified, amplitude-luminance ArrowVortex 2x waveform slice.
+///
+/// Geometry, parameter ranges, 2x sampling, amplitude luminance and integer
+/// downsampling are identical to the signed amplitude 2x entry point. Only the
+/// edge projection is rectified around the channel center. 3x/4x remain
+/// outside this entry point.
+[[nodiscard]] WaveformTileResult
+generate_rectified_amplitude_waveform_tile_2x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
 
