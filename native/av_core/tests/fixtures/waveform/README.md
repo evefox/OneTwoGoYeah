@@ -3,15 +3,15 @@
 # ArrowVortex waveform golden fixture
 
 This directory contains the first isolated ArrowVortex waveform compatibility
-fixture. The Alpha bytes were captured once on 2026-08-30 from the generated
+fixtures. The Alpha bytes were captured once on 2026-08-30 from the generated
 CC0 stereo PCM fixture and are released under CC0-1.0. Ordinary builds and
 tests read the committed bytes and never regenerate them.
 
-The capture used a standalone C++17 harness containing the relevant
-`sampleEdges`, uniform luminance, and signed edge-shape operations copied from
-the checked local ArrowVortex snapshot. It did not call `av_core`. The harness
-was compiled with Apple Clang 17.0.0, `-O0`, and `-fno-fast-math`. The checked
-reference sources were:
+The captures used a standalone C++17 harness containing the relevant
+`sampleEdges`, uniform luminance, and signed or rectified edge-shape operations
+copied from the checked local ArrowVortex snapshot. It did not call `av_core`.
+The harness was compiled with Apple Clang 17.0.0, `-O0`, and
+`-fno-fast-math`. The checked reference sources were:
 
 | Reference source | SHA-256 |
 |---|---|
@@ -29,7 +29,7 @@ UI Zoom = 11
 internal Zoom = 8
 Scale = 4
 block index = 1
-shape = signed
+shape = signed or rectified, captured separately
 luminance = uniform
 sampling / anti-aliasing = 1x / level 0
 pixels per second = 594
@@ -46,6 +46,7 @@ contains only `0` or `255`; the file therefore contains exactly 65536 bytes.
 | Fixture | SHA-256 |
 |---|---|
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha` | `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_1x.alpha` | `9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.

@@ -37,7 +37,7 @@ enum class WaveformError : std::uint8_t {
 
 class WaveformTileResult;
 
-/// One 128-row, signed-shape, uniform-luminance, 1x Alpha tile.
+/// One 128-row, uniform-luminance, 1x Alpha tile.
 ///
 /// Left and Right are independently owned row-major Alpha planes. Each plane
 /// has channel_width() columns and kHeight rows. The Alpha values are the
@@ -82,6 +82,12 @@ class WaveformTile final {
  private:
   friend WaveformTileResult generate_signed_uniform_waveform_tile_1x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
+  friend WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
+      const Pcm16&, double, double, std::uint64_t) noexcept;
+
+  [[nodiscard]] static WaveformTileResult generate_uniform_waveform_tile_1x(
+      const Pcm16& pcm, double ui_zoom, double scale,
+      std::uint64_t block_index, bool rectified_shape) noexcept;
 
   WaveformTile(std::uint64_t block_index, std::uint32_t pixels_per_second,
                std::uint16_t channel_width, std::uint16_t channel_spacing,
@@ -117,13 +123,22 @@ class WaveformTileResult final {
   std::variant<WaveformTile, WaveformError> storage_;
 };
 
-/// Generates the first isolated ArrowVortex-compatible waveform slice.
+/// Generates the signed ArrowVortex-compatible waveform slice.
 ///
 /// ui_zoom uses the public 1..19 scale and maps to ArrowVortex's internal
 /// -2..16 Zoom. scale uses 1..10. The output is fixed to signed shape,
-/// uniform luminance and 1x sampling; rectified shape, amplitude luminance and
-/// 2x/3x/4x downsampling are deliberately outside this entry point.
+/// uniform luminance and 1x sampling.
 [[nodiscard]] WaveformTileResult generate_signed_uniform_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept;
+
+/// Generates the rectified ArrowVortex-compatible waveform slice.
+///
+/// Geometry, sampling edges and parameter ranges are identical to the signed
+/// entry point. Only the edge projection is rectified around the channel
+/// center. Amplitude luminance and 2x/3x/4x downsampling remain outside both
+/// entry points.
+[[nodiscard]] WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
 

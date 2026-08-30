@@ -76,6 +76,24 @@ using otgy::core::WaveformTile;
                      [](std::uint8_t value) { return value == 0U; });
 }
 
+void assert_matches_golden(const WaveformTile& tile,
+                           const std::string& fixture_name) {
+  const auto expected = read_fixture(
+      std::string{OTGY_WAVEFORM_FIXTURE_DIR} + "/" + fixture_name);
+  assert(expected.size() == tile.total_byte_size());
+  const auto channel_size = tile.channel_byte_size();
+  assert(std::equal(tile.channel_alpha(PcmChannel::Left),
+                    tile.channel_alpha(PcmChannel::Left) + channel_size,
+                    expected.begin()));
+  assert(std::equal(tile.channel_alpha(PcmChannel::Right),
+                    tile.channel_alpha(PcmChannel::Right) + channel_size,
+                    expected.begin() +
+                        static_cast<std::ptrdiff_t>(channel_size)));
+  assert(std::all_of(expected.begin(), expected.end(), [](std::uint8_t value) {
+    return value == 0U || value == 255U;
+  }));
+}
+
 void test_empty_pcm_geometry() {
   auto pcm_result =
       Pcm16::copy_from_channels(8'000U, nullptr, 0U, nullptr, 0U);
@@ -114,7 +132,7 @@ void test_empty_pcm_geometry() {
          nullptr);
 }
 
-void test_reference_golden_tile() {
+void test_signed_reference_golden_tile() {
   const auto pcm = load_stereo_pcm_fixture();
   auto result = otgy::core::generate_signed_uniform_waveform_tile_1x(
       pcm, 11.0, 4.0, 1U);
@@ -124,23 +142,10 @@ void test_reference_golden_tile() {
   assert(result.tile()->channel_spacing() == 24U);
   assert(result.tile()->channel_byte_size() == 256U * 128U);
 
-  const auto expected = read_fixture(
-      std::string{OTGY_WAVEFORM_FIXTURE_DIR} +
-      "/generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha");
-  assert(expected.size() == result.tile()->total_byte_size());
   const auto channel_size = result.tile()->channel_byte_size();
-  assert(std::equal(result.tile()->channel_alpha(PcmChannel::Left),
-                    result.tile()->channel_alpha(PcmChannel::Left) +
-                        channel_size,
-                    expected.begin()));
-  assert(std::equal(result.tile()->channel_alpha(PcmChannel::Right),
-                    result.tile()->channel_alpha(PcmChannel::Right) +
-                        channel_size,
-                    expected.begin() +
-                        static_cast<std::ptrdiff_t>(channel_size)));
-  assert(std::all_of(expected.begin(), expected.end(), [](std::uint8_t value) {
-    return value == 0U || value == 255U;
-  }));
+  assert_matches_golden(
+      *result.tile(),
+      "generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha");
   assert(!std::equal(result.tile()->channel_alpha(PcmChannel::Left),
                      result.tile()->channel_alpha(PcmChannel::Left) +
                          channel_size,
@@ -154,6 +159,38 @@ void test_reference_golden_tile() {
                     result.tile()->channel_alpha(PcmChannel::Left)));
   WaveformTile moved = std::move(result).take_tile();
   assert(moved.block_index() == 1U);
+}
+
+void test_rectified_reference_golden_tile() {
+  const auto pcm = load_stereo_pcm_fixture();
+  auto rectified =
+      otgy::core::generate_rectified_uniform_waveform_tile_1x(
+          pcm, 11.0, 4.0, 1U);
+  assert(rectified);
+  assert(rectified.tile()->pixels_per_second() == 594U);
+  assert(rectified.tile()->channel_width() == 256U);
+  assert(rectified.tile()->channel_spacing() == 24U);
+  assert(rectified.tile()->channel_byte_size() == 256U * 128U);
+  assert_matches_golden(
+      *rectified.tile(),
+      "generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_1x.alpha");
+
+  auto signed_tile = otgy::core::generate_signed_uniform_waveform_tile_1x(
+      pcm, 11.0, 4.0, 1U);
+  assert(signed_tile);
+  const auto channel_size = rectified.tile()->channel_byte_size();
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* rectified_alpha = rectified.tile()->channel_alpha(channel);
+    assert(!std::equal(rectified_alpha, rectified_alpha + channel_size,
+                       signed_tile.tile()->channel_alpha(channel)));
+    for (std::size_t y = 0U; y < WaveformTile::kHeight; ++y) {
+      const auto row = y * rectified.tile()->channel_width();
+      for (std::size_t x = 0U; x < rectified.tile()->channel_width(); ++x) {
+        const auto mirror = rectified.tile()->channel_width() - 1U - x;
+        assert(rectified_alpha[row + x] == rectified_alpha[row + mirror]);
+      }
+    }
+  }
 }
 
 void test_terminal_rounding_is_bounded() {
@@ -201,6 +238,15 @@ void test_stable_errors() {
   assert_error(11.0, std::numeric_limits<double>::infinity(),
                WaveformError::InvalidScale);
 
+  auto pcm_result =
+      Pcm16::copy_from_channels(8'000U, nullptr, 0U, nullptr, 0U);
+  assert(pcm_result);
+  auto rectified_error =
+      otgy::core::generate_rectified_uniform_waveform_tile_1x(
+          *pcm_result.pcm(), 0.999, 4.0, 0U);
+  assert(!rectified_error);
+  assert(rectified_error.error() == WaveformError::InvalidUiZoom);
+
   assert(otgy::core::waveform_error_message(WaveformError::None).empty());
   for (const auto error : {
            WaveformError::InvalidUiZoom,
@@ -218,7 +264,8 @@ void test_stable_errors() {
 
 int main() {
   test_empty_pcm_geometry();
-  test_reference_golden_tile();
+  test_signed_reference_golden_tile();
+  test_rectified_reference_golden_tile();
   test_terminal_rounding_is_bounded();
   test_stable_errors();
   return 0;

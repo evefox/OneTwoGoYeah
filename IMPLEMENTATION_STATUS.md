@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 2：ArrowVortex 兼容波形进行中；有符号形状、均匀亮度、1x 采样的单个 CPU Alpha 图块及 Zoom/Scale 几何已完成。
+阶段 2：ArrowVortex 兼容波形进行中；有符号与整流形状、均匀亮度、1x 采样的 CPU Alpha 图块及 Zoom/Scale 几何已完成。
 
 ## 本次范围
 
@@ -28,11 +28,12 @@
 - 在 `av_core` 增加规范 PCM16LE SHA-256 查询，固定 Left 后 Right、每样本小端字节和小写十六进制契约；空 PCM 与五份黄金 PCM 均直接验证。
 - 实现 `avtool decode <audio> --pcm-hash`，CLI 只读取文件、选择现有 MP3/Ogg 权威入口并输出独立于区域设置的 schema v1 JSON。
 - 增加直接 C++ 探针与真实 CLI 的运行时集成比较，覆盖五份夹具的格式、采样率、帧数和哈希，以及大小写扩展名、参数、格式、读取和解码错误。
-- 从固定 ArrowVortex `Waveform.cpp`/`View.cpp` 参考提取 CPU 波形采样边缘、负幅值整数缩放和有符号均匀 Alpha 填充，核心不依赖全局视图、GPU 或纹理。
+- 从固定 ArrowVortex `Waveform.cpp`/`View.cpp` 参考提取 CPU 波形采样边缘、负幅值整数缩放以及有符号/整流均匀 Alpha 填充，核心不依赖全局视图、GPU 或纹理。
 - 增加拥有 Left/Right 平面的 `WaveformTile` 和稳定结果/错误类型；支持 UI Zoom `1..19`、Scale `1..10`、128 行 block、空音频和音频末尾透明图块。
+- 增加 `generate_rectified_uniform_waveform_tile_1x`，与既有有符号入口共享全部几何、采样边缘、限制、错误和所有权路径，只按 ArrowVortex 规则把每行最大绝对幅值对称投影到声道中心两侧。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
-- 增加 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；覆盖几何边界、错误、所有权和末帧安全性。
-- 暂不实现整流形状、振幅亮度、2x/3x/4x 降采样、波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
+- 增加有符号与整流两份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；整流切片继续逐字节重验既有有符号输出，并覆盖中心对称性、形状差异、几何边界、错误、所有权和末帧安全性。
+- 暂不实现振幅亮度、2x/3x/4x 降采样、波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -89,13 +90,22 @@
 2026-08-30 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-waveform-clean -DBUILD_TESTING=ON
-cmake --build build/native-waveform-clean --parallel 2
-ctest --test-dir build/native-waveform-clean --output-on-failure
+cmake -S native -B build/native-waveform-rectified-clean -DBUILD_TESTING=ON
+cmake --build build/native-waveform-rectified-clean --parallel 2
+ctest --test-dir build/native-waveform-rectified-clean --output-on-failure
+
+cmake -S native -B build/native-waveform-rectified-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-waveform-rectified-asan --parallel 2
+ctest --test-dir build/native-waveform-rectified-asan --output-on-failure
+
+cmake -S native -B build/native-waveform-rectified-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-waveform-rectified-asan-ubsan --parallel 2 --target av_core_waveform_tile_test
+ctest --test-dir build/native-waveform-rectified-asan-ubsan -R '^av_core.waveform_tile$' --output-on-failure
+
 git diff --check
 ```
 
-结果：配置和构建成功；新增 `av_core.waveform_tile` 后共 14 项测试全部通过。固定双声道 PCM 在 UI Zoom `11`、Scale `4`、block `1` 下得到 `594` pixels/s、`256` 声道宽度、`24` 声道间距，两个 `256 * 128` Alpha 平面与 ArrowVortex 捕获的 65536 字节黄金文件逐字节相同。AddressSanitizer 全量重建后 14/14 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.waveform_tile` 通过。
+结果：全新普通配置和构建成功，14/14 测试通过；全新 AddressSanitizer 构建后 14/14 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.waveform_tile` 1/1 通过。固定双声道 PCM 在 UI Zoom `11`、Scale `4`、block `1` 下继续得到 `594` pixels/s、`256` 声道宽度、`24` 声道间距；新增整流 Left/Right Alpha 与独立 ArrowVortex 捕获的 65536 字节黄金逐字节相同，SHA-256 为 `9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161`。既有有符号黄金仍逐字节相同，SHA-256 保持 `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`。
 
 ## 已知问题
 
@@ -106,4 +116,4 @@ git diff --check
 
 ## 唯一下一步
 
-在同一采样边缘与 1x 路径上增加 ArrowVortex 整流形状，只覆盖均匀亮度，并为同一固定 PCM、UI Zoom `11`、Scale `4`、block `1` 捕获独立逐字节黄金 Alpha；保持现有有符号输出完全不变。本切片不实现振幅亮度、2x/3x/4x、过滤、CLI、C ABI 或 Flutter。
+在现有共享采样边缘和有符号 1x 投影上增加 ArrowVortex 振幅亮度，并为同一固定 PCM、UI Zoom `11`、Scale `4`、block `1` 捕获独立逐字节黄金 Alpha；保持有符号/整流两份均匀亮度输出完全不变。本切片不实现整流振幅亮度、2x/3x/4x、过滤、CLI、C ABI 或 Flutter。

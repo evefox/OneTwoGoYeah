@@ -31,14 +31,20 @@
 
 PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确定性导出都要求精确比较。在支持的平台上，原始浮点值按位比较。任何架构特定容差都必须明确、足够小且有理由，并且不能改变投影后的兼容值。
 
-首个波形黄金测试使用
-`native/av_core/tests/fixtures/waveform/generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha`。
+首组波形黄金测试使用
+`native/av_core/tests/fixtures/waveform/generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha`
+和同目录的
+`generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_1x.alpha`。
 输入是已经锁定的 11025 Hz、9216 帧 CC0 双声道平面 PCM；参数为 UI Zoom
-`11`、内部 Zoom `8`、Scale `4`、block `1`、有符号形状、均匀亮度和 1x。
+`11`、内部 Zoom `8`、Scale `4`、block `1`、均匀亮度和 1x，并分别使用有符号
+与整流形状。
 参考结果必须为 `pixelsPerSecond = 594`、声道宽度 `256`、声道间距 `24`，并把
-完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，与 65536 字节黄金文件
-逐字节相同；黄金 SHA-256 固定为
-`aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`。
+完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与两份 65536 字节
+黄金文件逐字节相同；有符号与整流 SHA-256 依次固定为
+`aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6` 和
+`9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161`。
+整流结果每行必须围绕声道中心对称，并与同输入的有符号结果不同；新增整流行为
+时仍须重新逐字节验证原有有符号黄金不变。
 测试还必须覆盖 UI Zoom/Scale 最小值、最大值和 `0.25` 步长映射、空 PCM、音频
 结束后的透明 block、末帧四舍五入边界、左右声道差异、深复制/移动所有权，以及
 非有限和越界参数的稳定错误。测试直接调用 `av_core`，不得启动 GPU、窗口、音频

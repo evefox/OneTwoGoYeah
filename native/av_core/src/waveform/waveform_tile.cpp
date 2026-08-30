@@ -32,6 +32,11 @@ struct WaveformGeometry final {
   std::uint16_t channel_spacing;
 };
 
+enum class WaveformShape : std::uint8_t {
+  Signed,
+  Rectified,
+};
+
 [[nodiscard]] int divide_by_32768_floor(int value) noexcept {
   if (value >= 0) {
     return value / 32'768;
@@ -60,7 +65,7 @@ struct WaveformGeometry final {
 
 void render_channel(const Pcm16& pcm, PcmChannel channel,
                     const WaveformGeometry& geometry,
-                    std::uint64_t block_index,
+                    std::uint64_t block_index, WaveformShape shape,
                     std::vector<std::uint8_t>& alpha) noexcept {
   const double samples_per_pixel =
       static_cast<double>(pcm.sample_rate()) /
@@ -132,8 +137,17 @@ void render_channel(const Pcm16& pcm, PcmChannel channel,
 
   const int center = width / 2;
   for (std::size_t y = 0U; y < WaveformTile::kHeight; ++y) {
-    const int left = center + std::min(edges[y].left, 0);
-    const int right = center + std::max(edges[y].right, 0);
+    int left = 0;
+    int right = 0;
+    if (shape == WaveformShape::Rectified) {
+      const int magnitude =
+          std::max(std::abs(edges[y].left), std::abs(edges[y].right));
+      left = center - magnitude;
+      right = center + magnitude;
+    } else {
+      left = center + std::min(edges[y].left, 0);
+      right = center + std::max(edges[y].right, 0);
+    }
     auto row = alpha.begin() +
                static_cast<std::ptrdiff_t>(y * geometry.channel_width);
     std::fill(row + left, row + right, static_cast<std::uint8_t>(255U));
@@ -194,9 +208,9 @@ WaveformTile WaveformTileResult::take_tile() && {
   return std::move(std::get<WaveformTile>(storage_));
 }
 
-WaveformTileResult generate_signed_uniform_waveform_tile_1x(
+WaveformTileResult WaveformTile::generate_uniform_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
-    std::uint64_t block_index) noexcept {
+    std::uint64_t block_index, bool rectified_shape) noexcept {
   if (!std::isfinite(ui_zoom) || ui_zoom < kMinUiZoom ||
       ui_zoom > kMaxUiZoom) {
     return WaveformTileResult{WaveformError::InvalidUiZoom};
@@ -212,8 +226,11 @@ WaveformTileResult generate_signed_uniform_waveform_tile_1x(
   try {
     std::vector<std::uint8_t> left(channel_size, 0U);
     std::vector<std::uint8_t> right(channel_size, 0U);
-    render_channel(pcm, PcmChannel::Left, geometry, block_index, left);
-    render_channel(pcm, PcmChannel::Right, geometry, block_index, right);
+    const auto shape = rectified_shape ? WaveformShape::Rectified
+                                       : WaveformShape::Signed;
+    render_channel(pcm, PcmChannel::Left, geometry, block_index, shape, left);
+    render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
+                   right);
     return WaveformTileResult{WaveformTile{
         block_index,
         geometry.pixels_per_second,
@@ -225,6 +242,20 @@ WaveformTileResult generate_signed_uniform_waveform_tile_1x(
   } catch (const std::bad_alloc&) {
     return WaveformTileResult{WaveformError::AllocationFailure};
   }
+}
+
+WaveformTileResult generate_signed_uniform_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept {
+  return WaveformTile::generate_uniform_waveform_tile_1x(
+      pcm, ui_zoom, scale, block_index, false);
+}
+
+WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept {
+  return WaveformTile::generate_uniform_waveform_tile_1x(
+      pcm, ui_zoom, scale, block_index, true);
 }
 
 }  // namespace otgy::core
