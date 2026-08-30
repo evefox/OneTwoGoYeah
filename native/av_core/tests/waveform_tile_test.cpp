@@ -280,6 +280,40 @@ void test_signed_uniform_2x_reference_golden_tile() {
   }
 }
 
+void test_rectified_uniform_2x_reference_golden_tile() {
+  const auto pcm = load_stereo_pcm_fixture();
+  auto rectified =
+      otgy::core::generate_rectified_uniform_waveform_tile_2x(
+          pcm, 11.0, 4.0, 1U);
+  assert(rectified);
+  assert(rectified.tile()->pixels_per_second() == 594U);
+  assert(rectified.tile()->channel_width() == 256U);
+  assert(rectified.tile()->channel_spacing() == 24U);
+  assert(rectified.tile()->channel_byte_size() == 256U * 128U);
+  assert_matches_golden(
+      *rectified.tile(),
+      "generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_2x.alpha");
+  assert_uniform_2x_alpha(*rectified.tile());
+  assert_horizontally_symmetric(*rectified.tile());
+
+  auto signed_tile =
+      otgy::core::generate_signed_uniform_waveform_tile_2x(
+          pcm, 11.0, 4.0, 1U);
+  auto one_x =
+      otgy::core::generate_rectified_uniform_waveform_tile_1x(
+          pcm, 11.0, 4.0, 1U);
+  assert(signed_tile);
+  assert(one_x);
+  const auto channel_size = rectified.tile()->channel_byte_size();
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* rectified_alpha = rectified.tile()->channel_alpha(channel);
+    assert(!std::equal(rectified_alpha, rectified_alpha + channel_size,
+                       signed_tile.tile()->channel_alpha(channel)));
+    assert(!std::equal(rectified_alpha, rectified_alpha + channel_size,
+                       one_x.tile()->channel_alpha(channel)));
+  }
+}
+
 void test_signed_amplitude_reference_golden_tile() {
   const auto pcm = load_stereo_pcm_fixture();
   auto amplitude =
@@ -440,6 +474,11 @@ void test_stable_errors() {
           *pcm_result.pcm(), 11.0, 10.001, 0U);
   assert(!two_x_error);
   assert(two_x_error.error() == WaveformError::InvalidScale);
+  auto rectified_two_x_error =
+      otgy::core::generate_rectified_uniform_waveform_tile_2x(
+          *pcm_result.pcm(), 0.999, 4.0, 0U);
+  assert(!rectified_two_x_error);
+  assert(rectified_two_x_error.error() == WaveformError::InvalidUiZoom);
 
   assert(otgy::core::waveform_error_message(WaveformError::None).empty());
   for (const auto error : {
@@ -461,6 +500,7 @@ int main() {
   test_signed_reference_golden_tile();
   test_rectified_reference_golden_tile();
   test_signed_uniform_2x_reference_golden_tile();
+  test_rectified_uniform_2x_reference_golden_tile();
   test_signed_amplitude_reference_golden_tile();
   test_rectified_amplitude_reference_golden_tile();
   test_terminal_rounding_is_bounded();

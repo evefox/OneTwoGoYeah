@@ -459,8 +459,9 @@ waveformSpacing = scaledPixels(24)
 `generate_rectified_uniform_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`、
 `generate_signed_amplitude_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`、
 以及 `generate_rectified_amplitude_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`。
-另有 `generate_signed_uniform_waveform_tile_2x(pcm, uiZoom, scale, blockIndex)`
-覆盖有符号/均匀亮度的抗锯齿级别 `1`。五个入口共享同一采样、形状和亮度实现；
+另有 `generate_signed_uniform_waveform_tile_2x(pcm, uiZoom, scale, blockIndex)` 和
+`generate_rectified_uniform_waveform_tile_2x(pcm, uiZoom, scale, blockIndex)`，覆盖
+两种形状/均匀亮度的抗锯齿级别 `1`。六个入口共享同一采样、形状和亮度实现；
 四个 1x 入口覆盖 ArrowVortex 的有符号/整流形状与均匀/振幅亮度全部组合。每个
 入口返回拥有所有权的 Left、Right 两个行主序 Alpha 平面。每个平面高度固定为
 `128`，宽度为上述 `waveformChannelWidth`，UI 之后再独立着色。结果同时返回
@@ -492,8 +493,8 @@ rowAlpha        = (magnitude * amplitudeScalar) >> 16
 覆盖范围外仍为透明 `0`。上述乘法在当前最大声道宽度和边缘限制内不会溢出
 32 位有符号整数；所有操作数为非负整数，因此右移结果不依赖实现定义行为。
 
-有符号/均匀 2x 入口先使用 `2 * waveformChannelWidth` 的宽度和 `2 * 128` 的
-高度执行相同采样边缘与形状投影。`samplesPerBlock` 仍按最终的 128 行计算，
+两个均匀亮度 2x 入口先使用 `2 * waveformChannelWidth` 的宽度和 `2 * 128` 的
+高度执行所选形状的相同采样边缘与投影。`samplesPerBlock` 仍按最终的 128 行计算，
 每个超采样行的 `advance` 则相应减半。投影完成后，每个最终 Alpha 使用参考实现
 相同的 2×2 非负整数平均：
 
@@ -509,7 +510,7 @@ UI Zoom 或 Scale 非有限或超出上述范围时分别返回稳定
 `InvalidUiZoom`/`InvalidScale`，不返回部分图块；两个 Alpha 平面任一分配失败返回
 `AllocationFailure`。`WaveformTile` 深复制两个平面，移动则转移所有权。当前入口
 有意按已实现的形状/亮度/采样组合分别命名，且不接受通用配置或抗锯齿参数；
-其余三个形状/亮度组合的 2x、3x/4x 降采样、过滤波形和缓存仍属于后续独立切片。
+两个振幅亮度组合的 2x、3x/4x 降采样、过滤波形和缓存仍属于后续独立切片。
 
 ## BPM 与 Offset 兼容契约
 
