@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(av_core STATIC
+  src/audio/mp3_decoder.cpp
   src/audio/pcm16.cpp
   src/version.cpp
 )
@@ -12,6 +13,7 @@ target_include_directories(av_core
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:include>"
 )
+target_link_libraries(av_core PRIVATE otgy_libmad)
 
 set_target_properties(av_core PROPERTIES
   CXX_EXTENSIONS OFF

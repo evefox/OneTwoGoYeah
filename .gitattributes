@@ -11,5 +11,9 @@
 native/third_party/**/AUTHORS text eol=lf
 native/third_party/**/COPYING text eol=lf
 
+# Audio golden inputs and canonical PCM bytes must never be newline-converted.
+*.mp3 binary
+*.pcm16le binary
+
 # SLK 的固定字节、CRLF 和乱码标题必须保持原样。
 *.slk binary

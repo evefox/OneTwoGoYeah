@@ -2,8 +2,8 @@
 
 # These snapshots are copied into the repository so native builds never fetch
 # or discover a platform-provided codec.  Keep the versions and compiler
-# definitions here in one place; av_core consumes the targets below only after
-# its decoder adapters are implemented.
+# definitions here in one place; av_core consumes each target only through its
+# corresponding in-process decoder or encoder adapter.
 set(OTGY_LIBMAD_VERSION "0.15.1-beta")
 set(OTGY_LIBOGG_PUBLIC_HEADER_REVISION "18044")
 set(OTGY_LIBVORBIS_VERSION "1.3.5")
@@ -110,8 +110,8 @@ else()
   target_compile_options(otgy_libvorbis PRIVATE -fno-fast-math)
 endif()
 
-# A single dependency target lets CI and future decoder tests force all pinned
-# libraries to build without linking them into av_core prematurely.
+# A single dependency target lets CI force every pinned library to build even
+# before all corresponding adapters are present in av_core.
 add_library(otgy_audio_codecs INTERFACE)
 target_link_libraries(otgy_audio_codecs INTERFACE
   otgy_libmad
