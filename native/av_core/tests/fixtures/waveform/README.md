@@ -42,7 +42,8 @@ sampling / anti-aliasing = 1x / level 0 for all four combinations,
                            rectified / uniform and signed / amplitude and
                            rectified / amplitude,
                            4x / level 3 for signed / uniform and
-                           rectified / uniform and signed / amplitude
+                           rectified / uniform and signed / amplitude and
+                           rectified / amplitude
 pixels per second = 594
 first source frame = 2375
 channel width = 256
@@ -69,9 +70,10 @@ rows before the 3x3 integer average.
 Both uniform 4x fixtures contain `0`, `15`, `31`, `47`, `63`, `79`,
 `95`, `111`, `127`, `143`, `159`, `175`, `191`, `207`, `223`, `239`, and
 `255`, produced by the integer average of each 4x4 binary Alpha block.
-The signed amplitude 4x fixture contains transparent `0` plus intermediate
-values ranging from `2` to `96`, produced by applying amplitude luminance to
-the supersampled rows before the 4x4 integer average.
+The amplitude 4x fixtures contain transparent `0` plus intermediate values
+ranging from `2` to `96` for signed shape and from `6` to `96` for rectified
+shape, produced by applying amplitude luminance to the supersampled rows
+before the 4x4 integer average.
 
 | Fixture | SHA-256 |
 |---|---|
@@ -90,6 +92,7 @@ the supersampled rows before the 4x4 integer average.
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_4x.alpha` | `0b732ac7f11a5ea7dd923d46e6ada4befa9f6333af19ed9d07344e70bb09e2e6` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_4x.alpha` | `241130adba788392aebb91d3f6dbbca4e465045fe32bdce8a69c07a3dc7d07f6` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_4x.alpha` | `de0fc96e7b8eaff68ffbff35af5cf378867bd1f176c83aa2c29a9e1a34a3268f` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_4x.alpha` | `8928312aca9acae6dd462238fbeb1838006e80c9524bb6c81828b5de2fd44a43` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.

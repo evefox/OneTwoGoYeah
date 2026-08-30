@@ -47,16 +47,16 @@ PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确�
 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_3x.alpha`、
 `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_4x.alpha`、
 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_4x.alpha`、
-以及 `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_4x.alpha`。
+`generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_4x.alpha`、
+以及 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_4x.alpha`。
 输入是已经锁定的 11025 Hz、9216 帧 CC0 双声道平面 PCM；参数为 UI Zoom
 `11`、内部 Zoom `8`、Scale `4` 和 block `1`。前四份使用 1x，并分别覆盖
 有符号/均匀、整流/均匀、有符号/振幅与整流/振幅亮度组合；后四份使用相同四种
 组合，均为 2x 抗锯齿级别 `1`；随后四份使用相同四种组合，均为 3x 抗锯齿级别
-`2`；最后三份分别使用有符号/均匀、整流/均匀和有符号/振幅组合，均为 4x
-抗锯齿级别 `3`。
+`2`；最后四份使用相同四种组合，均为 4x 抗锯齿级别 `3`。
 参考结果必须为 `pixelsPerSecond = 594`、声道宽度 `256`、声道间距 `24`，并把
-完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与十五份 65536 字节
-黄金文件逐字节相同；上述十五份 SHA-256 依次固定为
+完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与十六份 65536 字节
+黄金文件逐字节相同；上述十六份 SHA-256 依次固定为
 `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`、
 `9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161`、
 `f085dceeff95f50a60f97b8b9875489ad51e662874dc68cd80c01ee71f98e8c7`、
@@ -71,7 +71,8 @@ PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确�
 `295b3071d96e86e7fa27244989387ec57a549de0ac1412171ef0eb88f27bb646`、
 `0b732ac7f11a5ea7dd923d46e6ada4befa9f6333af19ed9d07344e70bb09e2e6`、
 `241130adba788392aebb91d3f6dbbca4e465045fe32bdce8a69c07a3dc7d07f6`、
-以及 `de0fc96e7b8eaff68ffbff35af5cf378867bd1f176c83aa2c29a9e1a34a3268f`。
+`de0fc96e7b8eaff68ffbff35af5cf378867bd1f176c83aa2c29a9e1a34a3268f`、
+以及 `8928312aca9acae6dd462238fbeb1838006e80c9524bb6c81828b5de2fd44a43`。
 两份 1x 均匀亮度结果只允许 Alpha `0/255`；两份 1x 整流结果每行必须围绕声道中心
 对称，并与对应亮度的有符号结果不同。两份 1x 振幅亮度结果必须在每个非透明行
 的覆盖范围内使用单一中间 Alpha，并与对应形状的均匀结果不同。最小 Scale 的
@@ -92,9 +93,10 @@ PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确�
 整数平均产生的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`，
 必须实际包含全部中间值，并与对应形状的均匀亮度 3x 不同；有符号 4x 还必须与
 有符号 1x 不同，整流 4x 还必须围绕声道中心对称并与有符号 4x 不同。
-有符号振幅亮度 4x 必须按四倍渲染宽度在超采样行上计算中间 Alpha，再执行 4×4
-整数平均；结果不得包含不透明 `255`，并与有符号均匀亮度 4x 和有符号振幅亮度
-3x 都不同。
+两份振幅亮度 4x 必须按四倍渲染宽度在超采样行上计算中间 Alpha，再执行 4×4
+整数平均；结果都不得包含不透明 `255`，并与对应形状的均匀亮度 4x 和振幅亮度
+3x 都不同。整流振幅亮度 4x 还必须围绕声道中心对称，并与有符号振幅亮度 4x
+不同。
 测试还必须覆盖 UI Zoom/Scale 最小值、最大值和 `0.25` 步长映射、空 PCM、音频
 结束后的透明 block、末帧四舍五入边界、左右声道差异、深复制/移动所有权，以及
 非有限和越界参数的稳定错误。测试直接调用 `av_core`，不得启动 GPU、窗口、音频
