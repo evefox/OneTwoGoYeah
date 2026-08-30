@@ -472,6 +472,39 @@ void test_signed_amplitude_2x_reference_golden_tile() {
   }
 }
 
+void test_signed_amplitude_3x_reference_golden_tile() {
+  const auto pcm = load_stereo_pcm_fixture();
+  auto amplitude =
+      otgy::core::generate_signed_amplitude_waveform_tile_3x(
+          pcm, 11.0, 4.0, 1U);
+  assert(amplitude);
+  assert(amplitude.tile()->pixels_per_second() == 594U);
+  assert(amplitude.tile()->channel_width() == 256U);
+  assert(amplitude.tile()->channel_spacing() == 24U);
+  assert(amplitude.tile()->channel_byte_size() == 256U * 128U);
+  assert_matches_golden(
+      *amplitude.tile(),
+      "generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_3x.alpha");
+  assert_downsampled_amplitude_luminance(*amplitude.tile());
+
+  auto uniform =
+      otgy::core::generate_signed_uniform_waveform_tile_3x(
+          pcm, 11.0, 4.0, 1U);
+  auto two_x =
+      otgy::core::generate_signed_amplitude_waveform_tile_2x(
+          pcm, 11.0, 4.0, 1U);
+  assert(uniform);
+  assert(two_x);
+  const auto channel_size = amplitude.tile()->channel_byte_size();
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* amplitude_alpha = amplitude.tile()->channel_alpha(channel);
+    assert(!std::equal(amplitude_alpha, amplitude_alpha + channel_size,
+                       uniform.tile()->channel_alpha(channel)));
+    assert(!std::equal(amplitude_alpha, amplitude_alpha + channel_size,
+                       two_x.tile()->channel_alpha(channel)));
+  }
+}
+
 void test_rectified_amplitude_2x_reference_golden_tile() {
   const auto pcm = load_stereo_pcm_fixture();
   auto amplitude =
@@ -686,6 +719,11 @@ void test_stable_errors() {
   assert(!rectified_three_x_error);
   assert(rectified_three_x_error.error() ==
          WaveformError::InvalidUiZoom);
+  auto amplitude_three_x_error =
+      otgy::core::generate_signed_amplitude_waveform_tile_3x(
+          *pcm_result.pcm(), 11.0, 10.001, 0U);
+  assert(!amplitude_three_x_error);
+  assert(amplitude_three_x_error.error() == WaveformError::InvalidScale);
 
   assert(otgy::core::waveform_error_message(WaveformError::None).empty());
   for (const auto error : {
@@ -712,6 +750,7 @@ int main() {
   test_rectified_uniform_3x_reference_golden_tile();
   test_signed_amplitude_reference_golden_tile();
   test_signed_amplitude_2x_reference_golden_tile();
+  test_signed_amplitude_3x_reference_golden_tile();
   test_rectified_amplitude_2x_reference_golden_tile();
   test_rectified_amplitude_reference_golden_tile();
   test_terminal_rounding_is_bounded();
