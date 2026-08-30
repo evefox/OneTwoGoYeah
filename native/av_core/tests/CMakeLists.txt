@@ -71,3 +71,65 @@ else()
 endif()
 
 add_test(NAME av_core.mp3_decoder COMMAND av_core_mp3_decoder_test)
+
+set(OTGY_OGG_VORBIS_FIXTURE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ogg_vorbis"
+)
+
+function(otgy_assert_ogg_vorbis_fixture_sha256 file_name expected_sha256)
+  file(SHA256 "${OTGY_OGG_VORBIS_FIXTURE_DIR}/${file_name}" actual_sha256)
+  if(NOT actual_sha256 STREQUAL expected_sha256)
+    message(FATAL_ERROR
+      "Unexpected SHA-256 for Ogg Vorbis fixture ${file_name}: ${actual_sha256}"
+    )
+  endif()
+endfunction()
+
+otgy_assert_ogg_vorbis_fixture_sha256(
+  generated_mono_8000.ogg
+  516e6044a16511f4e997469dfe4e4048a0f6590bb450bbe87f140002a0c6727b
+)
+otgy_assert_ogg_vorbis_fixture_sha256(
+  generated_mono_8000.planar.pcm16le
+  47f4ad0d6677be6728ddc280eb6269f2d8e5c50de935d84f798be1da0f176f56
+)
+otgy_assert_ogg_vorbis_fixture_sha256(
+  generated_stereo_11025.ogg
+  02d91d9bb70e72d07d3b3571c4c43a8cc7508a7faab2dc2bb631a8a18c728bf5
+)
+otgy_assert_ogg_vorbis_fixture_sha256(
+  generated_stereo_11025.planar.pcm16le
+  176275320fa9703e04e26040b18e0f5e5e91c6405e75f2b317c9acbd8ff8f58e
+)
+otgy_assert_ogg_vorbis_fixture_sha256(
+  generated_three_channel_16000.ogg
+  c3575aad47f742e20b6762909309e4d22eacd85a0bb40ccf25afeb3df816c363
+)
+otgy_assert_ogg_vorbis_fixture_sha256(
+  generated_three_channel_16000.planar.pcm16le
+  ed097f42dfeb0679fddd4ae6d2f3ce987e520c0509c4bc6abd1c744311f69987
+)
+
+add_executable(av_core_ogg_vorbis_decoder_test
+  ogg_vorbis_decoder_test.cpp
+)
+target_link_libraries(av_core_ogg_vorbis_decoder_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_ogg_vorbis_decoder_test PRIVATE
+  OTGY_OGG_VORBIS_FIXTURE_DIR="${OTGY_OGG_VORBIS_FIXTURE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_ogg_vorbis_decoder_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_ogg_vorbis_decoder_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.ogg_vorbis_decoder
+  COMMAND av_core_ogg_vorbis_decoder_test
+)

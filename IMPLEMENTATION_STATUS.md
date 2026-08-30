@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 1：规范 PCM 与音频解码进行中；纯内存 MP3 解码已完成，下一切片实现纯内存 Ogg Vorbis 解码。
+阶段 1：规范 PCM 与音频解码进行中；纯内存 MP3/Ogg Vorbis 解码已完成，下一切片连接 `avtool decode` 诊断入口。
 
 ## 本次范围
 
@@ -20,7 +20,12 @@
 - 单声道逐样本复制到 Left/Right，双声道保留左右顺序，不重采样；中途格式变化失败。
 - 增加稳定 `Mp3DecodeError` 和无部分 PCM 的失败契约，覆盖空、空指针、尺寸、损坏、截断及已解码后失败。
 - 增加 CC0-1.0 的小型生成单声道 CBR、双声道 Xing/VBR MP3 及完整平面 PCM16LE 黄金字节，并在配置阶段固定四份 SHA-256。
-- 暂不实现 Ogg 解码、CLI 音频命令、波形、时序、SLK 或谱面领域行为。
+- 在 `av_core` 增加内存游标 Ogg Vorbis 解码入口，libogg/libVorbis 保持私有依赖。
+- 以 libogg 完整物理页/EOS 校验拒绝损坏与截断容器，再使用与 ArrowVortex 相同的 `ov_open_callbacks`/`ov_read` PCM16 路径。
+- 单声道复制到 Left/Right，双声道和多声道只保留编码通道 0/1；串联流改变采样率或声道数时失败且不返回部分 PCM。
+- 增加稳定 `OggVorbisDecodeError`，覆盖空、空指针、尺寸、非 Ogg、页损坏、截断和串联格式变化。
+- 增加 CC0-1.0 的单、双、三声道生成 Ogg 及完整平面 PCM16LE 黄金字节，在配置阶段固定六份 SHA-256；三份 PCM 均与实际编译的 ArrowVortex `LoadOgg.cpp` 逐字节相同。
+- 暂不实现 CLI 音频命令、波形、时序、SLK 或 Ogg 编码行为。
 
 ## 工具链
 
@@ -48,14 +53,18 @@
 - `native/third_party/tests/`
 - `native/av_core/CMakeLists.txt`
 - `native/av_core/include/av_core/audio/mp3_decoder.hpp`
+- `native/av_core/include/av_core/audio/ogg_vorbis_decoder.hpp`
 - `native/av_core/include/av_core/audio/pcm16.hpp`
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
+- `native/av_core/src/audio/ogg_vorbis_decoder.cpp`
 - `native/av_core/src/audio/pcm16.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
 - `native/av_core/tests/fixtures/mp3/`
+- `native/av_core/tests/fixtures/ogg_vorbis/`
 - `native/av_core/tests/mp3_decoder_test.cpp`
+- `native/av_core/tests/ogg_vorbis_decoder_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
 - `native/av_core/tests/version_test.cpp`
 - `native/tools/avtool/CMakeLists.txt`
@@ -66,14 +75,14 @@
 2026-08-30 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-mp3-clean -DBUILD_TESTING=ON
-cmake --build build/native-mp3-clean --parallel 2
-ctest --test-dir build/native-mp3-clean --output-on-failure
+cmake -S native -B build/native-ogg-clean -DBUILD_TESTING=ON
+cmake --build build/native-ogg-clean --parallel 2
+ctest --test-dir build/native-ogg-clean --output-on-failure
 git diff --check
 ```
 
-结果：配置和构建成功；`third_party.audio_codec_snapshot`、`av_core.version`、`av_core.pcm16`、`av_core.mp3_decoder`、`avtool.version` 共 5 项测试全部通过。
-另以 AddressSanitizer 和 UndefinedBehaviorSanitizer 全量重建并运行相同 5 项测试，全部通过。两份 PCM16LE 黄金文件还与实际编译的 ArrowVortex `LoadMp3.cpp` 输出逐字节相同。
+结果：配置和构建成功；`third_party.audio_codec_snapshot`、`av_core.version`、`av_core.pcm16`、`av_core.mp3_decoder`、`av_core.ogg_vorbis_decoder`、`avtool.version` 共 6 项测试全部通过。
+另以 AddressSanitizer 和 UndefinedBehaviorSanitizer 全量重建并运行相同 6 项测试，全部通过。MP3 两份、Ogg Vorbis 三份 PCM16LE 黄金文件均与实际编译的 ArrowVortex 对应加载器输出逐字节相同。
 
 ## 已知问题
 
@@ -83,4 +92,4 @@ git diff --check
 
 ## 唯一下一步
 
-实现 `av_core` 的纯内存 Ogg Vorbis 解码入口：使用已固定的 libogg/libVorbis，把单声道复制为双声道、双声道保持左右顺序、多声道只取前两个声道，并以生成的小型、许可明确夹具固定采样率、帧数、平面 PCM16LE 字节、SHA-256 和无部分结果的错误契约；本切片不实现 CLI、波形或 Ogg 编码。
+实现计划中的 `avtool decode <audio> --pcm-hash`：CLI 只负责读取文件和展示稳定、独立于区域设置的机器可读结果，MP3/Ogg 解码及规范 PCM 必须调用现有 `av_core` 权威入口；集成测试对同一夹具比较 CLI 与直接 C++ API 的格式、采样率、帧数和完整平面 PCM16 哈希。本切片不实现波形、检测器、C ABI 或 Ogg 编码。
