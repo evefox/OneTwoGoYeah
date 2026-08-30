@@ -9,7 +9,7 @@ tests read the committed bytes and never regenerate them.
 
 The captures used a standalone C++17 harness containing the relevant
 `sampleEdges`, uniform or amplitude luminance, signed or rectified edge-shape,
-and 2x integer anti-aliasing operations copied from the checked local
+and 2x/3x/4x integer anti-aliasing operations copied from the checked local
 ArrowVortex snapshot. It did not call `av_core`. The harness was compiled with
 Apple Clang 17.0.0, `-O0`, and `-fno-fast-math`. The checked reference sources
 were:
@@ -39,7 +39,8 @@ sampling / anti-aliasing = 1x / level 0 for all four combinations,
                            rectified / amplitude,
                            3x / level 2 for signed / uniform and
                            rectified / uniform and signed / amplitude and
-                           rectified / amplitude
+                           rectified / amplitude,
+                           4x / level 3 for signed / uniform
 pixels per second = 594
 first source frame = 2375
 channel width = 256
@@ -63,6 +64,9 @@ block. The amplitude 3x fixtures contain transparent `0` plus intermediate
 values ranging from `6` to `100` for signed shape and from `10` to `102` for
 rectified shape, produced by applying amplitude luminance to the supersampled
 rows before the 3x3 integer average.
+The signed uniform 4x fixture contains `0`, `15`, `31`, `47`, `63`, `79`,
+`95`, `111`, `127`, `143`, `159`, `175`, `191`, `207`, `223`, `239`, and
+`255`, produced by the integer average of each 4x4 binary Alpha block.
 
 | Fixture | SHA-256 |
 |---|---|
@@ -78,6 +82,7 @@ rows before the 3x3 integer average.
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_3x.alpha` | `b624da9bc4692a14cba56b625ce021df1ad6a7b3a9c084d715c5b2f3b15a523f` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_3x.alpha` | `a8960ca342b30cb1a20353290dd006c416228ff300bb2255a6924bf3401caa7f` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_3x.alpha` | `295b3071d96e86e7fa27244989387ec57a549de0ac1412171ef0eb88f27bb646` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_4x.alpha` | `0b732ac7f11a5ea7dd923d46e6ada4befa9f6333af19ed9d07344e70bb09e2e6` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.
