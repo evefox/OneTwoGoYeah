@@ -270,6 +270,16 @@ if(NOT actual_signed_uniform_4x_waveform_sha256 STREQUAL
     "Unexpected SHA-256 for signed uniform 4x waveform fixture: ${actual_signed_uniform_4x_waveform_sha256}"
   )
 endif()
+file(SHA256
+  "${OTGY_WAVEFORM_FIXTURE_DIR}/generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_4x.alpha"
+  actual_rectified_uniform_4x_waveform_sha256
+)
+if(NOT actual_rectified_uniform_4x_waveform_sha256 STREQUAL
+   "241130adba788392aebb91d3f6dbbca4e465045fe32bdce8a69c07a3dc7d07f6")
+  message(FATAL_ERROR
+    "Unexpected SHA-256 for rectified uniform 4x waveform fixture: ${actual_rectified_uniform_4x_waveform_sha256}"
+  )
+endif()
 
 add_executable(av_core_waveform_tile_test
   waveform_tile_test.cpp

@@ -469,11 +469,12 @@ waveformSpacing = scaledPixels(24)
 `generate_signed_amplitude_waveform_tile_3x(pcm, uiZoom, scale, blockIndex)` 和
 `generate_rectified_amplitude_waveform_tile_3x(pcm, uiZoom, scale, blockIndex)`，覆盖
 两种形状/两种亮度的抗锯齿级别 `2`。另有
-`generate_signed_uniform_waveform_tile_4x(pcm, uiZoom, scale, blockIndex)`，覆盖
-有符号形状/均匀亮度的抗锯齿级别 `3`。十三个入口共享同一采样、形状和亮度实现；
+`generate_signed_uniform_waveform_tile_4x(pcm, uiZoom, scale, blockIndex)` 和
+`generate_rectified_uniform_waveform_tile_4x(pcm, uiZoom, scale, blockIndex)`，覆盖
+两种形状/均匀亮度的抗锯齿级别 `3`。十四个入口共享同一采样、形状和亮度实现；
 1x、2x 与 3x 入口分别覆盖 ArrowVortex 的有符号/整流形状与均匀/振幅亮度全部
-组合，4x 当前只覆盖有符号/均匀组合。每个入口返回拥有所有权的 Left、Right 两个
-行主序 Alpha 平面。每个平面高度固定为
+组合，4x 当前覆盖有符号/整流形状的均匀亮度组合。每个入口返回拥有所有权的
+Left、Right 两个行主序 Alpha 平面。每个平面高度固定为
 `128`，宽度为上述 `waveformChannelWidth`，UI 之后再独立着色。结果同时返回
 `blockIndex`、`pixelsPerSecond`、声道宽度和声道间距；不包含 GPU 纹理、颜色、
 Flutter 对象或全局视图状态。
@@ -528,7 +529,7 @@ alpha3x(x, y) = sum(source(3 * x + dx, 3 * y + dy), dx = 0..2, dy = 0..2) / 9
 
 这里同样使用截断小数部分的整数除法；最终图块几何和 block 范围保持不变。
 
-当前有符号均匀亮度 4x 入口使用 `4 * waveformChannelWidth` 的宽度和 `4 * 128` 的
+当前两个均匀亮度 4x 入口使用 `4 * waveformChannelWidth` 的宽度和 `4 * 128` 的
 高度执行采样与投影，每个超采样行的 `advance` 为 1x 的四分之一。每个最终 Alpha
 使用参考实现相同的 4×4 非负整数平均：
 
@@ -542,7 +543,7 @@ UI Zoom 或 Scale 非有限或超出上述范围时分别返回稳定
 `InvalidUiZoom`/`InvalidScale`，不返回部分图块；两个 Alpha 平面任一分配失败返回
 `AllocationFailure`。`WaveformTile` 深复制两个平面，移动则转移所有权。当前入口
 有意按已实现的形状/亮度/采样组合分别命名，且不接受通用配置或抗锯齿参数；
-其他 4x 组合、过滤波形和缓存仍属于后续独立切片。
+振幅亮度 4x 组合、过滤波形和缓存仍属于后续独立切片。
 
 ## BPM 与 Offset 兼容契约
 

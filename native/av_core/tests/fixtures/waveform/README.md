@@ -3,9 +3,10 @@
 # ArrowVortex waveform golden fixture
 
 This directory contains the first isolated ArrowVortex waveform compatibility
-fixtures. The Alpha bytes were captured once on 2026-08-30 from the generated
-CC0 stereo PCM fixture and are released under CC0-1.0. Ordinary builds and
-tests read the committed bytes and never regenerate them.
+fixtures. The Alpha bytes were captured once per combination between
+2026-08-30 and 2026-08-31 from the generated CC0 stereo PCM fixture and are
+released under CC0-1.0. Ordinary builds and tests read the committed bytes and
+never regenerate them.
 
 The captures used a standalone C++17 harness containing the relevant
 `sampleEdges`, uniform or amplitude luminance, signed or rectified edge-shape,
@@ -40,7 +41,8 @@ sampling / anti-aliasing = 1x / level 0 for all four combinations,
                            3x / level 2 for signed / uniform and
                            rectified / uniform and signed / amplitude and
                            rectified / amplitude,
-                           4x / level 3 for signed / uniform
+                           4x / level 3 for signed / uniform and
+                           rectified / uniform
 pixels per second = 594
 first source frame = 2375
 channel width = 256
@@ -64,7 +66,7 @@ block. The amplitude 3x fixtures contain transparent `0` plus intermediate
 values ranging from `6` to `100` for signed shape and from `10` to `102` for
 rectified shape, produced by applying amplitude luminance to the supersampled
 rows before the 3x3 integer average.
-The signed uniform 4x fixture contains `0`, `15`, `31`, `47`, `63`, `79`,
+Both uniform 4x fixtures contain `0`, `15`, `31`, `47`, `63`, `79`,
 `95`, `111`, `127`, `143`, `159`, `175`, `191`, `207`, `223`, `239`, and
 `255`, produced by the integer average of each 4x4 binary Alpha block.
 
@@ -83,6 +85,7 @@ The signed uniform 4x fixture contains `0`, `15`, `31`, `47`, `63`, `79`,
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_3x.alpha` | `a8960ca342b30cb1a20353290dd006c416228ff300bb2255a6924bf3401caa7f` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_3x.alpha` | `295b3071d96e86e7fa27244989387ec57a549de0ac1412171ef0eb88f27bb646` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_4x.alpha` | `0b732ac7f11a5ea7dd923d46e6ada4befa9f6333af19ed9d07344e70bb09e2e6` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_4x.alpha` | `241130adba788392aebb91d3f6dbbca4e465045fe32bdce8a69c07a3dc7d07f6` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.
