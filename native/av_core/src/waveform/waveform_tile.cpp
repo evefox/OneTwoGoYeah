@@ -108,7 +108,7 @@ void render_channel(const Pcm16& pcm, PcmChannel channel,
       samples_per_pixel * static_cast<double>(WaveformTile::kHeight) /
       static_cast<double>(height);
 
-  std::array<WaveEdge, WaveformTile::kHeight * 2U> edges{};
+  std::array<WaveEdge, WaveformTile::kHeight * 3U> edges{};
   double offset = 0.0;
   for (std::size_t y = 0U; y < height; ++y) {
     const double end = std::min(
@@ -182,6 +182,29 @@ void downsample_2x(const std::vector<std::uint8_t>& source,
                       source[bottom_left] + source[bottom_left + 1U];
       destination[destination_row + x] =
           static_cast<std::uint8_t>(sum / 4);
+    }
+  }
+}
+
+void downsample_3x(const std::vector<std::uint8_t>& source,
+                   const WaveformGeometry& geometry,
+                   std::vector<std::uint8_t>& destination) noexcept {
+  const auto width = static_cast<std::size_t>(geometry.channel_width);
+  const auto source_width = width * 3U;
+  for (std::size_t y = 0U; y < WaveformTile::kHeight; ++y) {
+    const auto source_row = (y * 3U) * source_width;
+    const auto destination_row = y * width;
+    for (std::size_t x = 0U; x < width; ++x) {
+      const auto top_left = source_row + x * 3U;
+      const auto middle_left = top_left + source_width;
+      const auto bottom_left = middle_left + source_width;
+      const int sum =
+          source[top_left] + source[top_left + 1U] + source[top_left + 2U] +
+          source[middle_left] + source[middle_left + 1U] +
+          source[middle_left + 2U] + source[bottom_left] +
+          source[bottom_left + 1U] + source[bottom_left + 2U];
+      destination[destination_row + x] =
+          static_cast<std::uint8_t>(sum / 9);
     }
   }
 }
@@ -277,6 +300,15 @@ WaveformTileResult WaveformTile::generate_waveform_tile(
       render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
                      luminance, 2U, supersampled);
       downsample_2x(supersampled, geometry, right);
+    } else if (sampling == Sampling::ThreeX) {
+      std::vector<std::uint8_t> supersampled(channel_size * 9U, 0U);
+      render_channel(pcm, PcmChannel::Left, geometry, block_index, shape,
+                     luminance, 3U, supersampled);
+      downsample_3x(supersampled, geometry, left);
+      std::fill(supersampled.begin(), supersampled.end(), 0U);
+      render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
+                     luminance, 3U, supersampled);
+      downsample_3x(supersampled, geometry, right);
     } else {
       render_channel(pcm, PcmChannel::Left, geometry, block_index, shape,
                      luminance, 1U, left);
@@ -364,6 +396,14 @@ WaveformTileResult generate_rectified_amplitude_waveform_tile_2x(
       pcm, ui_zoom, scale, block_index,
       WaveformTile::Variant::RectifiedAmplitude,
       WaveformTile::Sampling::TwoX);
+}
+
+WaveformTileResult generate_signed_uniform_waveform_tile_3x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept {
+  return WaveformTile::generate_waveform_tile(
+      pcm, ui_zoom, scale, block_index, WaveformTile::Variant::SignedUniform,
+      WaveformTile::Sampling::ThreeX);
 }
 
 }  // namespace otgy::core

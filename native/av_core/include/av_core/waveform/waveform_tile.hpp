@@ -96,6 +96,8 @@ class WaveformTile final {
       const Pcm16&, double, double, std::uint64_t) noexcept;
   friend WaveformTileResult generate_rectified_amplitude_waveform_tile_2x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
+  friend WaveformTileResult generate_signed_uniform_waveform_tile_3x(
+      const Pcm16&, double, double, std::uint64_t) noexcept;
 
   enum class Variant : std::uint8_t {
     SignedUniform,
@@ -107,6 +109,7 @@ class WaveformTile final {
   enum class Sampling : std::uint8_t {
     OneX,
     TwoX,
+    ThreeX,
   };
 
   [[nodiscard]] static WaveformTileResult generate_waveform_tile(
@@ -225,6 +228,17 @@ generate_rectified_amplitude_waveform_tile_1x(
 /// outside this entry point.
 [[nodiscard]] WaveformTileResult
 generate_rectified_amplitude_waveform_tile_2x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept;
+
+/// Generates the signed, uniform-luminance ArrowVortex 3x waveform slice.
+///
+/// Geometry and parameter ranges are identical to the signed uniform 1x entry
+/// point. Sampling and signed projection use three times the final width and
+/// height, then each 3x3 Alpha block is reduced with ArrowVortex's integer
+/// average. Other shape/luminance combinations and 4x remain outside this
+/// entry point.
+[[nodiscard]] WaveformTileResult generate_signed_uniform_waveform_tile_3x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
 

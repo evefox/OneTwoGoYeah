@@ -121,6 +121,25 @@ void assert_uniform_2x_alpha(const WaveformTile& tile) {
   assert(found_191);
 }
 
+void assert_uniform_3x_alpha(const WaveformTile& tile) {
+  constexpr std::array<std::uint8_t, 10U> expected{
+      0U, 28U, 56U, 85U, 113U, 141U, 170U, 198U, 226U, 255U,
+  };
+  std::array<bool, expected.size()> found{};
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* begin = tile.channel_alpha(channel);
+    for (const auto* value = begin;
+         value != begin + tile.channel_byte_size(); ++value) {
+      const auto match = std::find(expected.begin(), expected.end(), *value);
+      assert(match != expected.end());
+      found[static_cast<std::size_t>(match - expected.begin())] = true;
+    }
+  }
+  assert(std::all_of(found.begin(), found.end(), [](bool value) {
+    return value;
+  }));
+}
+
 void assert_horizontally_symmetric(const WaveformTile& tile) {
   for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
     const auto* alpha = tile.channel_alpha(channel);
@@ -328,6 +347,38 @@ void test_rectified_uniform_2x_reference_golden_tile() {
   }
 }
 
+void test_signed_uniform_3x_reference_golden_tile() {
+  const auto pcm = load_stereo_pcm_fixture();
+  auto three_x =
+      otgy::core::generate_signed_uniform_waveform_tile_3x(
+          pcm, 11.0, 4.0, 1U);
+  assert(three_x);
+  assert(three_x.tile()->pixels_per_second() == 594U);
+  assert(three_x.tile()->channel_width() == 256U);
+  assert(three_x.tile()->channel_spacing() == 24U);
+  assert(three_x.tile()->channel_byte_size() == 256U * 128U);
+  assert_matches_golden(
+      *three_x.tile(),
+      "generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_3x.alpha");
+  assert_uniform_3x_alpha(*three_x.tile());
+
+  auto two_x =
+      otgy::core::generate_signed_uniform_waveform_tile_2x(
+          pcm, 11.0, 4.0, 1U);
+  auto one_x = otgy::core::generate_signed_uniform_waveform_tile_1x(
+      pcm, 11.0, 4.0, 1U);
+  assert(two_x);
+  assert(one_x);
+  const auto channel_size = three_x.tile()->channel_byte_size();
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* three_x_alpha = three_x.tile()->channel_alpha(channel);
+    assert(!std::equal(three_x_alpha, three_x_alpha + channel_size,
+                       two_x.tile()->channel_alpha(channel)));
+    assert(!std::equal(three_x_alpha, three_x_alpha + channel_size,
+                       one_x.tile()->channel_alpha(channel)));
+  }
+}
+
 void test_signed_amplitude_reference_golden_tile() {
   const auto pcm = load_stereo_pcm_fixture();
   auto amplitude =
@@ -513,6 +564,19 @@ void test_terminal_rounding_is_bounded() {
   assert(two_x_past_end);
   assert(channel_is_zero(*two_x_past_end.tile(), PcmChannel::Left));
   assert(channel_is_zero(*two_x_past_end.tile(), PcmChannel::Right));
+
+  auto three_x =
+      otgy::core::generate_signed_uniform_waveform_tile_3x(
+          *pcm_result.pcm(), 19.0, 1.0, 0U);
+  assert(three_x);
+  assert(!channel_is_zero(*three_x.tile(), PcmChannel::Left));
+  assert(!channel_is_zero(*three_x.tile(), PcmChannel::Right));
+  auto three_x_past_end =
+      otgy::core::generate_signed_uniform_waveform_tile_3x(
+          *pcm_result.pcm(), 19.0, 1.0, 1U);
+  assert(three_x_past_end);
+  assert(channel_is_zero(*three_x_past_end.tile(), PcmChannel::Left));
+  assert(channel_is_zero(*three_x_past_end.tile(), PcmChannel::Right));
 }
 
 void assert_error(double ui_zoom, double scale, WaveformError expected) {
@@ -577,6 +641,11 @@ void test_stable_errors() {
   assert(!rectified_amplitude_two_x_error);
   assert(rectified_amplitude_two_x_error.error() ==
          WaveformError::InvalidUiZoom);
+  auto three_x_error =
+      otgy::core::generate_signed_uniform_waveform_tile_3x(
+          *pcm_result.pcm(), 11.0, 10.001, 0U);
+  assert(!three_x_error);
+  assert(three_x_error.error() == WaveformError::InvalidScale);
 
   assert(otgy::core::waveform_error_message(WaveformError::None).empty());
   for (const auto error : {
@@ -599,6 +668,7 @@ int main() {
   test_rectified_reference_golden_tile();
   test_signed_uniform_2x_reference_golden_tile();
   test_rectified_uniform_2x_reference_golden_tile();
+  test_signed_uniform_3x_reference_golden_tile();
   test_signed_amplitude_reference_golden_tile();
   test_signed_amplitude_2x_reference_golden_tile();
   test_rectified_amplitude_2x_reference_golden_tile();
