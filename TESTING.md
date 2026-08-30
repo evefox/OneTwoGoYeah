@@ -34,22 +34,24 @@ PCM 字节、整数数据、Alpha 图块、兼容投影值、候选顺序和确�
 首组波形黄金测试使用
 `native/av_core/tests/fixtures/waveform/generated_stereo_11025.ui_zoom11.scale4.block1.signed_uniform_1x.alpha`
 以及同目录的
-`generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_1x.alpha` 和
-`generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_1x.alpha`。
+`generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_1x.alpha`、
+`generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_1x.alpha`、
+以及 `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_1x.alpha`。
 输入是已经锁定的 11025 Hz、9216 帧 CC0 双声道平面 PCM；参数为 UI Zoom
 `11`、内部 Zoom `8`、Scale `4`、block `1` 和 1x，并分别使用有符号/均匀、
-整流/均匀与有符号/振幅亮度组合。
+整流/均匀、有符号/振幅与整流/振幅亮度组合。
 参考结果必须为 `pixelsPerSecond = 594`、声道宽度 `256`、声道间距 `24`，并把
-完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与三份 65536 字节
-黄金文件逐字节相同；上述三份 SHA-256 依次固定为
+完整 Left `256 * 128` Alpha 平面后接完整 Right 平面，分别与四份 65536 字节
+黄金文件逐字节相同；上述四份 SHA-256 依次固定为
 `aa2bf6026ef8ca04de51f89e79eb8fefc4de73f58cbbfd02924d82473c5d5fe6`、
-`9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161` 和
-`f085dceeff95f50a60f97b8b9875489ad51e662874dc68cd80c01ee71f98e8c7`。
-两份均匀亮度结果只允许 Alpha `0/255`；整流结果每行必须围绕声道中心对称，
-并与同输入的有符号结果不同。有符号振幅亮度结果必须在每个非透明行的覆盖范围
-内使用单一中间 Alpha，并与有符号均匀结果不同。最小 Scale 的满负/满正幅边界还
-必须精确验证基于 64 像素声道宽度计算出的 `247/239` Alpha。新增振幅亮度行为时
-仍须重新逐字节验证两份原有均匀亮度黄金不变。
+`9ba7cb0c431b92bcbbed2c0b9d332c51a0c0ded9ce4b520c4d8e82c37a9d7161`、
+`f085dceeff95f50a60f97b8b9875489ad51e662874dc68cd80c01ee71f98e8c7`、
+以及 `5272c1d45caf622592a74dc5129d290c9c36eb6b715107e39621996e4c5c6065`。
+两份均匀亮度结果只允许 Alpha `0/255`；两份整流结果每行必须围绕声道中心对称，
+并与对应亮度的有符号结果不同。两份振幅亮度结果必须在每个非透明行的覆盖范围
+内使用单一中间 Alpha，并与对应形状的均匀结果不同。最小 Scale 的满负/满正幅
+边界还必须精确验证基于 64 像素声道宽度计算出的 `247/239` Alpha。新增形状、
+亮度或采样行为时仍须重新逐字节验证全部原有波形黄金不变。
 测试还必须覆盖 UI Zoom/Scale 最小值、最大值和 `0.25` 步长映射、空 PCM、音频
 结束后的透明 block、末帧四舍五入边界、左右声道差异、深复制/移动所有权，以及
 非有限和越界参数的稳定错误。测试直接调用 `av_core`，不得启动 GPU、窗口、音频

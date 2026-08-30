@@ -170,6 +170,16 @@ if(NOT actual_signed_amplitude_waveform_sha256 STREQUAL
     "Unexpected SHA-256 for signed amplitude 1x waveform fixture: ${actual_signed_amplitude_waveform_sha256}"
   )
 endif()
+file(SHA256
+  "${OTGY_WAVEFORM_FIXTURE_DIR}/generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_1x.alpha"
+  actual_rectified_amplitude_waveform_sha256
+)
+if(NOT actual_rectified_amplitude_waveform_sha256 STREQUAL
+   "5272c1d45caf622592a74dc5129d290c9c36eb6b715107e39621996e4c5c6065")
+  message(FATAL_ERROR
+    "Unexpected SHA-256 for rectified amplitude 1x waveform fixture: ${actual_rectified_amplitude_waveform_sha256}"
+  )
+endif()
 
 add_executable(av_core_waveform_tile_test
   waveform_tile_test.cpp

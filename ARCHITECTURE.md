@@ -454,12 +454,13 @@ waveformSpacing = scaledPixels(24)
 
 支持的核心参考范围为 UI Zoom `1..19`、内部 Zoom `-2..16`、Scale `1..10`。Windows 和 macOS 暴露 Scale 调节，并以 ArrowVortex 的 `0.25` 步长提交；iOS 和 Android 的公开 UI、手势及无障碍操作始终使用固定 Scale `4.0`，不发送其他 Scale 值。核心、C ABI 和黄金测试仍支持完整 `1..10` 范围，不能为移动端另写波形算法。移动端双指缩放只累积 Zoom 并提供连续反馈，最终提交到最近的 `0.25` Zoom 参考级别，任何手势轴都不得修改 Scale。缩放时当前时间光标/判定线保持固定。相同逻辑视口、参数、PCM 和设备像素策略必须生成相同的 Alpha 图块。
 
-当前三个权威入口为
+当前四个权威入口为
 `generate_signed_uniform_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`、
-`generate_rectified_uniform_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)` 和
-`generate_signed_amplitude_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`。
-三者共享同一采样边缘，分别覆盖 ArrowVortex 的有符号/均匀、整流/均匀和
-有符号/振幅亮度组合；当前都固定为抗锯齿级别 `0`，也就是 1x 采样结果。每个
+`generate_rectified_uniform_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`、
+`generate_signed_amplitude_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`、
+以及 `generate_rectified_amplitude_waveform_tile_1x(pcm, uiZoom, scale, blockIndex)`。
+四者共享同一采样边缘，覆盖 ArrowVortex 的有符号/整流形状与均匀/振幅亮度
+四种组合；当前都固定为抗锯齿级别 `0`，也就是 1x 采样结果。每个
 入口返回拥有所有权的 Left、Right 两个行主序 Alpha 平面。每个平面高度固定为
 `128`，宽度为上述 `waveformChannelWidth`，UI 之后再独立着色。结果同时返回
 `blockIndex`、`pixelsPerSecond`、声道宽度和声道间距；不包含 GPU 纹理、颜色、
@@ -478,7 +479,7 @@ Flutter 对象或全局视图状态。
 `[center - magnitude, center + magnitude)`。两种形状之外的几何、采样、限制、
 错误和所有权契约完全相同。
 
-均匀亮度把形状覆盖范围内的 Alpha 固定为 `255`。振幅亮度保持相同的有符号
+均匀亮度把形状覆盖范围内的 Alpha 固定为 `255`。振幅亮度保持所选形状的
 覆盖范围，但逐行使用 ArrowVortex 的整数算术：
 
 ```text
@@ -493,8 +494,8 @@ rowAlpha        = (magnitude * amplitudeScalar) >> 16
 UI Zoom 或 Scale 非有限或超出上述范围时分别返回稳定
 `InvalidUiZoom`/`InvalidScale`，不返回部分图块；两个 Alpha 平面任一分配失败返回
 `AllocationFailure`。`WaveformTile` 深复制两个平面，移动则转移所有权。当前入口
-有意按已实现的形状/亮度组合分别命名，且不接受通用配置或抗锯齿参数；整流振幅
-亮度、2x/3x/4x 降采样、过滤波形和缓存仍属于后续独立切片。
+有意按已实现的形状/亮度组合分别命名，且不接受通用配置或抗锯齿参数；
+2x/3x/4x 降采样、过滤波形和缓存仍属于后续独立切片。
 
 ## BPM 与 Offset 兼容契约
 

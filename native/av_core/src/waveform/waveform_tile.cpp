@@ -237,12 +237,16 @@ WaveformTileResult WaveformTile::generate_waveform_tile_1x(
   try {
     std::vector<std::uint8_t> left(channel_size, 0U);
     std::vector<std::uint8_t> right(channel_size, 0U);
-    const auto shape = variant == Variant::RectifiedUniform
-                           ? WaveformShape::Rectified
-                           : WaveformShape::Signed;
-    const auto luminance = variant == Variant::SignedAmplitude
-                               ? WaveformLuminance::Amplitude
-                               : WaveformLuminance::Uniform;
+    const auto shape =
+        variant == Variant::RectifiedUniform ||
+                variant == Variant::RectifiedAmplitude
+            ? WaveformShape::Rectified
+            : WaveformShape::Signed;
+    const auto luminance =
+        variant == Variant::SignedAmplitude ||
+                variant == Variant::RectifiedAmplitude
+            ? WaveformLuminance::Amplitude
+            : WaveformLuminance::Uniform;
     render_channel(pcm, PcmChannel::Left, geometry, block_index, shape,
                    luminance, left);
     render_channel(pcm, PcmChannel::Right, geometry, block_index, shape,
@@ -281,6 +285,14 @@ WaveformTileResult generate_signed_amplitude_waveform_tile_1x(
   return WaveformTile::generate_waveform_tile_1x(
       pcm, ui_zoom, scale, block_index,
       WaveformTile::Variant::SignedAmplitude);
+}
+
+WaveformTileResult generate_rectified_amplitude_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept {
+  return WaveformTile::generate_waveform_tile_1x(
+      pcm, ui_zoom, scale, block_index,
+      WaveformTile::Variant::RectifiedAmplitude);
 }
 
 }  // namespace otgy::core

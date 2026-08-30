@@ -86,11 +86,14 @@ class WaveformTile final {
       const Pcm16&, double, double, std::uint64_t) noexcept;
   friend WaveformTileResult generate_signed_amplitude_waveform_tile_1x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
+  friend WaveformTileResult generate_rectified_amplitude_waveform_tile_1x(
+      const Pcm16&, double, double, std::uint64_t) noexcept;
 
   enum class Variant : std::uint8_t {
     SignedUniform,
     RectifiedUniform,
     SignedAmplitude,
+    RectifiedAmplitude,
   };
 
   [[nodiscard]] static WaveformTileResult generate_waveform_tile_1x(
@@ -144,8 +147,8 @@ class WaveformTileResult final {
 ///
 /// Geometry, sampling edges and parameter ranges are identical to the signed
 /// uniform entry point. Only the edge projection is rectified around the
-/// channel center. Rectified amplitude luminance and 2x/3x/4x downsampling
-/// remain outside this entry point.
+/// channel center. Amplitude luminance and 2x/3x/4x downsampling remain
+/// outside this entry point.
 [[nodiscard]] WaveformTileResult generate_rectified_uniform_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
@@ -154,9 +157,20 @@ class WaveformTileResult final {
 ///
 /// Geometry, sampling edges, signed projection and parameter ranges are
 /// identical to the signed uniform entry point. Only each row's Alpha changes
-/// to ArrowVortex's integer amplitude luminance. Rectified amplitude luminance
-/// and 2x/3x/4x downsampling remain outside this entry point.
+/// to ArrowVortex's integer amplitude luminance. Rectified projection and
+/// 2x/3x/4x downsampling remain outside this entry point.
 [[nodiscard]] WaveformTileResult generate_signed_amplitude_waveform_tile_1x(
+    const Pcm16& pcm, double ui_zoom, double scale,
+    std::uint64_t block_index) noexcept;
+
+/// Generates the rectified, amplitude-luminance ArrowVortex waveform slice.
+///
+/// Geometry, sampling edges and parameter ranges are identical to the other
+/// 1x entry points. Each row uses the rectified projection and ArrowVortex's
+/// integer amplitude luminance. 2x/3x/4x downsampling remains outside this
+/// entry point.
+[[nodiscard]] WaveformTileResult
+generate_rectified_amplitude_waveform_tile_1x(
     const Pcm16& pcm, double ui_zoom, double scale,
     std::uint64_t block_index) noexcept;
 
