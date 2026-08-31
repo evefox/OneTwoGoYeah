@@ -99,6 +99,21 @@ endif()
 
 add_test(NAME av_core.audio_export COMMAND av_core_audio_export_test)
 
+add_executable(av_core_operation_gate_test
+  operation_gate_test.cpp
+)
+target_link_libraries(av_core_operation_gate_test PRIVATE OneTwoGoYeah::av_core)
+
+if(MSVC)
+  target_compile_options(av_core_operation_gate_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(av_core_operation_gate_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.operation_gate COMMAND av_core_operation_gate_test)
+
 set(OTGY_MP3_FIXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/mp3")
 
 function(otgy_assert_fixture_sha256 file_name expected_sha256)
