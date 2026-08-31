@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
@@ -104,6 +104,26 @@ void main() {
 
     expect(find.text('.mp3'), findsOneWidget);
     expect(find.byTooltip(name), findsOneWidget);
+  });
+
+  testWidgets('reports audio picker platform failures', (tester) async {
+    const channel = MethodChannel('plugins.flutter.io/file_selector');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'openFile');
+          throw PlatformException(code: 'unavailable');
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('audio-picker')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('无法打开音频文件选择器。'), findsOneWidget);
   });
 
   testWidgets('BPM long press previews and commits once on release', (

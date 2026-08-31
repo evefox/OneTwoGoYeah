@@ -367,6 +367,8 @@ App 私有存储中最多存在一个恢复快照。每次已提交的谱面修�
 - 生命周期与应用存储路径
 - 向 C ABI 传入和取出数据
 
+macOS Runner 保持 App Sandbox，并在 Debug/Profile 与 Release 签名中声明 `com.apple.security.files.user-selected.read-write`，只通过系统文件选择界面获得用户明确选择的文件访问权。该权限不允许扫描任意目录，也不改变产品完全离线的边界。
+
 平台播放适配层消费共享核心生成的帧，不得重新实现速度、混音、裁剪、节拍时序或重采样规则。
 
 Flutter 与 Runner 使用三个轻量 MethodChannel：`io.onetwogoyeah/playback` 只传递采样率、交错 PCM16LE 和已播放帧数；`io.onetwogoyeah/files` 只在同目录把完整临时文件以原子、不替换硬链接发布到目标；`io.onetwogoyeah/lifecycle` 只用于 Windows/macOS 窗口关闭前请求 Flutter 完成未保存确认。Android 使用 `AudioTrack`/`Os.link`，iOS 和 macOS 使用 `AVAudioEngine`/POSIX `link`，Windows 使用 `waveOut`/`CreateHardLinkW`。这些适配层不得解释音频时序、文件名或项目语义。

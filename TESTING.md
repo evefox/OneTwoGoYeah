@@ -461,6 +461,7 @@ SLK 位置及规范 SLK 导入/导出字节。完整谱面语义快照逐项比�
 - 文件选择请求只允许 Ogg Vorbis（`.ogg`）和 MP3（`.mp3`）
 - 播放期间音频选择字段为禁用状态，不打开文件选择器；绕过 UI 到达应用操作层的替换请求返回 `PlaybackActive` 并显示 `请先暂停播放`，且不启动解码或修改状态
 - 取消文件选择时，当前音频、缓存、波形和编辑器状态全部保持不变
+- 平台文件选择调用失败时显示非阻塞错误 `无法打开音频文件选择器。`；macOS Debug/Profile 与 Release entitlement 都包含 `com.apple.security.files.user-selected.read-write`
 - 解码失败与取消选择具有相同可见结果，当前音频、缓存、波形和编辑器状态全部保持不变
 - 解码成功后仍不提交新音频，先从临时规范 PCM 生成完整波形
 - 解码成功但波形生成失败时，丢弃全部临时数据；当前文件名、音频、PCM、波形、BPM、Offset、分析缓存和其他编辑器状态全部保持不变
@@ -655,7 +656,7 @@ Offset 微调浮窗测试必须验证：
 
 ### 6. 跨平台验证
 
-`.github/workflows/stage8-platforms.yml` 在 Ubuntu、macOS、Windows 构建并运行原生核心测试；另在对应 Runner 上构建 Android、Windows、macOS 和无签名 iOS Flutter App，并运行 Flutter 与 Dart FFI 分析和测试。平台构建负责验证 `AudioTrack`、`AVAudioEngine`、`waveOut`、原子不替换文件发布及桌面关闭协调代码能够随各自 SDK 编译。阶段 9 仍须在实际 x86-64 与 ARM64 支持环境运行完整黄金套件；某平台的黄金结果未通过前，不能视为最终发布兼容。
+`.github/workflows/stage8-platforms.yml` 在 Ubuntu、macOS、Windows 构建并运行原生核心测试；另在对应 Runner 上构建 Android、Windows、macOS 和无签名 iOS Flutter App，并运行 Flutter 与 Dart FFI 分析和测试。平台构建负责验证 `AudioTrack`、`AVAudioEngine`、`waveOut`、原子不替换文件发布及桌面关闭协调代码能够随各自 SDK 编译。macOS 构建后还应使用 `codesign -d --entitlements :- <App>` 确认最终签名保留用户所选文件读写权限。阶段 9 仍须在实际 x86-64 与 ARM64 支持环境运行完整黄金套件；某平台的黄金结果未通过前，不能视为最终发布兼容。
 
 ## 夹具规则
 

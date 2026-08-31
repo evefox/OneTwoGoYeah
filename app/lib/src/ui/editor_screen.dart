@@ -180,11 +180,21 @@ class _EditorScreenState extends State<EditorScreen>
       extensions: ['mp3', 'ogg'],
       uniformTypeIdentifiers: ['public.mp3', 'org.xiph.ogg-audio'],
     );
-    final file = await openFile(acceptedTypeGroups: const [type]);
+    XFile? file;
+    try {
+      file = await openFile(acceptedTypeGroups: const [type]);
+    } on Object {
+      _controller.showNotice('无法打开音频文件选择器。', error: true);
+      return;
+    }
     if (file == null) {
       return;
     }
-    await _controller.loadAudioBytes(await file.readAsBytes(), file.name);
+    try {
+      await _controller.loadAudioBytes(await file.readAsBytes(), file.name);
+    } on Object {
+      _controller.showNotice('无法读取所选音频文件。', error: true);
+    }
   }
 
   Future<void> _analyzeAudio() async {

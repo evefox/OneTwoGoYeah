@@ -132,11 +132,11 @@
 ## 工具链
 
 - CMake：`3.27.7`
-- C/C++ 编译器：Apple Clang `17.0.0`，arm64 macOS
+- C/C++ 编译器：Xcode Apple Clang `21.0.0`，arm64 macOS
 - Ninja：未安装，CMake 使用默认生成器
 - Flutter：`3.47.2`，Dart `3.13.2`
-- Android SDK：`34`；本机缺少 cmdline-tools，Gradle 首次分发下载仍依赖开发环境缓存
-- Apple SDK：仅 Command Line Tools；本机没有完整 Xcode 和 CocoaPods
+- Android SDK：`35/36`，NDK `28.2.13676358`；本机 Debug APK 已完成构建
+- Apple SDK：Xcode `26.6`（macOS SDK `26.5`），CocoaPods `1.17.0`
 - Git：已初始化，默认分支为 `main`
 
 ## 修改文件
@@ -298,18 +298,20 @@ cd app/packages/otgy_native
 cd ../..
 ../build/flutter-sdk/bin/flutter analyze
 ../build/flutter-sdk/bin/flutter test -r expanded
+../build/flutter-sdk/bin/flutter build macos --debug
+codesign -d --entitlements :- build/macos/Build/Products/Debug/OneTwoGoYeah.app
 
 swiftc -parse ios/Runner/AppDelegate.swift
 swiftc -parse macos/Runner/MainFlutterWindow.swift
 ```
 
-结果：原生核心、CLI 和 C ABI 49/49 通过；Dart FFI 分析通过且 6/6 测试通过；Flutter 分析通过且 23/23 测试通过。公共头 162 个函数声明与动态库 162 个 `otgy_*` 导出逐项一致。播放 PCM、设备帧推进、导出取消、六阶段分析回调、原子不覆盖发布、未保存退出和既有全部解码/波形/BPM/Offset/草稿/SLK 黄金均继续通过。Android Debug APK 已使用 SDK 35/36 与 NDK 28.2 完整构建，原生资产覆盖 `armeabi-v7a`、`arm64-v8a` 和 `x86_64`；iOS/macOS Swift 源码语法解析通过。完整 macOS 构建在调用 `xcrun xcodebuild` 时因本机没有 Xcode 退出码 72，其余 Windows/macOS/iOS 真实 SDK 构建交由阶段 8 CI 验证。
+结果：原生核心、CLI 和 C ABI 49/49 通过；Dart FFI 分析通过且 6/6 测试通过；Flutter 分析通过且 25/25 测试通过。公共头 162 个函数声明与动态库 162 个 `otgy_*` 导出逐项一致。播放 PCM、设备帧推进、导出取消、六阶段分析回调、原子不覆盖发布、未保存退出和既有全部解码/波形/BPM/Offset/草稿/SLK 黄金均继续通过。Android Debug APK 已使用 SDK 35/36 与 NDK 28.2 完整构建，原生资产覆盖 `armeabi-v7a`、`arm64-v8a` 和 `x86_64`；macOS Debug App 已使用 Xcode 26.6 完整构建并启动，最终签名确认包含 `com.apple.security.files.user-selected.read-write`；iOS/macOS Swift 源码语法解析通过。Windows 与 iOS 真实 SDK 构建继续由阶段 8 CI 验证。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
-- 本机没有完整 Xcode/CocoaPods，也不是 Windows 环境，不能在本机完成 Windows/macOS/iOS 三个平台的真实 SDK 构建；Android Debug APK 已在本机完成构建，工作流继续覆盖其余平台，但远端首次运行结果不属于本地验证证据。
+- 本机已完成 Android Debug APK 与 macOS Debug App 真实构建；当前不是 Windows 环境，也尚未在真实 iOS 设备上验证，工作流继续覆盖其余平台，但远端首次运行结果不属于本地验证证据。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 
 ## 唯一下一步
