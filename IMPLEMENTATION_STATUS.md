@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3：ArrowVortex 兼容联合分析、高精度时序换算和 4/4 校准网格已完成；下一切片计算共享时间线总范围。
+阶段 3：联合分析、高精度时序换算、校准网格和共享时间线范围已完成；下一切片实现首尾与翻页导航计算。
 
 ## 本次范围
 
@@ -61,10 +61,12 @@
 - 高精度换算覆盖默认 `64 行 = 16 拍 = 9.6 秒`、真实未舍入检测值、正负/小数坐标、BPM 零无网格但抽象拍/行仍可用、BPM/Offset 包含式范围、非有限输入、有限溢出和稳定错误。
 - 增加 `generate_timing_grid`，在显式半开秒范围内只枚举非负整数 1/16 行，并复用高精度换算逐行生成未舍入秒数；固定 4/4 的 Measure/Beat/Sixteenth 分类和严格顺序。
 - 网格覆盖默认 `[0, 9.6)` 的 64 行、4 条小节线/12 条其他拍线/48 条细分线、半开边界、真实检测 Offset、非负行、空范围、BPM 零空网格、非法输入、投影溢出、一百万条上限及深复制/移动所有权。
+- 增加 `calculate_timeline_range`，在连续谱面行中统一取固定 `0..64` 四小节基础范围、可选音频结尾、全部事件行和全部 `SHOW-D.rangeEnd` 的最晚位置，同时返回未舍入起止秒数。
+- 时间线范围覆盖四类最大项、多事件/多 Showtime 乱序扫描、音频秒位模式保留、Offset 起点投影、无音频空谱面、BPM 零局部 `100.0` 投影标记且不改权威输入、非法音频/时序/整数行和投影溢出。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、时间线总范围、翻页、播放、SLK、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、首尾/翻页导航、播放、SLK、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -101,6 +103,7 @@
 - `native/av_core/include/av_core/timing/sync_analyzer.hpp`
 - `native/av_core/include/av_core/timing/timing_conversion.hpp`
 - `native/av_core/include/av_core/timing/timing_grid.hpp`
+- `native/av_core/include/av_core/timing/timeline_range.hpp`
 - `native/av_core/include/av_core/waveform/waveform_tile.hpp`
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
@@ -120,6 +123,7 @@
 - `native/av_core/src/timing/tempo_gap.hpp`
 - `native/av_core/src/timing/timing_conversion.cpp`
 - `native/av_core/src/timing/timing_grid.cpp`
+- `native/av_core/src/timing/timeline_range.cpp`
 - `native/av_core/src/waveform/waveform_tile.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
@@ -139,6 +143,7 @@
 - `native/av_core/tests/sync_analyzer_test.cpp`
 - `native/av_core/tests/timing_conversion_test.cpp`
 - `native/av_core/tests/timing_grid_test.cpp`
+- `native/av_core/tests/timeline_range_test.cpp`
 - `native/av_core/tests/version_test.cpp`
 - `native/av_core/tests/waveform_tile_test.cpp`
 - `native/tools/avtool/CMakeLists.txt`
@@ -150,30 +155,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-grid-clean -DBUILD_TESTING=ON
-cmake --build build/native-grid-clean --parallel 2
-ctest --test-dir build/native-grid-clean --output-on-failure
+cmake -S native -B build/native-range-clean -DBUILD_TESTING=ON
+cmake --build build/native-range-clean --parallel 2
+ctest --test-dir build/native-range-clean --output-on-failure
 
-cmake -S native -B build/native-grid-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-grid-asan --parallel 2
-ctest --test-dir build/native-grid-asan --output-on-failure
+cmake -S native -B build/native-range-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-range-asan --parallel 2
+ctest --test-dir build/native-range-asan --output-on-failure
 
-cmake -S native -B build/native-grid-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-grid-asan-ubsan --parallel 2 --target av_core_timing_grid_test
-ctest --test-dir build/native-grid-asan-ubsan -R '^av_core.timing_grid$' --output-on-failure
+cmake -S native -B build/native-range-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-range-asan-ubsan --parallel 2 --target av_core_timeline_range_test
+ctest --test-dir build/native-range-asan-ubsan -R '^av_core.timeline_range$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，20/20 测试通过；全新 AddressSanitizer 构建后 20/20 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.timing_grid` 1/1 通过。默认 `[0, 9.6)` 精确返回行 `0..63` 的 64 条线及 `4/12/48` 分类，半开边界、真实 Offset 相位和 BPM 零空网格均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、高精度换算、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，21/21 测试通过；全新 AddressSanitizer 构建后 21/21 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.timeline_range` 1/1 通过。空工作区精确返回行 `0..64` 与默认秒 `0..9.6`，四类最大项、音频秒位模式、Offset 起点和 BPM 零局部投影均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、高精度换算、校准网格、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的时序网格路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的时间线范围路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-实现共享时间线总范围核心：取四小节基础编辑范围、可选音频结尾、全部非负谱面事件行和全部 `SHOW-D.rangeEnd` 行的最晚投影，BPM 为零只为画布范围使用不持久化的 `100.0` 投影且不生成网格；本切片不实现 ChartDraft 类型、翻页、播放、CLI、C ABI 或 Flutter。
+实现共享时间线导航核心：直接消费 `TimelineRange`，计算跳到开头/末尾和上/下翻页目标；翻页距离为显式可见拍数减一拍，保留精确非吸附位置，只在范围边界限制，并返回四个操作的可用状态。本切片不实现播放、ChartDraft、CLI、C ABI 或 Flutter。
