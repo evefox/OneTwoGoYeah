@@ -2,6 +2,7 @@
 
 add_library(av_core STATIC
   src/chart/chart_draft.cpp
+  src/chart/chart_projection.cpp
   src/chart/chart_validator.cpp
   src/audio/mp3_decoder.cpp
   src/audio/ogg_vorbis_decoder.cpp
