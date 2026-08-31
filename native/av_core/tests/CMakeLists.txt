@@ -539,3 +539,22 @@ else()
 endif()
 
 add_test(NAME av_core.timing_conversion COMMAND av_core_timing_conversion_test)
+
+add_executable(av_core_timing_grid_test
+  timing_grid_test.cpp
+)
+target_link_libraries(av_core_timing_grid_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+
+if(MSVC)
+  target_compile_options(av_core_timing_grid_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_timing_grid_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.timing_grid COMMAND av_core_timing_grid_test)

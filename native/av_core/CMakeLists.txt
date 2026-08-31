@@ -13,6 +13,7 @@ add_library(av_core STATIC
   src/timing/offset_detector.cpp
   src/timing/sync_analyzer.cpp
   src/timing/timing_conversion.cpp
+  src/timing/timing_grid.cpp
   src/waveform/waveform_tile.cpp
   src/version.cpp
 )
