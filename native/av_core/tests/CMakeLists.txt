@@ -617,3 +617,22 @@ else()
 endif()
 
 add_test(NAME av_core.playback_position COMMAND av_core_playback_position_test)
+
+add_executable(av_core_slk_position_test
+  slk_position_test.cpp
+)
+target_link_libraries(av_core_slk_position_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+
+if(MSVC)
+  target_compile_options(av_core_slk_position_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_slk_position_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.slk_position COMMAND av_core_slk_position_test)

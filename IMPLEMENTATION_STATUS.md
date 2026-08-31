@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3 已完成：联合分析、高精度时序、网格、范围、导航和纯播放位置全部落在 `av_core`；下一切片进入阶段 4 的 SLK 位置换算。
+阶段 3 已完成；阶段 4 的 SLK 四列位置换算已完成，下一切片进入严格 SLK 记录解析。
 
 ## 本次范围
 
@@ -67,10 +67,12 @@
 - 导航覆盖小数当前位置/可见拍数、非吸附结果、首尾限制、精确边界状态、可见一拍的零页距禁用、无法继续移动、非法范围/位置/拍数和有限运算溢出。
 - 增加纯 `start_playback`、`advance_playback`、`pause_playback` 位置状态；支持音频前负秒静音时间线、从非空音频末尾开始先回到零、到末尾自动暂停和普通暂停逐位保留位置，不启动设备或读取 PCM。
 - 播放位置覆盖未舍入起点、有限增量、达到/越过末尾、暂停后不推进、零时长、负秒推进到零、无音频、非法时长/光标/增量/状态和稳定错误。
+- 增加 `compose_slk_position`、`decompose_slk_position` 和 `validate_slk_position`，用唯一无符号整数实现生成四列、从总 1/16 行反向分解及严格导入一致性校验。
+- SLK 位置覆盖 beat/sixteenth `0..3` 全部组合、多个 measure、小节边界、`uint64` 最大值分解/重组、分量越界、乘加溢出、第四列前后差一和稳定错误。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK 文本解析/语义/导出、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -103,6 +105,7 @@
 - `native/av_core/include/av_core/audio/pcm16_hash.hpp`
 - `native/av_core/include/av_core/timing/bpm_detector.hpp`
 - `native/av_core/include/av_core/playback/playback_position.hpp`
+- `native/av_core/include/av_core/slk/slk_position.hpp`
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/timing/offset_detector.hpp`
 - `native/av_core/include/av_core/timing/sync_analyzer.hpp`
@@ -117,6 +120,7 @@
 - `native/av_core/src/audio/pcm16.cpp`
 - `native/av_core/src/audio/pcm16_hash.cpp`
 - `native/av_core/src/playback/playback_position.cpp`
+- `native/av_core/src/slk/slk_position.cpp`
 - `native/av_core/src/timing/arrowvortex/`
 - `native/av_core/src/timing/bpm_detector.cpp`
 - `native/av_core/src/timing/bpm_detector_internal.hpp`
@@ -149,6 +153,7 @@
 - `native/av_core/tests/offset_detector_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
 - `native/av_core/tests/playback_position_test.cpp`
+- `native/av_core/tests/slk_position_test.cpp`
 - `native/av_core/tests/sync_analyzer_test.cpp`
 - `native/av_core/tests/timing_conversion_test.cpp`
 - `native/av_core/tests/timing_grid_test.cpp`
@@ -165,30 +170,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-playback-position-clean -DBUILD_TESTING=ON
-cmake --build build/native-playback-position-clean --parallel 2
-ctest --test-dir build/native-playback-position-clean --output-on-failure
+cmake -S native -B build/native-slk-position-clean -DBUILD_TESTING=ON
+cmake --build build/native-slk-position-clean --parallel 2
+ctest --test-dir build/native-slk-position-clean --output-on-failure
 
-cmake -S native -B build/native-playback-position-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-playback-position-asan --parallel 2
-ctest --test-dir build/native-playback-position-asan --output-on-failure
+cmake -S native -B build/native-slk-position-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-slk-position-asan --parallel 2
+ctest --test-dir build/native-slk-position-asan --output-on-failure
 
-cmake -S native -B build/native-playback-position-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-playback-position-asan-ubsan --parallel 2 --target av_core_playback_position_test
-ctest --test-dir build/native-playback-position-asan-ubsan -R '^av_core.playback_position$' --output-on-failure
+cmake -S native -B build/native-slk-position-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-slk-position-asan-ubsan --parallel 2 --target av_core_slk_position_test
+ctest --test-dir build/native-slk-position-asan-ubsan -R '^av_core.slk_position$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，23/23 测试通过；全新 AddressSanitizer 构建后 23/23 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.playback_position` 1/1 通过。未舍入开始/暂停、负秒静音时间线、末尾重启、自然结束和零时长状态均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、高精度换算、校准网格、共享范围、导航、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，24/24 测试通过；全新 AddressSanitizer 构建后 24/24 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.slk_position` 1/1 通过。全部小节内组合、小节边界、`uint64` 最大值和严格一致性错误均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的播放位置路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的 SLK 位置路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-实现 SLK 位置四列换算核心：在固定 4/4 下精确执行 `totalSixteenth = measure * 16 + beat * 4 + sixteenth`，覆盖 beat/sixteenth `0..3`、小节边界、反向分解、整数溢出和两种表示一致性；本切片不读取 SLK 字节、不构造 ChartDraft，也不实现导出、CLI、C ABI 或 Flutter。
+实现严格 SLK 记录解析核心：只接收内存字节，解析受支持的 SYLK 记录与六列谱面数据行，使用现有位置入口拒绝四列不一致，并返回有序底层行值及稳定来源位置错误；本切片不推导 NPC/玩家角色、不构造 ChartDraft，也不实现导出、CLI、C ABI 或 Flutter。

@@ -127,6 +127,14 @@ sixteenth      = totalSixteenth % 4
 
 这里 `/` 表示非负整数除法；`beat` 和 `sixteenth` 的范围都是 `0..3`。导入必须解析并校验该关系；导出必须通过共享转换生成一致的四列数据。如果导入行中的两种表示不一致，则属于解析错误。核心必须返回明确错误，不得修复该行，也不得静默选择其中一种表示。
 
+当前整数权威入口为 `compose_slk_position`、`decompose_slk_position` 和
+`validate_slk_position`。三者都返回完整 `SlkPosition { measure, beat, sixteenth,
+total_sixteenth }`，导出器不能自行拼装第四列。输入与结果使用非负 `uint64`；负号、
+空字段和非十进制文本属于后续解析器错误。组合入口先校验两个分量 `0..3`，再用
+显式上界检查避免 `measure * 16 + ...` 溢出。反向入口对任意 `uint64` 总位置都能
+唯一分解，包括最大值。严格校验入口先执行同一组合逻辑，再逐整数比较第四列；
+不一致返回 `InconsistentTotal`，不返回修复值。
+
 SLK 只保存有序的底层行值，不显式保存 NPC/玩家角色、`DrillGroup` 标识、`DanceMoveDrill` 标识或 Showtime 关联。因此语义模型包含的信息严格多于交换格式。
 
 SLK 块识别和角色分配属于 `av_core` 的语义分析，不属于底层行解析器。在成品谱面中，共享谱面模型把聚合对象命名为 `DrillGroup`（演练组）。一个成品 `DrillGroup` 由两个紧邻且完全相同的块组成；每个块包含一个 `[c & 非0]`、一个或多个 `[n & 0]`，以及零个或一个结尾 `[s & 0]`。整份谱面的分析结果显式表示以下有序角色：
