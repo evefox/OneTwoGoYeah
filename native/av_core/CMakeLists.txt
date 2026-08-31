@@ -8,6 +8,7 @@ add_library(av_core STATIC
   src/playback/playback_position.cpp
   src/slk/slk_dance_move_drill_analyzer.cpp
   src/slk/slk_drill_group_analyzer.cpp
+  src/slk/slk_import.cpp
   src/slk/slk_showtime_analyzer.cpp
   src/slk/slk_position.cpp
   src/slk/slk_parser.cpp

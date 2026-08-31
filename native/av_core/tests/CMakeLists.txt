@@ -742,3 +742,25 @@ endif()
 add_test(NAME av_core.slk_showtime_analyzer
   COMMAND av_core_slk_showtime_analyzer_test
 )
+
+add_executable(av_core_slk_import_test
+  slk_import_test.cpp
+)
+target_link_libraries(av_core_slk_import_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_slk_import_test PRIVATE
+  OTGY_EXAMPLE_DIR="${OTGY_EXAMPLE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_slk_import_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_slk_import_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.slk_import COMMAND av_core_slk_import_test)

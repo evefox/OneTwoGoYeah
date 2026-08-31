@@ -191,6 +191,8 @@ SLK `c` 值的编码、解码和校验都由共享核心负责：
 
 分析器继续从 `d` 后第一行解释下一普通阶段，最终只接受唯一末行 `[r & 0]` 并把它作为已消费的格式边界返回，不创建领域事件。空谱面、空普通阶段、缺少 Showtime、分组或舞步分析失败、`d` 数量/值不匹配、缺少或非末行边界均原子失败。失败携带绝对来源行、sheet row、Showtime/阶段组/`SHOW-D` 索引及下层稳定错误，不暴露任何部分 Showtime。
 
+严格字节事务入口为 `import_finished_slk(bytes, byteCount)`。它不增加第三套格式逻辑，只顺序调用 `parse_slk_records` 和 `analyze_slk_showtimes`；底层记录仅作为事务内临时值存在。两层全部成功后才发布自有 `FinishedSlkDocument`，其中完整语义不引用输入字节或临时记录。失败明确区分 `RecordParseFailed` 与 `SemanticAnalysisFailed`，只填充对应下层结构化错误，另一层错误保持 `None`，且结果不包含部分文档。
+
 每个 Showtime 舞步引用的派生时长由该 `SHOW-D` 自身的 `showNCount` 计算：`1..6` 对应一小节，`7` 及以上对应两小节。在固定 4/4、每拍四个 1/16 的谱面坐标中分别为 16 和 32 个 1/16 位置。该计算只在 `av_core` 实现，UI、C ABI 和导出器只消费结果；原生项目不得再保存一个可能与 `showNCount` 冲突的可编辑时长副本。修改所关联舞步的当前 `moveNCount` 不得回写已有 `SHOW-D.showNCount`，因此也不得自动改变其位置或展示范围。生成时无法取得舞步数量则不能生成对应的 `SHOW-D`；生成后的不匹配由成品校验报告。
 
 `SHOW-D1` 和 `SHOW-D+` 是从 `SHOW-C` 后连续 `SHOW-D` 序列派生的查询角色，不进入持久化事件类型。核心根据 `dRow` 所在小节起点与派生一/二小节时长返回左闭右开的展示范围 `[rangeStart, rangeEnd)`。位置验证只允许 `SHOW-D1` 位于小节线或小节线 +1；所属 `SHOW-C` 不在小节线时进一步限制为小节线。`SHOW-D+` 始终位于小节线，并且不能落入前一个 `SHOW-D` 的展示范围。后续位置统一等于前一展示范围的 `rangeEnd`。

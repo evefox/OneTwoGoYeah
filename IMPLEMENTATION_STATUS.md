@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3 已完成；阶段 4 已完成 SLK 位置、底层记录、`DrillGroup`、`DanceMoveDrill` 和完整 Showtime 语义分析，下一切片建立严格字节导入边界。
+阶段 3 已完成；阶段 4 已完成严格成品 SLK 的位置、记录、全部语义及字节导入事务，下一切片投影原生 `ChartDraft`。
 
 ## 本次范围
 
@@ -80,10 +80,12 @@
 - 增加 `analyze_slk_showtimes(records)`，从完整底层行逐阶段复用唯一分组/舞步入口，把连续 `d` 与有序 `DanceMoveDrill` 一一关联并最终消费末行 `[r & 0]`。
 - Showtime/`SHOW-D` 分别以自身 sheet row 作为同文档稳定标识，每个 `SHOW-D` 自有保存来源行、阶段内索引、演练引用和已校验 `showNCount`；规范/兼容文件分别关联 `6+11` 与 `8+9` 个引用。
 - 完整语义测试覆盖多阶段、稳定映射、边界与所有权，以及空阶段、缺少 Showtime、下层失败、`d` 数量/值、缺失/错误边界和空输入的结构化原子错误。
+- 增加 `import_finished_slk(bytes)` 原子入口，只编排现有记录解析与完整语义分析；全部成功才发布自有 `FinishedSlkDocument`，失败明确区分解析/语义层且不暴露部分值。
+- 严格导入测试覆盖两份真实文件、输入清除、深复制/移动、空/空指针/损坏头，以及语法合法的空谱面和缺失 `d`，并校验未使用下层错误保持 `None`。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK 字节导入事务/导出、`ChartDraft`、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK 导出、`ChartDraft`、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -121,6 +123,7 @@
 - `native/av_core/include/av_core/slk/slk_drill_group_analyzer.hpp`
 - `native/av_core/include/av_core/slk/slk_dance_move_drill_analyzer.hpp`
 - `native/av_core/include/av_core/slk/slk_showtime_analyzer.hpp`
+- `native/av_core/include/av_core/slk/slk_import.hpp`
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/timing/offset_detector.hpp`
 - `native/av_core/include/av_core/timing/sync_analyzer.hpp`
@@ -140,6 +143,7 @@
 - `native/av_core/src/slk/slk_drill_group_analyzer.cpp`
 - `native/av_core/src/slk/slk_dance_move_drill_analyzer.cpp`
 - `native/av_core/src/slk/slk_showtime_analyzer.cpp`
+- `native/av_core/src/slk/slk_import.cpp`
 - `native/av_core/src/timing/arrowvortex/`
 - `native/av_core/src/timing/bpm_detector.cpp`
 - `native/av_core/src/timing/bpm_detector_internal.hpp`
@@ -177,6 +181,7 @@
 - `native/av_core/tests/slk_drill_group_analyzer_test.cpp`
 - `native/av_core/tests/slk_dance_move_drill_analyzer_test.cpp`
 - `native/av_core/tests/slk_showtime_analyzer_test.cpp`
+- `native/av_core/tests/slk_import_test.cpp`
 - `native/av_core/tests/sync_analyzer_test.cpp`
 - `native/av_core/tests/timing_conversion_test.cpp`
 - `native/av_core/tests/timing_grid_test.cpp`
@@ -193,30 +198,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-slk-showtime-clean -DBUILD_TESTING=ON
-cmake --build build/native-slk-showtime-clean --parallel 2
-ctest --test-dir build/native-slk-showtime-clean --output-on-failure
+cmake -S native -B build/native-slk-import-clean -DBUILD_TESTING=ON
+cmake --build build/native-slk-import-clean --parallel 2
+ctest --test-dir build/native-slk-import-clean --output-on-failure
 
-cmake -S native -B build/native-slk-showtime-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-slk-showtime-asan --parallel 2
-ctest --test-dir build/native-slk-showtime-asan --output-on-failure
+cmake -S native -B build/native-slk-import-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-slk-import-asan --parallel 2
+ctest --test-dir build/native-slk-import-asan --output-on-failure
 
-cmake -S native -B build/native-slk-showtime-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-slk-showtime-asan-ubsan --parallel 2 --target av_core_slk_showtime_analyzer_test
-ctest --test-dir build/native-slk-showtime-asan-ubsan -R '^av_core.slk_showtime_analyzer$' --output-on-failure
+cmake -S native -B build/native-slk-import-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-slk-import-asan-ubsan --parallel 2 --target av_core_slk_import_test
+ctest --test-dir build/native-slk-import-asan-ubsan -R '^av_core.slk_import$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，28/28 测试通过；全新 AddressSanitizer 构建后 28/28 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.slk_showtime_analyzer` 1/1 通过。规范与兼容示例分别还原两个 Showtime、`6+11` 与 `8+9` 个有序引用及唯一文件边界；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、SLK 解析/位置/分组/舞步、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，29/29 测试通过；全新 AddressSanitizer 构建后 29/29 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.slk_import` 1/1 通过。两份真实文件经单一字节事务得到完整自有语义，解析/语义失败层级和无部分结果均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、SLK 分层语义、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的 Showtime 完整语义路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的严格字节导入路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-建立严格成品 SLK 字节导入边界：用一个只接收内存字节的事务入口顺序调用现有底层解析与完整 Showtime 语义分析，统一区分解析/语义错误并仅在两层全部成功时返回自有成品语义快照；失败不得暴露部分记录或部分语义。本切片仍不构造 `ChartDraft`，也不实现导出、C ABI 或 Flutter。
+建立原生 `ChartDraft` 的只读导入投影：把已成功的 `FinishedSlkDocument` 转换为不含 `[r & 0]` 的显式 NPC/玩家/Showtime 事件、稳定标识、`DrillGroup`/`DanceMoveDrill`/Showtime 关系和 `SHOW-D.showNCount`，并证明两份 SLK 的角色与关联不再依赖重扫原始行。本切片不实现编辑命令、持久化、校验器、导出、C ABI 或 Flutter。
