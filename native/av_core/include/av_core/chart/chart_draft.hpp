@@ -119,4 +119,9 @@ class ChartDraft final {
   std::vector<ChartShowtime> showtimes_;
 };
 
+/// Exact semantic equality used by persistence, dirty-state and history tests.
+/// Container order is part of the encoded draft snapshot.
+[[nodiscard]] bool chart_drafts_equal(const ChartDraft& left,
+                                      const ChartDraft& right) noexcept;
+
 }  // namespace otgy::core
