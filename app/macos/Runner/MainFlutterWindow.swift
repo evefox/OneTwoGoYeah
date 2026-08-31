@@ -87,13 +87,53 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
   }
 }
 
+final class PlaybackSessionState {
+  private(set) var generation: UInt64 = 0
+  private(set) var totalFrames: AVAudioFramePosition = 0
+  private(set) var playedFrames: AVAudioFramePosition = 0
+  private(set) var playing = false
+
+  @discardableResult
+  func start(totalFrames: AVAudioFramePosition) -> UInt64 {
+    generation &+= 1
+    self.totalFrames = totalFrames
+    playedFrames = 0
+    playing = true
+    return generation
+  }
+
+  func updatePlayedFrames(_ frames: AVAudioFramePosition) {
+    playedFrames = min(max(0, frames), totalFrames)
+  }
+
+  func pause() {
+    generation &+= 1
+    playing = false
+  }
+
+  @discardableResult
+  func complete(generation: UInt64, frameCount: AVAudioFramePosition) -> Bool {
+    guard generation == self.generation, playing else {
+      return false
+    }
+    updatePlayedFrames(frameCount)
+    playing = false
+    return true
+  }
+
+  func reset() {
+    generation &+= 1
+    totalFrames = 0
+    playedFrames = 0
+    playing = false
+  }
+}
+
 private final class PcmPlaybackOutput {
   private let engine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
+  private let session = PlaybackSessionState()
   private var buffer: AVAudioPCMBuffer?
-  private var totalFrames: AVAudioFramePosition = 0
-  private var playedFrames: AVAudioFramePosition = 0
-  private var playing = false
 
   init(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(
@@ -125,9 +165,7 @@ private final class PcmPlaybackOutput {
       case "query":
         result(state())
       case "pause":
-        player.pause()
-        playing = false
-        result(state())
+        result(pause())
       case "dispose":
         dispose()
         result(nil)
@@ -165,36 +203,48 @@ private final class PcmPlaybackOutput {
     engine.connect(player, to: engine.mainMixerNode, format: format)
     try engine.start()
     buffer = nextBuffer
-    totalFrames = AVAudioFramePosition(frameCount)
-    playedFrames = 0
-    playing = true
+    let scheduledFrames = AVAudioFramePosition(frameCount)
+    let generation = session.start(totalFrames: scheduledFrames)
     player.scheduleBuffer(nextBuffer) { [weak self] in
       DispatchQueue.main.async {
-        self?.playedFrames = self?.totalFrames ?? 0
-        self?.playing = false
+        self?.session.complete(
+          generation: generation,
+          frameCount: scheduledFrames
+        )
       }
     }
     player.play()
   }
 
   private func state() -> [String: Any] {
-    if let nodeTime = player.lastRenderTime,
+    if session.playing,
+       let nodeTime = player.lastRenderTime,
        let playerTime = player.playerTime(forNodeTime: nodeTime) {
-      playedFrames = min(max(0, playerTime.sampleTime), totalFrames)
+      session.updatePlayedFrames(playerTime.sampleTime)
     }
-    return ["playedFrames": playedFrames, "playing": playing && player.isPlaying]
+    return [
+      "playedFrames": session.playedFrames,
+      "playing": session.playing && player.isPlaying,
+    ]
+  }
+
+  private func pause() -> [String: Any] {
+    _ = state()
+    session.pause()
+    player.stop()
+    engine.stop()
+    buffer = nil
+    return ["playedFrames": session.playedFrames, "playing": false]
   }
 
   private func dispose() {
+    session.reset()
     player.stop()
     if engine.attachedNodes.contains(player) {
       engine.detach(player)
     }
     engine.stop()
     buffer = nil
-    totalFrames = 0
-    playedFrames = 0
-    playing = false
   }
 }
 

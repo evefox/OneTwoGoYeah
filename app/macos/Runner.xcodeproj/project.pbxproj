@@ -398,7 +398,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.onetwogoyeah.oneTwoGoYeah.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/one_two_go_yeah.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/one_two_go_yeah";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTwoGoYeah.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OneTwoGoYeah";
 			};
 			name = Debug;
 		};
@@ -412,7 +412,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.onetwogoyeah.oneTwoGoYeah.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/one_two_go_yeah.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/one_two_go_yeah";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTwoGoYeah.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OneTwoGoYeah";
 			};
 			name = Release;
 		};
@@ -426,7 +426,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.onetwogoyeah.oneTwoGoYeah.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/one_two_go_yeah.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/one_two_go_yeah";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OneTwoGoYeah.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OneTwoGoYeah";
 			};
 			name = Profile;
 		};

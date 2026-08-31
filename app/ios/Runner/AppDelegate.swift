@@ -70,6 +70,7 @@ private final class PcmPlaybackOutput: NSObject {
   private var totalFrames: AVAudioFramePosition = 0
   private var playedFrames: AVAudioFramePosition = 0
   private var playing = false
+  private var generation: UInt64 = 0
 
   init(messenger: FlutterBinaryMessenger) {
     super.init()
@@ -109,9 +110,7 @@ private final class PcmPlaybackOutput: NSObject {
       case "query":
         result(state())
       case "pause":
-        player.pause()
-        playing = false
-        result(state())
+        result(pause())
       case "dispose":
         dispose()
         result(nil)
@@ -155,29 +154,45 @@ private final class PcmPlaybackOutput: NSObject {
     totalFrames = AVAudioFramePosition(frameCount)
     playedFrames = 0
     playing = true
+    let scheduledGeneration = generation
+    let scheduledFrames = totalFrames
     player.scheduleBuffer(nextBuffer) { [weak self] in
       DispatchQueue.main.async {
-        self?.playedFrames = self?.totalFrames ?? 0
-        self?.playing = false
+        guard let self, self.generation == scheduledGeneration else {
+          return
+        }
+        self.playedFrames = scheduledFrames
+        self.playing = false
       }
     }
     player.play()
   }
 
   private func state() -> [String: Any] {
-    if let nodeTime = player.lastRenderTime,
+    if playing,
+       let nodeTime = player.lastRenderTime,
        let playerTime = player.playerTime(forNodeTime: nodeTime) {
       playedFrames = min(max(0, playerTime.sampleTime), totalFrames)
     }
     return ["playedFrames": playedFrames, "playing": playing && player.isPlaying]
   }
 
-  @objc private func interrupted() {
-    player.pause()
+  private func pause() -> [String: Any] {
+    _ = state()
+    generation &+= 1
     playing = false
+    player.stop()
+    engine.stop()
+    buffer = nil
+    return ["playedFrames": playedFrames, "playing": false]
+  }
+
+  @objc private func interrupted() {
+    _ = pause()
   }
 
   private func dispose() {
+    generation &+= 1
     player.stop()
     if engine.attachedNodes.contains(player) {
       engine.detach(player)

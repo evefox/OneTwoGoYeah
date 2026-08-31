@@ -210,6 +210,50 @@ void main() {
     );
   });
 
+  test(
+    'audio analysis runs through the controller background isolate',
+    () async {
+      final audio = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).readAsBytesSync();
+      await controller.loadAudioBytes(audio, 'fixture.mp3');
+
+      final candidates = await controller.analyzeAudio();
+
+      expect(candidates, isNotEmpty);
+      expect(candidates.first.bpm, 120);
+      expect(controller.analysisCandidates, same(candidates));
+      expect(controller.analysisStage, SyncAnalysisStage.finalizingResults);
+    },
+  );
+
+  testWidgets('late device query cannot stop replacement playback', (
+    tester,
+  ) async {
+    controller.dispose();
+    final output = _FakePlaybackOutput();
+    controller = EditorController(playbackOutput: output);
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    await controller.togglePlayback();
+
+    final staleQuery = Completer<PlaybackDeviceState>();
+    output.queryCompleter = staleQuery;
+    await tester.pump(const Duration(milliseconds: 40));
+    await controller.pausePlayback();
+    await controller.togglePlayback();
+
+    staleQuery.complete(
+      PlaybackDeviceState(playedFrames: output.sampleRate ~/ 2, playing: false),
+    );
+    await tester.pump();
+
+    expect(controller.isPlaying, isTrue);
+    await controller.pausePlayback();
+  });
+
   testWidgets('device interruption preserves its exact playback frame', (
     tester,
   ) async {
@@ -325,6 +369,7 @@ final class _FakePlaybackOutput implements PlaybackOutput {
   int playedFrames = 0;
   bool playing = false;
   bool failQuery = false;
+  Completer<PlaybackDeviceState>? queryCompleter;
 
   @override
   Future<void> start({
@@ -345,6 +390,11 @@ final class _FakePlaybackOutput implements PlaybackOutput {
 
   @override
   Future<PlaybackDeviceState> query() async {
+    final pending = queryCompleter;
+    if (pending != null) {
+      queryCompleter = null;
+      return pending.future;
+    }
     if (failQuery) {
       throw StateError('device interrupted');
     }

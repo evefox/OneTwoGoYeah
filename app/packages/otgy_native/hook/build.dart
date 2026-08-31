@@ -100,6 +100,9 @@ final _apiSources = <String>[
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
+    if (!input.config.buildCodeAssets) {
+      return;
+    }
     final isWindows = input.config.code.targetOS == OS.windows;
     final cFlags = isWindows
         ? const <String>['/W3']

@@ -23,6 +23,29 @@ final class AudioExportCancelled implements Exception {
   const AudioExportCancelled();
 }
 
+final class _BackgroundAudioAnalysis {
+  const _BackgroundAudioAnalysis({
+    required this.source,
+    required this.extension,
+    required this.stagePort,
+  });
+
+  final Uint8List source;
+  final String extension;
+  final SendPort stagePort;
+
+  List<AudioAnalysisCandidate> call() {
+    final audio = OtgyNative.decodeAudio(source, extension);
+    try {
+      return audio
+          .analyzeSync(onStage: (stage) => stagePort.send(stage.value))
+          .candidates;
+    } finally {
+      audio.dispose();
+    }
+  }
+}
+
 final class EditorNotice {
   const EditorNotice(this.message, {this.kind = EditorNoticeKind.info});
 
@@ -77,6 +100,7 @@ class EditorController extends ChangeNotifier {
   int _playbackFrameCount = 0;
   int _playbackPlayedFrames = 0;
   bool _playbackPollActive = false;
+  int _playbackGeneration = 0;
   AudioExportCancellation? _audioExportCancellation;
   AudioExportProgress? _audioExportProgress;
 
@@ -326,18 +350,13 @@ class EditorController extends ChangeNotifier {
     _analysisStage = SyncAnalysisStage.detectingOnsets;
     _setBusy(true);
     final future =
-        Isolate.run(() {
-              final audio = OtgyNative.decodeAudio(source, extension);
-              try {
-                return audio
-                    .analyzeSync(
-                      onStage: (stage) => stageSendPort.send(stage.value),
-                    )
-                    .candidates;
-              } finally {
-                audio.dispose();
-              }
-            })
+        Isolate.run(
+              _BackgroundAudioAnalysis(
+                source: source,
+                extension: extension,
+                stagePort: stageSendPort,
+              ).call,
+            )
             .then((candidates) {
               if (version == _audioVersion) {
                 _analysisCandidates = List.unmodifiable(candidates);
@@ -638,15 +657,18 @@ class EditorController extends ChangeNotifier {
       _playbackFrameCount = playback.frameCount;
       _playbackPlayedFrames = 0;
       _isPlaying = true;
+      final generation = ++_playbackGeneration;
       _playbackTimer?.cancel();
       _playbackTimer = Timer.periodic(
         const Duration(milliseconds: 33),
-        (_) => unawaited(_pollPlayback()),
+        (_) => unawaited(_pollPlayback(generation)),
       );
       notifyListeners();
     } on Object {
+      _playbackGeneration++;
       _isPlaying = false;
       _playbackStart = null;
+      unawaited(_playbackOutput.dispose());
       showNotice('无法启动音频播放', error: true);
     }
   }
@@ -655,23 +677,38 @@ class EditorController extends ChangeNotifier {
     if (!_isPlaying) {
       return;
     }
+    final generation = _playbackGeneration;
     try {
       final state = await _playbackOutput.pause();
+      if (generation != _playbackGeneration) {
+        return;
+      }
       _finishPlaybackAt(state.playedFrames, forcePause: true);
     } on Object {
+      if (generation != _playbackGeneration) {
+        return;
+      }
       _finishPlaybackAt(_playbackPlayedFrames, forcePause: true);
     }
   }
 
-  Future<void> _pollPlayback() async {
-    if (!_isPlaying || _playbackPollActive) {
+  Future<void> _pollPlayback(int generation) async {
+    if (!_isPlaying ||
+        generation != _playbackGeneration ||
+        _playbackPollActive) {
       return;
     }
     _playbackPollActive = true;
     try {
       final state = await _playbackOutput.query();
+      if (generation != _playbackGeneration) {
+        return;
+      }
       _finishPlaybackAt(state.playedFrames, forcePause: !state.playing);
     } on Object {
+      if (generation != _playbackGeneration) {
+        return;
+      }
       _finishPlaybackAt(_playbackPlayedFrames, forcePause: true);
       showNotice('音频输出已中断', error: true);
     } finally {
@@ -699,6 +736,7 @@ class EditorController extends ChangeNotifier {
       _playbackTimer = null;
       _playbackStart = null;
       _isPlaying = false;
+      _playbackGeneration++;
     }
     notifyListeners();
   }

@@ -15,6 +15,9 @@
 - 新增共享 `render_playback_pcm` 与按设备帧推进，四平台分别用 Android `AudioTrack`、Apple `AVAudioEngine` 和 Windows `waveOut` 输出；暂停、自然结束、焦点或设备中断保留最后确认帧且不自动续播。
 - 新增线程安全 C ABI 音频导出取消句柄和跨 isolate 协作取消；保存阶段继续全局门控，临时文件只通过 Android/POSIX/Windows 原子不替换硬链接发布，同名或并发冲突选择最小 `_2/_3` 后缀。
 - 新增阶段 8 多平台 CI，覆盖原生 Ubuntu/macOS/Windows、Flutter Android/Windows/macOS/iOS 构建，以及 Dart FFI/Flutter 分析和测试。
+- 修复 Flutter 后台联合分析闭包捕获不可发送 `ReceivePort` 导致 BPM/Offset 分析未启动的问题；后台 isolate 回归现直接取得真实候选和六阶段终态。
+- 修复 Apple 播放暂停只挂起节点以及旧 buffer/旧设备查询回调污染下一次播放的问题；暂停现保留实际帧后停止输出，Flutter 与 Apple 适配层都以播放代次丢弃过期结果，macOS Runner 测试锁定替代播放状态。
+- 修复 Dart 原生资产构建钩子在非代码资产阶段读取 `HookConfig.code` 的失败，macOS 调试运行与 Xcode Runner 测试均可完成构建。
 
 - 增加稳定实施计划和可跨会话读取的状态文件。
 - 增加 Git 忽略与 SLK 二进制属性规则。
