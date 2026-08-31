@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3：ArrowVortex 兼容起音检测已完成；下一切片继续 BPM 候选检测与排序，之后再进入 Offset 检测和时序。
+阶段 3：ArrowVortex 兼容起音检测以及 BPM 候选计算、fitness 和排序已完成；下一切片继续 Offset 检测，之后进入时序。
 
 ## 本次范围
 
@@ -48,6 +48,9 @@
 - 在 `av_core` 私有固定 ArrowVortex Aubio/Ooura FFT/FindOnsets 最小源码切片，公开 `detect_onsets(Pcm16)` 直接 C++ 入口；固定 256 帧窗口、1024 缓冲、`complex` 方法和实际联合分析使用的单线程分支，不公开线程或算法配置。
 - 规范 PCM 按 `(float)((int)left + (int)right) / 65536.0f` 精确混音，不重采样；起音结果拥有 `uint64` PCM 帧索引和未舍入 binary64 strength，空/短 PCM 返回空序列，参考 `int` 范围及分配失败返回稳定错误且不暴露部分序列。
 - 增加原始双声道 PCM 的单起音和重复片段派生 PCM 的六起音独立黄金；逐项精确比较位置和 strength 位模式，并覆盖空、短、静音、左右交换、保持左右和的混音变换、范围错误、错误文本及深复制/移动所有权。
+- 增加 `detect_bpm_candidates(Pcm16)` 直接 C++ 入口，调用唯一的起音实现并按参考只重算前 100 个起音 strength；固定 `89..205` BPM、interval 粗扫/精扫、多项式归一化、fitness 稳定排序、重复/倍频去除、整数吸附和前三名截断，不计算 Offset。
+- 把规范 PCM 左右整数和除以 `65536.0f` 的兼容混音提取为起音与 BPM 共用的单一私有函数；独立参考确认 BPM 粗扫使用 1/2/8/16 线程时结果逐字节相同，核心固定串行项目顺序以消除硬件并发数输入。
+- 增加单起音默认 `120/1.0` 与六起音三候选独立黄金，逐位比较未舍入 BPM、fitness 和顺序；覆盖最多三名、降序、空/短/静音、共享混音、低采样率环形窗口保护、参考整数上限、稳定错误及深复制/移动所有权。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
 - 暂不实现波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
@@ -81,6 +84,7 @@
 - `native/av_core/include/av_core/audio/ogg_vorbis_decoder.hpp`
 - `native/av_core/include/av_core/audio/pcm16.hpp`
 - `native/av_core/include/av_core/audio/pcm16_hash.hpp`
+- `native/av_core/include/av_core/timing/bpm_detector.hpp`
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/waveform/waveform_tile.hpp`
 - `native/av_core/include/av_core/version.hpp`
@@ -89,10 +93,14 @@
 - `native/av_core/src/audio/pcm16.cpp`
 - `native/av_core/src/audio/pcm16_hash.cpp`
 - `native/av_core/src/timing/arrowvortex/`
+- `native/av_core/src/timing/bpm_detector.cpp`
 - `native/av_core/src/timing/onset_detector.cpp`
+- `native/av_core/src/timing/pcm_mix.hpp`
 - `native/av_core/src/waveform/waveform_tile.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
+- `native/av_core/tests/bpm_detector_test.cpp`
+- `native/av_core/tests/fixtures/bpm/`
 - `native/av_core/tests/fixtures/mp3/`
 - `native/av_core/tests/fixtures/ogg_vorbis/`
 - `native/av_core/tests/fixtures/onset/`
@@ -112,30 +120,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-onset-clean -DBUILD_TESTING=ON
-cmake --build build/native-onset-clean --parallel 2
-ctest --test-dir build/native-onset-clean --output-on-failure
+cmake -S native -B build/native-bpm-clean -DBUILD_TESTING=ON
+cmake --build build/native-bpm-clean --parallel 2
+ctest --test-dir build/native-bpm-clean --output-on-failure
 
-cmake -S native -B build/native-onset-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-onset-asan --parallel 2
-ctest --test-dir build/native-onset-asan --output-on-failure
+cmake -S native -B build/native-bpm-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-bpm-asan --parallel 2
+ctest --test-dir build/native-bpm-asan --output-on-failure
 
-cmake -S native -B build/native-onset-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-onset-asan-ubsan --parallel 2 --target av_core_onset_detector_test
-ctest --test-dir build/native-onset-asan-ubsan -R '^av_core.onset_detector$' --output-on-failure
+cmake -S native -B build/native-bpm-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-bpm-asan-ubsan --parallel 2 --target av_core_bpm_detector_test
+ctest --test-dir build/native-bpm-asan-ubsan -R '^av_core.bpm_detector$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，15/15 测试通过；全新 AddressSanitizer 构建后 15/15 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.onset_detector` 1/1 通过。原始 11025 Hz 双声道 PCM 的起音记录与独立参考捕获逐字节相同，位置为 `992`，16 字节 SHA-256 为 `ee9c8105536060b3a64f3ee3918a207e110c110ddeb6a3d39f8b5b323294d017`；32768 帧派生 PCM 精确得到 `992/6112/11232/16352/21472/26592`，96 字节 SHA-256 为 `a7d339e0824edc1e4540ef128796839e3ebe9bf4880982978c42738a96a0e145`，全部 strength 位模式为精确 binary64 `1.0`。既有解码、PCM 哈希、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，16/16 测试通过；全新 AddressSanitizer 构建后 16/16 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.bpm_detector` 1/1 通过。单起音 PCM 精确返回默认 `120.0/1.0`，16 字节候选 SHA-256 为 `b4a9748d0815a3fcd8cd8ad086f64dced7bc024c8893ecfc696e552aa3983af6`；六起音派生 PCM 依次返回 `129.24970691676435/0.0089304293574241252`、`129.50274079874706/0.0089239658120640712`、`129.0/0.0088604295138801949`，48 字节 SHA-256 为 `3738124e87bbeedf557e2e94d01505c67fe03b87a2c9366c16b6974324757c0e`。独立参考的 1/2/8/16 线程捕获逐字节一致；既有解码、PCM 哈希、起音、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的起音检测路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的 BPM 候选路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-从固定 ArrowVortex `FindTempo.cpp` 提取消费起音序列的 BPM 候选计算与兼容排序，先定义直接 C++ 入口、稳定错误和独立黄金候选；本切片不实现 Offset 检测、600 秒应用层范围、CLI、C ABI 或 Flutter。
+从固定 ArrowVortex `FindTempo.cpp` 提取针对每个 BPM 候选的基础 Offset、offbeat 比较和兼容符号边界，先定义直接 C++ 入口、稳定错误及独立黄金；本切片不实现 600 秒应用层范围、CLI、C ABI 或 Flutter。

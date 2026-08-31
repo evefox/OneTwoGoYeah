@@ -5,6 +5,7 @@ add_library(av_core STATIC
   src/audio/ogg_vorbis_decoder.cpp
   src/audio/pcm16.cpp
   src/audio/pcm16_hash.cpp
+  src/timing/bpm_detector.cpp
   src/timing/arrowvortex/Aubio.cpp
   src/timing/arrowvortex/FFT.cpp
   src/timing/arrowvortex/FindOnsets.cpp
@@ -39,6 +40,10 @@ else()
     src/timing/arrowvortex/FindOnsets.cpp
     PROPERTIES COMPILE_OPTIONS
       "-Wno-write-strings;-Wno-register;-Wno-unknown-pragmas;-Wno-unused-function;-Wno-unused-parameter;-Wno-unused-but-set-variable"
+  )
+  set_source_files_properties(
+    src/timing/bpm_detector.cpp
+    PROPERTIES COMPILE_OPTIONS "-Wno-reorder"
   )
 endif()
 

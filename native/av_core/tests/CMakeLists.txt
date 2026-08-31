@@ -372,3 +372,49 @@ else()
 endif()
 
 add_test(NAME av_core.onset_detector COMMAND av_core_onset_detector_test)
+
+set(OTGY_BPM_FIXTURE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/bpm"
+)
+
+function(otgy_assert_bpm_fixture_sha256 file_name expected_sha256)
+  file(SHA256 "${OTGY_BPM_FIXTURE_DIR}/${file_name}" actual_sha256)
+  if(NOT actual_sha256 STREQUAL expected_sha256)
+    message(FATAL_ERROR
+      "Unexpected SHA-256 for BPM fixture ${file_name}: ${actual_sha256}"
+    )
+  endif()
+endfunction()
+
+otgy_assert_bpm_fixture_sha256(
+  generated_stereo_11025.bpm_candidates
+  b4a9748d0815a3fcd8cd8ad086f64dced7bc024c8893ecfc696e552aa3983af6
+)
+otgy_assert_bpm_fixture_sha256(
+  generated_repeated_stereo_11025.bpm_candidates
+  3738124e87bbeedf557e2e94d01505c67fe03b87a2c9366c16b6974324757c0e
+)
+
+add_executable(av_core_bpm_detector_test
+  bpm_detector_test.cpp
+)
+target_link_libraries(av_core_bpm_detector_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_bpm_detector_test PRIVATE
+  OTGY_BPM_FIXTURE_DIR="${OTGY_BPM_FIXTURE_DIR}"
+  OTGY_MP3_FIXTURE_DIR="${OTGY_MP3_FIXTURE_DIR}"
+  OTGY_ONSET_FIXTURE_DIR="${OTGY_ONSET_FIXTURE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_bpm_detector_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_bpm_detector_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.bpm_detector COMMAND av_core_bpm_detector_test)

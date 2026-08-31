@@ -2,6 +2,8 @@
 
 #include "av_core/timing/onset_detector.hpp"
 
+#include "pcm_mix.hpp"
+
 #include <Editor/FindOnsets.h>
 
 #include <algorithm>
@@ -63,10 +65,7 @@ OnsetDetectionResult detect_onsets(const Pcm16& pcm) noexcept {
     const auto* left = pcm.channel_data(PcmChannel::Left);
     const auto* right = pcm.channel_data(PcmChannel::Right);
     for (std::size_t frame = 0U; frame < pcm.frame_count(); ++frame) {
-      mono[frame] =
-          static_cast<float>(static_cast<int>(left[frame]) +
-                             static_cast<int>(right[frame])) /
-          65'536.0F;
+      mono[frame] = detail::mix_pcm16_frame(left[frame], right[frame]);
     }
 
     Vector<Vortex::Onset> reference_onsets;
