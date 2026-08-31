@@ -190,6 +190,10 @@ void test_unsplit_and_split_drills_mapping_and_ownership() {
   assert(split.groups[2].segment_n_count == 3U);
   assert(split.groups[0].source_group_index == 1U);
   assert(split.groups[2].drill_group_index == 2U);
+  assert(split.groups[0].npc_c_row.row.type == SlkRowType::C);
+  assert(split.groups[0].npc_c_row.role == SlkDrillBlockRole::Npc);
+  assert(split.groups[0].player_c_row.row.type == SlkRowType::C);
+  assert(split.groups[0].player_c_row.role == SlkDrillBlockRole::Player);
   assert(split.npc.rows.size() == 9U);
   assert(split.player.rows.size() == 9U);
   assert(split.npc.rows.back().row.row.type == SlkRowType::S);

@@ -301,6 +301,8 @@ Showtime 测试必须验证 `[c & 0]` 开始对应于紧邻其前有序 `DanceMo
 
 严格字节导入事务测试必须直接把两份仓库文件传给 `import_finished_slk`，并与分层核心得到的 Showtime 数量、引用数量和边界一致。清除输入缓冲后结果仍须有效，深复制/移动必须保持独立所有权。空输入、空指针和损坏头只返回 `RecordParseFailed` 及精确 `SlkParseError`；语法合法但空谱面或 `d` 缺失的文档只返回 `SemanticAnalysisFailed` 及精确 `SlkShowtimeError`。未使用的下层错误必须为 `None`，所有失败都不得暴露部分 `FinishedSlkDocument`。
 
+严格导入到原生草稿的投影测试必须证明：规范 SLK 生成 `408` 个显式 NPC/玩家事件、`2` 个 Showtime 起点、`17` 个 `SHOW-D`、`34` 个 `DrillGroup`、`17` 个 `DanceMoveDrill` 和 `2` 个 Showtime；兼容 SLK 对应角色事件为 `384`，其余数量相同。所有事件标识必须跨三种事件集合唯一，角色、组/演练/Showtime 引用和 `showNCount` 必须能直接查询，角色事件保持严格时间顺序。两个文件的 `[r & 0]` sheet row 均不得成为事件标识；结果需覆盖深复制/移动，畸形 `FinishedSlkDocument` 必须原子失败。
+
 Showtime 舞步时长测试必须使用 `SHOW-D.showNCount`，不能使用拆分段数量或每次读取关联舞步的当前数量。边界至少覆盖 `1`、`6`、`7`、`11` 和草稿中大于 `11` 的数量：`1..6` 返回一小节或 16 个 1/16 位置，`7` 及以上返回两小节或 32 个 1/16 位置。直接核心调用、C ABI 和各平台展示必须一致；项目序列化必须保留 `showNCount`，但不得保存可与其冲突的独立时长值。生成时无法取得舞步数量必须失败，不能默认按一小节处理。
 
 `SHOW-D1/SHOW-D+` 测试必须证明两者从 `SHOW-C` 后连续 `SHOW-D` 的位置关系派生，任意其他事件会结束连续序列，序列化不保存子类型。展示范围测试必须覆盖位于小节线和小节线 +1 的 `SHOW-D1`，以及一/二小节时长：`rangeStart` 是所在小节起点，`rangeEnd` 分别增加 16/32，范围左闭右开；`rangeEnd` 可以承载后续合法标记。

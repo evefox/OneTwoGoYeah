@@ -31,6 +31,8 @@ struct SlkDanceMove final {
 
 struct SlkDanceMoveDrillGroupMapping final {
   SlkDrillGroupId drill_group_id;
+  SlkDrillGroupRow npc_c_row;
+  SlkDrillGroupRow player_c_row;
   std::size_t source_group_index;
   std::size_t drill_group_index;
   std::uint64_t c_value;

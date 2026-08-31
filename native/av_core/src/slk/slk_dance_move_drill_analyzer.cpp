@@ -185,8 +185,9 @@ SlkDanceMoveDrillAnalysisResult analyze_slk_dance_move_drills(
         }
 
         total_n_count += decoded.segment_n_count;
-        drill.groups.push_back({group.id, cursor, drill_group_index, c_value,
-                                decoded.segment_n_count});
+        drill.groups.push_back(
+            {group.id, group.npc.rows.front(), group.player.rows.front(),
+             cursor, drill_group_index, c_value, decoded.segment_n_count});
         append_move_rows(drill.npc, group.npc, cursor, drill_id);
         append_move_rows(drill.player, group.player, cursor, drill_id);
 
