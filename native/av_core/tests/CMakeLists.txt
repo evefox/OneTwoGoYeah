@@ -636,3 +636,37 @@ else()
 endif()
 
 add_test(NAME av_core.slk_position COMMAND av_core_slk_position_test)
+
+set(OTGY_EXAMPLE_DIR "${CMAKE_SOURCE_DIR}/../example")
+file(SHA256 "${OTGY_EXAMPLE_DIR}/z3116_lv5.slk" canonical_slk_sha256)
+if(NOT canonical_slk_sha256 STREQUAL
+   "8d203601373b3be426d220f002d8d945c7d94b8c44670cbee4ceab82dd723a12")
+  message(FATAL_ERROR "Unexpected SHA-256 for example/z3116_lv5.slk")
+endif()
+file(SHA256 "${OTGY_EXAMPLE_DIR}/谎话成品.slk" compatibility_slk_sha256)
+if(NOT compatibility_slk_sha256 STREQUAL
+   "306ed57b218a7d3faba9bd4233b354a5944a1e17cd1222a3232340d0bcf9fdd5")
+  message(FATAL_ERROR "Unexpected SHA-256 for example/谎话成品.slk")
+endif()
+
+add_executable(av_core_slk_parser_test
+  slk_parser_test.cpp
+)
+target_link_libraries(av_core_slk_parser_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_slk_parser_test PRIVATE
+  OTGY_EXAMPLE_DIR="${OTGY_EXAMPLE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_slk_parser_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_slk_parser_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.slk_parser COMMAND av_core_slk_parser_test)
