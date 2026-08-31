@@ -1,0 +1,81 @@
+name: Stage 8 platforms
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  native-core:
+    name: Native core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S native -B build/native -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build/native --config Debug --parallel
+      - name: Test
+        run: ctest --test-dir build/native -C Debug --output-on-failure
+
+  flutter-platform:
+    name: Flutter (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Android
+            os: ubuntu-latest
+            command: flutter build apk --debug
+          - platform: Windows
+            os: windows-latest
+            command: flutter build windows --debug
+          - platform: macOS
+            os: macos-latest
+            command: flutter build macos --debug
+          - platform: iOS
+            os: macos-latest
+            command: flutter build ios --debug --no-codesign
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Build ${{ matrix.platform }}
+        run: ${{ matrix.command }}
+
+  flutter-tests:
+    name: Flutter tests
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+      - run: flutter pub get
+      - run: flutter test -r expanded
+      - run: dart analyze
+        working-directory: app/packages/otgy_native
+      - run: dart test -r expanded
+        working-directory: app/packages/otgy_native

@@ -57,6 +57,14 @@ void test_start_advance_and_natural_end() {
       position_of(otgy::core::advance_playback(position, 1.0));
   assert(unchanged.phase() == PlaybackPhase::Paused);
   assert(unchanged.timeline_seconds() == 10.0);
+
+  const auto by_frames = position_of(otgy::core::advance_playback_frames(
+      PlaybackPosition{PlaybackPhase::Playing, kCursor, 10.0}, 120U, 48U));
+  assert(by_frames.timeline_seconds() == kCursor + 2.5);
+  assert_error(otgy::core::advance_playback_frames(
+                   PlaybackPosition{PlaybackPhase::Playing, 0.0, 10.0}, 1U,
+                   0U),
+               PlaybackPositionError::InvalidSampleRate);
 }
 
 void test_start_from_end_and_manual_pause() {
@@ -131,12 +139,13 @@ void test_errors_and_messages() {
   assert(otgy::core::playback_position_error_message(
              PlaybackPositionError::None)
              .empty());
-  constexpr std::array<PlaybackPositionError, 5U> kErrors{{
+  constexpr std::array<PlaybackPositionError, 6U> kErrors{{
       PlaybackPositionError::NoAudio,
       PlaybackPositionError::InvalidAudioDuration,
       PlaybackPositionError::InvalidPosition,
       PlaybackPositionError::InvalidElapsedTime,
       PlaybackPositionError::InvalidState,
+      PlaybackPositionError::InvalidSampleRate,
   }};
   for (const auto error : kErrors) {
     assert(!otgy::core::playback_position_error_message(error).empty());

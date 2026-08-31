@@ -116,6 +116,17 @@ PlaybackPositionResult advance_playback(
       position.audio_duration_seconds()}};
 }
 
+PlaybackPositionResult advance_playback_frames(
+    PlaybackPosition start_position, std::uint64_t played_frames,
+    std::uint32_t sample_rate) noexcept {
+  if (sample_rate == 0U) {
+    return PlaybackPositionResult{PlaybackPositionError::InvalidSampleRate};
+  }
+  const double elapsed_seconds =
+      static_cast<double>(played_frames) / static_cast<double>(sample_rate);
+  return advance_playback(start_position, elapsed_seconds);
+}
+
 PlaybackPositionResult pause_playback(PlaybackPosition position) noexcept {
   if (validate_position(position) != PlaybackPositionError::None) {
     return PlaybackPositionResult{PlaybackPositionError::InvalidState};

@@ -58,6 +58,7 @@ typedef uint32_t otgy_error_domain;
 #define OTGY_ERROR_DOMAIN_SLK_EXPORT UINT32_C(27)
 #define OTGY_ERROR_DOMAIN_SLK_POSITION UINT32_C(28)
 #define OTGY_ERROR_DOMAIN_CHART_TIMELINE_RANGE UINT32_C(29)
+#define OTGY_ERROR_DOMAIN_PLAYBACK_PCM UINT32_C(30)
 
 #define OTGY_ABI_ERROR_NULL_ARGUMENT UINT32_C(1)
 #define OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE UINT32_C(2)
@@ -96,6 +97,7 @@ typedef struct otgy_bytes otgy_bytes;
 typedef struct otgy_pcm otgy_pcm;
 typedef struct otgy_audio_export_snapshot otgy_audio_export_snapshot;
 typedef struct otgy_audio_export_output otgy_audio_export_output;
+typedef struct otgy_audio_export_cancel_flag otgy_audio_export_cancel_flag;
 typedef struct otgy_waveform_tile otgy_waveform_tile;
 typedef struct otgy_onsets otgy_onsets;
 typedef struct otgy_bpm_candidates otgy_bpm_candidates;
@@ -110,6 +112,7 @@ typedef struct otgy_chart_editor otgy_chart_editor;
 typedef struct otgy_chart_validation otgy_chart_validation;
 typedef struct otgy_finished_chart otgy_finished_chart;
 typedef struct otgy_slk_document otgy_slk_document;
+typedef struct otgy_playback_pcm otgy_playback_pcm;
 
 OTGY_C_API uint32_t otgy_c_api_version(void);
 OTGY_C_API otgy_string_view otgy_core_version(void);
@@ -212,6 +215,15 @@ typedef void (*otgy_audio_export_progress_callback)(
     uint32_t stage, uint64_t completed_units, uint64_t total_units,
     void* context);
 typedef uint8_t (*otgy_cancel_callback)(void* context);
+
+OTGY_C_API otgy_status otgy_audio_export_cancel_flag_create(
+    otgy_audio_export_cancel_flag** out_flag, otgy_error** out_error);
+OTGY_C_API void otgy_audio_export_cancel_flag_destroy(
+    otgy_audio_export_cancel_flag* flag);
+OTGY_C_API void otgy_audio_export_cancel_flag_request(
+    otgy_audio_export_cancel_flag* flag);
+OTGY_C_API uint8_t otgy_audio_export_cancel_flag_is_requested(
+    const otgy_audio_export_cancel_flag* flag);
 
 OTGY_C_API otgy_status otgy_audio_export_snapshot_create(
     const otgy_pcm* pcm, uint64_t pcm_identity, double offset_seconds,
@@ -420,9 +432,24 @@ OTGY_C_API otgy_status otgy_start_playback(
 OTGY_C_API otgy_status otgy_advance_playback(
     otgy_playback_position position, double elapsed_seconds,
     otgy_playback_position* out_position, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_advance_playback_frames(
+    otgy_playback_position start_position, uint64_t played_frames,
+    uint32_t sample_rate, otgy_playback_position* out_position,
+    otgy_error** out_error);
 OTGY_C_API otgy_status otgy_pause_playback(
     otgy_playback_position position, otgy_playback_position* out_position,
     otgy_error** out_error);
+
+OTGY_C_API otgy_status otgy_render_playback_pcm(
+    const otgy_pcm* pcm, double timeline_start_seconds,
+    otgy_playback_pcm** out_playback_pcm, otgy_error** out_error);
+OTGY_C_API void otgy_playback_pcm_destroy(otgy_playback_pcm* pcm);
+OTGY_C_API uint32_t otgy_playback_pcm_get_sample_rate(
+    const otgy_playback_pcm* pcm);
+OTGY_C_API uint64_t otgy_playback_pcm_get_frame_count(
+    const otgy_playback_pcm* pcm);
+OTGY_C_API otgy_byte_view otgy_playback_pcm_get_bytes(
+    const otgy_playback_pcm* pcm);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(
     uint32_t mode, uint32_t operation, uint32_t* out_result,

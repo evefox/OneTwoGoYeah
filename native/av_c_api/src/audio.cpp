@@ -300,6 +300,43 @@ otgy_status otgy_audio_export_snapshot_create(
   });
 }
 
+otgy_status otgy_audio_export_cancel_flag_create(
+    otgy_audio_export_cancel_flag** out_flag, otgy_error** out_error) {
+  if (out_flag != nullptr) {
+    *out_flag = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_flag == nullptr) {
+      return invalid_argument(out_error);
+    }
+    auto* flag = new (std::nothrow) otgy_audio_export_cancel_flag{};
+    if (flag == nullptr) {
+      return out_of_memory(out_error);
+    }
+    *out_flag = flag;
+    return OTGY_STATUS_OK;
+  });
+}
+
+void otgy_audio_export_cancel_flag_destroy(
+    otgy_audio_export_cancel_flag* flag) {
+  delete flag;
+}
+
+void otgy_audio_export_cancel_flag_request(
+    otgy_audio_export_cancel_flag* flag) {
+  if (flag != nullptr) {
+    flag->requested.store(true, std::memory_order_release);
+  }
+}
+
+std::uint8_t otgy_audio_export_cancel_flag_is_requested(
+    const otgy_audio_export_cancel_flag* flag) {
+  return flag != nullptr && flag->requested.load(std::memory_order_acquire)
+             ? 1U
+             : 0U;
+}
+
 void otgy_audio_export_snapshot_destroy(otgy_audio_export_snapshot* snapshot) {
   delete snapshot;
 }

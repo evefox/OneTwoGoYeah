@@ -4,9 +4,17 @@
 
 ## 当前阶段
 
-阶段 7 已完成：稳定 C ABI v1、纯 C 公共头、动态库版本、统一状态与拥有型错误、不透明句柄、显式长度、异常边界、完整谱面语义快照，以及核心/ABI 一致性测试均已落地。下一阶段进入 Flutter 与四平台适配。
+阶段 8 已完成：Flutter 三列编辑器、Dart FFI 原生资产、真实音频/谱面工作流、私有草稿与异常恢复、四平台播放和文件适配、桌面关闭保护、响应式输入与无障碍均已落地。下一阶段是发布前兼容验证。
 
 ## 本次范围
+
+- 建立 `app/` Flutter App 和私有 `otgy_native` Dart FFI 包；构建钩子直接编译唯一 `av_core` 与轻量 C ABI，不保留模板原生实现副本。
+- 实现两行工具栏、NPC/玩家/Showtime 三列画布、波形、时序网格、标记和 Showtime 范围、悬浮导航、状态栏、响应式窄屏布局、键鼠/触控、快捷键和无障碍语义。
+- 接通 MP3/Ogg 选择与事务替换、六阶段 BPM/Offset 联合分析、三位小数显示但高精度提交、共享 Ogg 导出进度/取消，以及逐字节规范 SLK 导入校验导出。
+- 实现正式草稿列表、保存/另存为/覆盖/删除、500 毫秒恢复快照、异常会话恢复、未保存操作与退出保护；Windows/macOS 窗口关闭通过生命周期通道等待 Flutter 确认。
+- 新增共享 `render_playback_pcm` 与按设备帧推进，四平台分别用 Android `AudioTrack`、Apple `AVAudioEngine` 和 Windows `waveOut` 输出；暂停、自然结束、焦点或设备中断保留最后确认帧且不自动续播。
+- 新增线程安全 C ABI 音频导出取消句柄和跨 isolate 协作取消；保存阶段继续全局门控，临时文件只通过 Android/POSIX/Windows 原子不替换硬链接发布，同名或并发冲突选择最小 `_2/_3` 后缀。
+- 新增阶段 8 多平台 CI，覆盖原生 Ubuntu/macOS/Windows、Flutter Android/Windows/macOS/iOS 构建，以及 Dart FFI/Flutter 分析和测试。
 
 - 增加稳定实施计划和可跨会话读取的状态文件。
 - 增加 Git 忽略与 SLK 二进制属性规则。
@@ -118,19 +126,23 @@
 - C ABI 使用统一状态码、稳定领域/领域内错误、拥有型 `otgy_error`、显式 `uint64_t` 长度、不透明拥有句柄和匹配销毁函数；全部有状态入口封闭 C++ 异常，失败不发布部分拥有结果。
 - ABI 覆盖 PCM、MP3/Ogg 解码、哈希、Offset、文件名、品质、不可变 Ogg 导出、十六种波形、起音/BPM/Offset/联合分析、六个时序换算、网格、谱面模型时间线范围、导航、播放、操作门控、谱面编辑与历史、校验、项目负载、SLK 导入/导出和位置换算。
 - 增加拥有型扁平谱面语义快照，逐项保存显式角色事件、演练组、舞步演练、Showtime、`showNCount` 和引用切片；不从 SLK 行、列位置或简称重建语义。
-- 增加纯 C 头链接测试、音频一致性测试和谱面一致性测试；公共头预处理后的 152 个函数声明与动态库 152 个 `otgy_*` 导出符号完全一致，其中包含宏展开的 16 个波形入口。
-- 尚未实现波形过滤、CLI 波形命令、播放 PCM/设备输出、平台草稿索引与平台文件发布，以及 Flutter 四平台适配。
+- 增加纯 C 头链接测试、音频一致性测试和谱面一致性测试；公共头预处理后的 162 个函数声明与动态库 162 个 `otgy_*` 导出符号完全一致，其中包含宏展开的 16 个波形入口、播放 PCM/按帧推进和四个音频导出取消句柄入口。
+- 波形过滤和未固定契约的额外 CLI 命令不属于阶段 8；当前产品工作流、播放 PCM/设备输出、平台草稿索引、原子文件发布及 Flutter 四平台适配均已实现。
 
 ## 工具链
 
 - CMake：`3.27.7`
 - C/C++ 编译器：Apple Clang `17.0.0`，arm64 macOS
-- Ninja：未安装，阶段 0 使用 CMake 默认生成器
-- Flutter：未安装，阶段 8 构建与集成测试前需要提供
+- Ninja：未安装，CMake 使用默认生成器
+- Flutter：`3.47.2`，Dart `3.13.2`
+- Android SDK：`34`；本机缺少 cmdline-tools，Gradle 首次分发下载仍依赖开发环境缓存
+- Apple SDK：仅 Command Line Tools；本机没有完整 Xcode 和 CocoaPods
 - Git：已初始化，默认分支为 `main`
 
 ## 修改文件
 
+- `.github/workflows/stage8-platforms.yml`
+- `app/`（Flutter UI、应用协调、私有存储、Dart FFI 构建钩子与绑定、四平台 Runner、测试）
 - `.gitignore`
 - `.gitattributes`
 - `LICENSE`
@@ -160,6 +172,7 @@
 - `native/av_core/include/av_core/coordination/operation_gate.hpp`
 - `native/av_core/include/av_core/timing/bpm_detector.hpp`
 - `native/av_core/include/av_core/playback/playback_position.hpp`
+- `native/av_core/include/av_core/playback/playback_pcm.hpp`
 - `native/av_core/include/av_core/slk/slk_position.hpp`
 - `native/av_core/include/av_core/slk/slk_parser.hpp`
 - `native/av_core/include/av_core/slk/slk_drill_group_analyzer.hpp`
@@ -193,6 +206,7 @@
 - `native/av_core/src/audio/pcm_offset.cpp`
 - `native/av_core/src/coordination/operation_gate.cpp`
 - `native/av_core/src/playback/playback_position.cpp`
+- `native/av_core/src/playback/playback_pcm.cpp`
 - `native/av_core/src/slk/slk_position.cpp`
 - `native/av_core/src/slk/slk_parser.cpp`
 - `native/av_core/src/slk/slk_drill_group_analyzer.cpp`
@@ -245,6 +259,7 @@
 - `native/av_core/tests/offset_detector_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
 - `native/av_core/tests/playback_position_test.cpp`
+- `native/av_core/tests/playback_pcm_test.cpp`
 - `native/av_core/tests/slk_position_test.cpp`
 - `native/av_core/tests/slk_parser_test.cpp`
 - `native/av_core/tests/slk_drill_group_analyzer_test.cpp`
@@ -270,35 +285,33 @@
 
 ## 最后成功验证
 
-2026-08-31 在 arm64 macOS 上依次运行：
+2026-08-31 在 arm64 macOS 上运行：
 
 ```text
-cmake -S native -B build/native-stage7-final -DBUILD_TESTING=ON
-cmake --build build/native-stage7-final --parallel 2
-ctest --test-dir build/native-stage7-final --output-on-failure
+cmake --build build/stage8-native --parallel
+ctest --test-dir build/stage8-native --output-on-failure
 
-cmake -S native -B build/native-stage7-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-stage7-asan --parallel 2
-ctest --test-dir build/native-stage7-asan --output-on-failure
+cd app/packages/otgy_native
+../../../build/flutter-sdk/bin/dart analyze
+../../../build/flutter-sdk/bin/dart test -r expanded
 
-cmake -S native -B build/native-stage7-cxx-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined' -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-stage7-cxx-asan-ubsan --parallel 2 --target av_core_chart_projection_test otgy_c_api_header_test otgy_c_api_audio_consistency_test otgy_c_api_chart_consistency_test
-UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir build/native-stage7-cxx-asan-ubsan -R '^av_core\.chart_projection$|^av_c_api\.' --output-on-failure
+cd ../..
+../build/flutter-sdk/bin/flutter analyze
+../build/flutter-sdk/bin/flutter test -r expanded
 
-diff -u <(cc -E -P -x c native/av_c_api/include/otgy/av_c_api.h | rg -o 'otgy_[a-z0-9_]+[[:space:]]*\(' | sed -E 's/[[:space:]]*\($//' | sort -u) <(nm -gjU build/native-stage7-final/av_c_api/libotgy_c_api.dylib | sed 's/^_//' | rg '^otgy_' | sort -u)
-
-git diff --check
+swiftc -parse ios/Runner/AppDelegate.swift
+swiftc -parse macos/Runner/MainFlutterWindow.swift
 ```
 
-结果：全新普通配置和构建成功，48/48 测试通过；全新 AddressSanitizer 构建后 48/48 通过；阶段 7 自有 C++ 代码启用 AddressSanitizer/UndefinedBehaviorSanitizer、固定第三方 C 快照启用 AddressSanitizer 时，定向 4/4 通过并设置 `UBSAN_OPTIONS=halt_on_error=1`。公共头的 152 个函数声明与动态库 152 个 `otgy_*` 导出逐项一致，动态库安装名为 `@rpath/libotgy_c_api.1.dylib`。C ABI 音频/波形/分析/时序/谱面/项目/SLK 一致性、所有权和错误均通过；既有解码、十六份波形 Alpha、起音/BPM/Offset、音频导出、原生草稿和 SLK 黄金继续全部通过。
+结果：原生核心、CLI 和 C ABI 49/49 通过；Dart FFI 分析通过且 6/6 测试通过；Flutter 分析通过且 23/23 测试通过。公共头 162 个函数声明与动态库 162 个 `otgy_*` 导出逐项一致。播放 PCM、设备帧推进、导出取消、六阶段分析回调、原子不覆盖发布、未保存退出和既有全部解码/波形/BPM/Offset/草稿/SLK 黄金均继续通过。Android Debug APK 已使用 SDK 35/36 与 NDK 28.2 完整构建，原生资产覆盖 `armeabi-v7a`、`arm64-v8a` 和 `x86_64`；iOS/macOS Swift 源码语法解析通过。完整 macOS 构建在调用 `xcrun xcodebuild` 时因本机没有 Xcode 退出码 72，其余 Windows/macOS/iOS 真实 SDK 构建交由阶段 8 CI 验证。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
-- Flutter 工具链尚未安装；进入阶段 8 的本机构建与集成测试前需要提供 Flutter 环境。
+- 本机没有完整 Xcode/CocoaPods，也不是 Windows 环境，不能在本机完成 Windows/macOS/iOS 三个平台的真实 SDK 构建；Android Debug APK 已在本机完成构建，工作流继续覆盖其余平台，但远端首次运行结果不属于本地验证证据。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 
 ## 唯一下一步
 
-进入阶段 8：搭建 Flutter 脚手架并连接已测试的 C ABI，逐步实现三列画布、平台文件与私有存储适配、手势、快捷键、无障碍、播放输出和响应式布局；Flutter 与平台层不得重复任何 `av_core` 领域行为。
+进入阶段 9：在实际 x86-64 与 ARM64 的 Windows、macOS、iOS 和 Android 环境运行完整黄金与平台集成套件，补齐完整 GPLv3 正文、第三方声明、离线分发说明和源码安装文档，再形成可发布构建。

@@ -42,6 +42,7 @@ enum class PlaybackPositionError : std::uint8_t {
   InvalidPosition = 3,
   InvalidElapsedTime = 4,
   InvalidState = 5,
+  InvalidSampleRate = 6,
 };
 
 [[nodiscard]] constexpr std::string_view playback_position_error_message(
@@ -59,6 +60,8 @@ enum class PlaybackPositionError : std::uint8_t {
       return "elapsed playback time must be finite and non-negative";
     case PlaybackPositionError::InvalidState:
       return "playback state is invalid";
+    case PlaybackPositionError::InvalidSampleRate:
+      return "playback sample rate must be greater than zero";
   }
   return "unknown playback position error";
 }
@@ -91,6 +94,12 @@ class PlaybackPositionResult final {
 /// returned unchanged.
 [[nodiscard]] PlaybackPositionResult advance_playback(
     PlaybackPosition position, double elapsed_seconds) noexcept;
+
+/// Advances from a stable starting position by an audio device's exact played
+/// frame count. Frame-to-second projection remains in the shared core.
+[[nodiscard]] PlaybackPositionResult advance_playback_frames(
+    PlaybackPosition start_position, std::uint64_t played_frames,
+    std::uint32_t sample_rate) noexcept;
 
 /// Transitions to Paused without changing the exact timeline position.
 [[nodiscard]] PlaybackPositionResult pause_playback(

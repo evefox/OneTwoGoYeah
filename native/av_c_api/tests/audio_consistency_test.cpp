@@ -8,6 +8,8 @@
 #include "av_core/audio/mp3_decoder.hpp"
 #include "av_core/audio/ogg_vorbis_decoder.hpp"
 #include "av_core/audio/pcm16_hash.hpp"
+#include "av_core/playback/playback_pcm.hpp"
+#include "av_core/playback/playback_position.hpp"
 #include "av_core/timing/bpm_detector.hpp"
 #include "av_core/timing/offset_detector.hpp"
 #include "av_core/timing/onset_detector.hpp"
@@ -21,6 +23,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -108,6 +111,11 @@ void direct_export_progress(otgy::core::AudioExportProgress progress,
 }
 
 std::uint8_t never_cancel(void*) { return 0U; }
+
+std::uint8_t cancel_flag_requested(void* context) {
+  return otgy_audio_export_cancel_flag_is_requested(
+      static_cast<otgy_audio_export_cancel_flag*>(context));
+}
 
 struct SyncStages final {
   std::vector<std::uint32_t> values;
@@ -374,6 +382,33 @@ void test_offset_names_quality_and_export(
   expect(progress.stages == direct_progress.stages,
          "audio export stages differ");
 
+  otgy_audio_export_cancel_flag* raw_cancel_flag = nullptr;
+  expect(otgy_audio_export_cancel_flag_create(&raw_cancel_flag, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI export cancel flag creation failed");
+  auto cancel_flag =
+      handle<otgy_audio_export_cancel_flag,
+             otgy_audio_export_cancel_flag_destroy>(raw_cancel_flag);
+  expect(otgy_audio_export_cancel_flag_is_requested(cancel_flag.get()) == 0U,
+         "new C ABI export cancel flag was requested");
+  otgy_audio_export_cancel_flag_request(cancel_flag.get());
+  expect(otgy_audio_export_cancel_flag_is_requested(cancel_flag.get()) == 1U,
+         "C ABI export cancel request was not retained");
+  raw_output = reinterpret_cast<otgy_audio_export_output*>(1);
+  expect(otgy_audio_export_snapshot_encode(
+             abi_snapshot.get(), nullptr, cancel_flag_requested,
+             cancel_flag.get(), &raw_output, &raw_error) ==
+             OTGY_STATUS_CORE_ERROR,
+         "C ABI requested export cancellation was not returned");
+  auto cancel_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect(raw_output == nullptr,
+         "cancelled C ABI export exposed partial ownership");
+  expect_error(cancel_error.get(), OTGY_ERROR_DOMAIN_AUDIO_EXPORT_TASK,
+               static_cast<std::uint32_t>(
+                   otgy::core::AudioExportTaskError::Cancelled),
+               otgy::core::audio_export_task_error_message(
+                   otgy::core::AudioExportTaskError::Cancelled));
+
   const auto direct_bad_snapshot = otgy::core::create_audio_export_snapshot(
       direct_pcm, 77U, 31.0, quality, source_info, "abi-test",
       direct_metadata);
@@ -394,6 +429,7 @@ void test_offset_names_quality_and_export(
 
   otgy_audio_export_snapshot_destroy(nullptr);
   otgy_audio_export_output_destroy(nullptr);
+  otgy_audio_export_cancel_flag_destroy(nullptr);
 }
 
 void test_waveforms(const otgy::core::Pcm16& direct_pcm,
@@ -577,6 +613,67 @@ void test_analysis(const otgy::core::Pcm16& direct_pcm,
   otgy_sync_analysis_destroy(nullptr);
 }
 
+void test_playback(const otgy::core::Pcm16& direct_pcm,
+                   const otgy_pcm* abi_pcm) {
+  constexpr double kStart = -0.125;
+  const auto direct = otgy::core::render_playback_pcm(direct_pcm, kStart);
+  expect(static_cast<bool>(direct), "direct playback PCM failed");
+  otgy_playback_pcm* raw_pcm = nullptr;
+  otgy_error* raw_error = nullptr;
+  expect(otgy_render_playback_pcm(abi_pcm, kStart, &raw_pcm, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI playback PCM failed");
+  auto pcm = handle<otgy_playback_pcm, otgy_playback_pcm_destroy>(raw_pcm);
+  expect(otgy_playback_pcm_get_sample_rate(pcm.get()) ==
+                 direct.pcm()->sample_rate() &&
+             otgy_playback_pcm_get_frame_count(pcm.get()) ==
+                 direct.pcm()->frame_count(),
+         "playback PCM geometry differs");
+  const auto bytes = otgy_playback_pcm_get_bytes(pcm.get());
+  expect(bytes.length == direct.pcm()->bytes().size() &&
+             std::memcmp(bytes.data, direct.pcm()->bytes().data(),
+                         direct.pcm()->bytes().size()) == 0,
+         "playback PCM bytes differ");
+
+  const auto direct_position = otgy::core::start_playback(
+      static_cast<double>(direct_pcm.frame_count()) /
+          direct_pcm.sample_rate(),
+      kStart);
+  expect(static_cast<bool>(direct_position), "direct playback start failed");
+  const auto direct_advanced = otgy::core::advance_playback_frames(
+      *direct_position.position(), 17U, direct_pcm.sample_rate());
+  otgy_playback_position abi_advanced{};
+  const otgy_playback_position abi_start{
+      static_cast<std::uint32_t>(direct_position.position()->phase()),
+      direct_position.position()->timeline_seconds(),
+      direct_position.position()->audio_duration_seconds()};
+  expect(otgy_advance_playback_frames(abi_start, 17U,
+                                      direct_pcm.sample_rate(),
+                                      &abi_advanced, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI frame playback advance failed");
+  expect(abi_advanced.phase ==
+                 static_cast<std::uint32_t>(
+                     direct_advanced.position()->phase()) &&
+             same_double(abi_advanced.timeline_seconds,
+                         direct_advanced.position()->timeline_seconds()),
+         "frame playback position differs");
+
+  const auto direct_error = otgy::core::render_playback_pcm(
+      direct_pcm, std::numeric_limits<double>::quiet_NaN());
+  raw_pcm = reinterpret_cast<otgy_playback_pcm*>(1);
+  expect(otgy_render_playback_pcm(
+             abi_pcm, std::numeric_limits<double>::quiet_NaN(), &raw_pcm,
+             &raw_error) == OTGY_STATUS_CORE_ERROR,
+         "C ABI invalid playback PCM status differs");
+  auto error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect(raw_pcm == nullptr, "failed playback PCM exposed ownership");
+  expect_error(error.get(), OTGY_ERROR_DOMAIN_PLAYBACK_PCM,
+               static_cast<std::uint32_t>(direct_error.error()),
+               otgy::core::playback_pcm_error_message(direct_error.error()));
+  otgy_playback_pcm_destroy(nullptr);
+}
+
 }  // namespace
 
 int main() {
@@ -602,6 +699,7 @@ int main() {
                                          source_info);
     test_waveforms(direct_pcm, abi_pcm.get());
     test_analysis(direct_pcm, abi_pcm.get());
+    test_playback(direct_pcm, abi_pcm.get());
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

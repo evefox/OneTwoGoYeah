@@ -227,7 +227,13 @@ Showtime 范围、非法音频结尾、非法时序、不可精确表示的整�
 
 测试还必须覆盖未加载音频、非法音频时长、晚于末尾或非有限光标、负/非有限推进
 增量、损坏 phase/位置/时长状态和稳定错误文本。该切片不得启动音频设备、线程、
-窗口或子进程；后续播放 PCM、平台输出和生命周期测试必须消费同一位置状态。
+窗口或子进程。
+
+播放 PCM 测试直接调用 `render_playback_pcm`，必须覆盖零、正、负和正负半帧起点，
+精确比较前置静音、来源跳帧、左右交错 PCM16LE 字节、采样率、帧数和输入不变；
+同时覆盖音频末尾、非有限值、`±2^63` 转换边界、尺寸溢出和分配失败。帧推进测试
+使用平台整数 `playedFrames` 与采样率调用 `advance_playback_frames`，证明暂停、自然
+结束和设备中断都保留实际帧位置，不用缓冲总长度或墙钟时间猜测。
 
 固定音频依赖构建测试必须在离线 CMake 构建中直接编译仓库内 libmad、libogg
 和 libVorbis 静态目标，并校验运行时版本分别为 `MPEG Audio Decoder 0.15.1
@@ -388,17 +394,14 @@ SLK 导出入口测试必须先快照当前内存数据并执行成品校验。�
 
 工作名称为 `avtool`。它直接链接 `av_core`，不得调用 Flutter 或 C ABI。
 
-计划中的命令：
+当前公开命令：
 
 ```text
 avtool decode <audio> --pcm-hash
-avtool waveform <audio> --zoom <n> --scale <n> --block <n> --output <file>
-avtool detect-sync <audio> --json
 avtool export-audio <audio> --offset <seconds> --quality <q> --output <file.ogg>
-avtool inspect-slk <chart.slk> --json
-avtool validate-project <project> --json
-avtool export-slk <project> --output <chart.slk>
 ```
+
+波形、联合分析、项目和 SLK 目前通过直接 C++、C ABI 或 Flutter 工作流验证，不公开含义未完整固定的 CLI 占位命令。
 
 机器可读输出使用带版本、稳定且独立于区域设置的 JSON 架构。可以提供人类可读输出，但自动测试绝不解析该输出。
 
@@ -438,10 +441,11 @@ CLI 失败测试必须覆盖严格参数形态、逗号小数、非法/越界品
 当前 `av_c_api.c_header` 使用 C 编译器包含唯一公共头并链接动态库，证明头文件不泄漏
 C++ 类型。`av_c_api.audio_consistency` 对同一输入逐项比较 MP3/Ogg 解码、PCM 与
 SHA-256、Offset、文件名、品质、不可变 Ogg 导出、十六种波形、起音、BPM、Offset
-和联合分析；输入释放后拥有结果仍须有效，失败不得暴露部分句柄。
+和联合分析；另验证音频导出取消句柄的创建、跨线程原子请求、查询和预取消编码。
+输入释放后拥有结果仍须有效，失败不得暴露部分句柄。
 
 `av_c_api.chart_consistency` 逐位比较六个时序换算、网格、谱面模型时间线范围、导航、
-播放位置、操作门控、上下文编辑与历史、标记与 N 顺序号、正式/恢复负载、成品校验、
+播放位置、按设备帧推进、播放 PCM、操作门控、上下文编辑与历史、标记与 N 顺序号、正式/恢复负载、成品校验、
 SLK 位置及规范 SLK 导入/导出字节。完整谱面语义快照逐项比较显式角色事件、演练组、
 舞步演练、Showtime、`showNCount` 和全部扁平引用切片；文档、校验和输入字节句柄释放
 后派生拥有结果仍须独立有效。ABI 错误必须比较状态、领域、领域内码和诊断文本。
@@ -647,9 +651,11 @@ Offset 微调浮窗测试必须验证：
 - 音频自然到达末尾并自动暂停后，原先被门控的操作立即恢复可用
 - 谱面编辑对象的手势命中优先于时间线导航
 
+当前 Flutter 回归还直接覆盖：紧凑工具栏保留音频扩展名；画布拖动不会在按下瞬间误发点击编辑；BPM 长按只更新浮窗预览并在松手提交一次；播放与设备中断使用共享 PCM 和实际帧位置；未保存返回提供保存、放弃、取消；音频导出在保存阶段继续全局门控并可取消；同名和发布瞬间竞争都不覆盖旧文件，取消不留下临时或最终输出。Dart FFI 测试验证联合分析按顺序收到六个真实阶段、音频导出收到核心进度并使用线程安全取消句柄。
+
 ### 6. 跨平台验证
 
-基础设施可用后，在 Windows、macOS、iOS 和 Android 的 x86-64 与 ARM64 支持环境运行黄金测试套件。某平台的黄金结果未通过前，不能视为兼容。
+`.github/workflows/stage8-platforms.yml` 在 Ubuntu、macOS、Windows 构建并运行原生核心测试；另在对应 Runner 上构建 Android、Windows、macOS 和无签名 iOS Flutter App，并运行 Flutter 与 Dart FFI 分析和测试。平台构建负责验证 `AudioTrack`、`AVAudioEngine`、`waveOut`、原子不替换文件发布及桌面关闭协调代码能够随各自 SDK 编译。阶段 9 仍须在实际 x86-64 与 ARM64 支持环境运行完整黄金套件；某平台的黄金结果未通过前，不能视为最终发布兼容。
 
 ## 夹具规则
 

@@ -278,6 +278,21 @@ otgy_status otgy_advance_playback(otgy_playback_position position,
   });
 }
 
+otgy_status otgy_advance_playback_frames(
+    otgy_playback_position start_position, std::uint64_t played_frames,
+    std::uint32_t sample_rate, otgy_playback_position* out_position,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_position == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_playback_result(
+        otgy::core::advance_playback_frames(to_core(start_position),
+                                            played_frames, sample_rate),
+        out_position, out_error);
+  });
+}
+
 otgy_status otgy_pause_playback(otgy_playback_position position,
                                 otgy_playback_position* out_position,
                                 otgy_error** out_error) {
@@ -288,6 +303,50 @@ otgy_status otgy_pause_playback(otgy_playback_position position,
     return return_playback_result(otgy::core::pause_playback(to_core(position)),
                                   out_position, out_error);
   });
+}
+
+otgy_status otgy_render_playback_pcm(
+    const otgy_pcm* pcm, double timeline_start_seconds,
+    otgy_playback_pcm** out_playback_pcm, otgy_error** out_error) {
+  if (out_playback_pcm != nullptr) {
+    *out_playback_pcm = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (pcm == nullptr || out_playback_pcm == nullptr) {
+      return invalid_argument(out_error);
+    }
+    auto result =
+        otgy::core::render_playback_pcm(pcm->value, timeline_start_seconds);
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_PCM,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::playback_pcm_error_message(result.error()));
+    }
+    return make_handle<otgy_playback_pcm>(
+        otgy_playback_pcm{std::move(result).take_pcm()}, out_playback_pcm,
+        out_error);
+  });
+}
+
+void otgy_playback_pcm_destroy(otgy_playback_pcm* pcm) { delete pcm; }
+
+std::uint32_t otgy_playback_pcm_get_sample_rate(
+    const otgy_playback_pcm* pcm) {
+  return pcm == nullptr ? 0U : pcm->value.sample_rate();
+}
+
+std::uint64_t otgy_playback_pcm_get_frame_count(
+    const otgy_playback_pcm* pcm) {
+  return pcm == nullptr ? 0U : pcm->value.frame_count();
+}
+
+otgy_byte_view otgy_playback_pcm_get_bytes(const otgy_playback_pcm* pcm) {
+  if (pcm == nullptr || pcm->value.bytes().empty()) {
+    return {nullptr, 0U};
+  }
+  return {pcm->value.bytes().data(),
+          static_cast<std::uint64_t>(pcm->value.bytes().size())};
 }
 
 otgy_status otgy_coordinate_application_operation(

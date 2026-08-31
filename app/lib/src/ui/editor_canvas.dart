@@ -1,0 +1,830 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:otgy_native/otgy_native.dart';
+
+import '../application/editor_controller.dart';
+import 'editor_theme.dart';
+
+int projectEditorRow({
+  required double y,
+  required double cursorY,
+  required double currentRow,
+  required double rowSpacing,
+}) {
+  final raw = currentRow + (y - cursorY) / rowSpacing;
+  return math.max(0, (raw + 0.5).floor());
+}
+
+double editorMarkerSize({
+  required double rowSpacing,
+  required bool mobile,
+  required bool diamond,
+}) {
+  if (diamond) {
+    return math.min(mobile ? 32 : 26, rowSpacing * 0.80).toDouble();
+  }
+  return math.min(mobile ? 28 : 22, rowSpacing * 0.70).toDouble();
+}
+
+class EditorCanvas extends StatefulWidget {
+  const EditorCanvas({super.key, required this.controller});
+
+  final EditorController controller;
+
+  @override
+  State<EditorCanvas> createState() => _EditorCanvasState();
+}
+
+class _EditorCanvasState extends State<EditorCanvas> {
+  final _focusNode = FocusNode(debugLabel: '谱面编辑画布');
+  double _gestureZoom = 10;
+
+  bool get _mobile =>
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.android;
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Rect _chartRect(Size size) =>
+      Rect.fromLTRB(36, 28, math.max(37, size.width - 58), size.height);
+
+  double _cursorY(Size size) => size.height * 0.52;
+
+  int? _columnAt(Offset point, Size size) {
+    final rect = _chartRect(size);
+    if (!rect.contains(point)) {
+      return null;
+    }
+    final width = rect.width / 3;
+    return ((point.dx - rect.left) / width).floor().clamp(0, 2);
+  }
+
+  int _rowAt(double y, Size size) {
+    return projectEditorRow(
+      y: y,
+      cursorY: _cursorY(size),
+      currentRow: widget.controller.currentRow,
+      rowSpacing: widget.controller.rowSpacing,
+    );
+  }
+
+  void _handleTap(TapUpDetails details, Size size) {
+    _focusNode.requestFocus();
+    final column = _columnAt(details.localPosition, size);
+    if (column == null) {
+      return;
+    }
+    widget.controller.clickCell(
+      column,
+      _rowAt(details.localPosition.dy, size),
+      mobile: _mobile,
+    );
+  }
+
+  void _handleScroll(PointerScrollEvent event) {
+    final keyboard = HardwareKeyboard.instance;
+    final control = keyboard.isControlPressed || keyboard.isMetaPressed;
+    if (control && keyboard.isAltPressed && !_mobile) {
+      widget.controller.setScale(
+        widget.controller.scale + (event.scrollDelta.dy > 0 ? -0.25 : 0.25),
+      );
+    } else if (control) {
+      widget.controller.setZoom(
+        widget.controller.zoom + (event.scrollDelta.dy > 0 ? -0.25 : 0.25),
+      );
+    } else {
+      widget.controller.moveByPixels(event.scrollDelta.dy);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final spacing = math.max(0.001, widget.controller.rowSpacing);
+        final visibleBeats = math
+            .max(1, constraints.maxHeight / spacing / 4)
+            .toDouble();
+        final navigation = widget.controller.navigation(visibleBeats);
+        final markerSemantics = <Widget>[];
+        final rect = _chartRect(size);
+        final columnWidth = rect.width / 3;
+        for (final marker in widget.controller.markers) {
+          final y =
+              _cursorY(size) +
+              (marker.row - widget.controller.currentRow) * spacing;
+          if (y < rect.top - spacing || y > rect.bottom + spacing) {
+            continue;
+          }
+          markerSemantics.add(
+            Positioned(
+              left: rect.left + marker.column * columnWidth,
+              top: y - spacing / 2,
+              width: columnWidth,
+              height: spacing,
+              child: Semantics(
+                button: true,
+                label: _markerSemanticLabel(marker),
+                onTap: () => widget.controller.clickCell(
+                  marker.column,
+                  marker.row,
+                  mobile: _mobile,
+                ),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          );
+        }
+
+        return CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+                widget.controller.undo,
+            const SingleActivator(
+              LogicalKeyboardKey.keyZ,
+              control: true,
+              shift: true,
+            ): widget.controller.redo,
+            const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+                widget.controller.undo,
+            const SingleActivator(
+              LogicalKeyboardKey.keyZ,
+              meta: true,
+              shift: true,
+            ): widget.controller.redo,
+            const SingleActivator(LogicalKeyboardKey.space):
+                widget.controller.togglePlayback,
+          },
+          child: Focus(
+            focusNode: _focusNode,
+            autofocus: true,
+            child: Listener(
+              onPointerSignal: (event) {
+                if (event is PointerScrollEvent) {
+                  _handleScroll(event);
+                }
+              },
+              onPointerDown: (event) {
+                if (event.buttons == kMiddleMouseButton) {
+                  widget.controller.moveToRow(
+                    _rowAt(event.localPosition.dy, size).toDouble(),
+                  );
+                }
+              },
+              child: GestureDetector(
+                key: const ValueKey('editor-canvas'),
+                behavior: HitTestBehavior.opaque,
+                onTapUp: (details) => _handleTap(details, size),
+                onScaleStart: (details) {
+                  _gestureZoom = widget.controller.zoom;
+                },
+                onScaleUpdate: (details) {
+                  if (!_mobile) {
+                    return;
+                  }
+                  if (details.pointerCount >= 2) {
+                    widget.controller.setZoom(
+                      _gestureZoom + math.log(details.scale) / math.ln2 * 2,
+                    );
+                  } else if (details.pointerCount == 1) {
+                    widget.controller.moveByPixels(-details.focalPointDelta.dy);
+                  }
+                },
+                child: Semantics(
+                  label: '谱面编辑画布，NPC、玩家、Showtime 三列',
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _EditorCanvasPainter(
+                            controller: widget.controller,
+                            mobile: _mobile,
+                          ),
+                        ),
+                      ),
+                      ...markerSemantics,
+                      for (var column = 0; column < 3; column++)
+                        Positioned(
+                          left: rect.left + column * columnWidth,
+                          top: 0,
+                          width: columnWidth,
+                          height: rect.top,
+                          child: Semantics(
+                            header: true,
+                            label: const ['NPC', '玩家', 'Showtime'][column],
+                            child: const SizedBox.expand(),
+                          ),
+                        ),
+                      Positioned(
+                        right: 8,
+                        top: 40,
+                        child: _NavigationRail(
+                          controller: widget.controller,
+                          navigation: navigation,
+                        ),
+                      ),
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: _HistoryControls(controller: widget.controller),
+                      ),
+                      if (widget.controller.isBusy)
+                        const Positioned.fill(
+                          child: ColoredBox(
+                            color: Color(0x6610151A),
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _NavigationRail extends StatelessWidget {
+  const _NavigationRail({required this.controller, required this.navigation});
+
+  final EditorController controller;
+  final TimelineNavigation navigation;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: EditorColors.surfaceRaised.withValues(alpha: 0.96),
+        border: Border.all(color: EditorColors.border),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x55080B0E),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              onPressed: controller.toggleWaveform,
+              tooltip: controller.waveformVisible ? '隐藏波形' : '显示波形',
+              icon: Icon(
+                controller.waveformVisible
+                    ? Icons.graphic_eq
+                    : Icons.hide_source_outlined,
+              ),
+            ),
+            const SizedBox(width: 28, child: Divider(height: 5)),
+            IconButton(
+              onPressed:
+                  controller.generalActionsEnabled && navigation.canToBegin
+                  ? () => controller.moveToRow(navigation.toBeginRow)
+                  : null,
+              tooltip: '跳到开头',
+              icon: const Icon(Icons.vertical_align_top),
+            ),
+            IconButton(
+              onPressed:
+                  controller.generalActionsEnabled && navigation.canPageUp
+                  ? () => controller.moveToRow(navigation.pageUpRow)
+                  : null,
+              tooltip: '上翻一页',
+              icon: const Icon(Icons.keyboard_arrow_up),
+            ),
+            IconButton(
+              onPressed:
+                  controller.hasAudio &&
+                      (!controller.isBusy || controller.isPlaying)
+                  ? controller.togglePlayback
+                  : null,
+              tooltip: controller.isPlaying
+                  ? '暂停'
+                  : controller.hasAudio
+                  ? '播放'
+                  : '请先加载音频',
+              icon: Icon(
+                controller.isPlaying
+                    ? Icons.pause_rounded
+                    : Icons.play_arrow_rounded,
+              ),
+            ),
+            IconButton(
+              onPressed:
+                  controller.generalActionsEnabled && navigation.canPageDown
+                  ? () => controller.moveToRow(navigation.pageDownRow)
+                  : null,
+              tooltip: '下翻一页',
+              icon: const Icon(Icons.keyboard_arrow_down),
+            ),
+            IconButton(
+              onPressed: controller.generalActionsEnabled && navigation.canToEnd
+                  ? () => controller.moveToRow(navigation.toEndRow)
+                  : null,
+              tooltip: '跳到末尾',
+              icon: const Icon(Icons.vertical_align_bottom),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryControls extends StatelessWidget {
+  const _HistoryControls({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: EditorColors.surfaceRaised.withValues(alpha: 0.94),
+        border: Border.all(color: EditorColors.border),
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: controller.generalActionsEnabled && controller.canUndo
+                ? controller.undo
+                : null,
+            tooltip: '撤销',
+            icon: const Icon(Icons.undo, size: 19),
+          ),
+          IconButton(
+            onPressed: controller.generalActionsEnabled && controller.canRedo
+                ? controller.redo
+                : null,
+            tooltip: '重做',
+            icon: const Icon(Icons.redo, size: 19),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EditorCanvasPainter extends CustomPainter {
+  const _EditorCanvasPainter({required this.controller, required this.mobile});
+
+  final EditorController controller;
+  final bool mobile;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(Offset.zero & size, Paint()..color = EditorColors.canvas);
+    final chart = Rect.fromLTRB(
+      36,
+      28,
+      math.max(37, size.width - 58),
+      size.height,
+    );
+    final cursorY = size.height * 0.52;
+    final spacing = math.max(0.001, controller.rowSpacing);
+    final columnWidth = chart.width / 3;
+
+    _drawColumnBackgrounds(canvas, chart, columnWidth);
+    if (controller.waveformVisible && controller.waveformBlocks.isNotEmpty) {
+      _drawWaveform(canvas, chart, cursorY, spacing);
+    }
+    _drawShowtimeRanges(canvas, chart, cursorY, spacing);
+    _drawGrid(canvas, chart, cursorY, spacing);
+    _drawMarkers(canvas, chart, cursorY, spacing, columnWidth);
+    _drawCursor(canvas, chart, cursorY);
+    _drawHeaders(canvas, chart, columnWidth);
+  }
+
+  void _drawColumnBackgrounds(Canvas canvas, Rect chart, double columnWidth) {
+    for (var column = 0; column < 3; column++) {
+      if (column.isOdd) {
+        canvas.drawRect(
+          Rect.fromLTWH(
+            chart.left + column * columnWidth,
+            chart.top,
+            columnWidth,
+            chart.height,
+          ),
+          Paint()..color = EditorColors.text.withValues(alpha: 0.018),
+        );
+      }
+    }
+    final line = Paint()
+      ..color = EditorColors.border.withValues(alpha: 0.72)
+      ..strokeWidth = 1;
+    for (var column = 0; column <= 3; column++) {
+      final x = chart.left + column * columnWidth;
+      canvas.drawLine(Offset(x, chart.top), Offset(x, chart.bottom), line);
+    }
+  }
+
+  void _drawWaveform(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+  ) {
+    final blocks = controller.waveformBlocks;
+    final first = blocks.first;
+    final nativeTotal = first.channelWidth * 2 + first.channelSpacing;
+    final fit = math.min(1.0, chart.width / math.max(1, nativeTotal));
+    final origin = chart.center.dx - nativeTotal * fit / 2;
+    final leftOrigin = origin;
+    final rightOrigin =
+        origin + (first.channelWidth + first.channelSpacing) * fit;
+    final waveformPaint = Paint()..color = EditorColors.waveform;
+
+    for (
+      var screenY = chart.top.floor();
+      screenY < chart.bottom.ceil();
+      screenY++
+    ) {
+      final row = controller.currentRow + (screenY - cursorY) / spacing;
+      final seconds = OtgyNative.sixteenthRowToSeconds(
+        bpm: controller.projectedBpm,
+        offset: controller.offset,
+        row: row,
+      );
+      final pixel = (seconds * first.pixelsPerSecond).floor();
+      if (pixel < 0) {
+        continue;
+      }
+      final blockIndex = pixel ~/ WaveformBlock.height;
+      if (blockIndex < 0 || blockIndex >= blocks.length) {
+        continue;
+      }
+      final block = blocks[blockIndex];
+      final sourceY = pixel % WaveformBlock.height;
+      _drawAlphaRow(
+        canvas,
+        block.leftAlpha,
+        sourceY,
+        block.channelWidth,
+        leftOrigin,
+        screenY.toDouble(),
+        fit,
+        waveformPaint,
+      );
+      _drawAlphaRow(
+        canvas,
+        block.rightAlpha,
+        sourceY,
+        block.channelWidth,
+        rightOrigin,
+        screenY.toDouble(),
+        fit,
+        waveformPaint,
+      );
+    }
+  }
+
+  void _drawAlphaRow(
+    Canvas canvas,
+    List<int> alpha,
+    int row,
+    int width,
+    double xOrigin,
+    double y,
+    double fit,
+    Paint paint,
+  ) {
+    final offset = row * width;
+    var start = -1;
+    var end = -1;
+    var maximum = 0;
+    for (var x = 0; x < width; x++) {
+      final value = alpha[offset + x];
+      if (value > 0) {
+        start = start < 0 ? x : start;
+        end = x;
+        maximum = math.max(maximum, value);
+      }
+    }
+    if (start < 0) {
+      return;
+    }
+    paint.color = EditorColors.waveform.withValues(
+      alpha: 0.16 + maximum / 255 * 0.44,
+    );
+    canvas.drawRect(
+      Rect.fromLTRB(xOrigin + start * fit, y, xOrigin + (end + 1) * fit, y + 1),
+      paint,
+    );
+  }
+
+  void _drawShowtimeRanges(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+  ) {
+    for (final move in controller.showtimeMoves) {
+      final top = cursorY + (move.rangeStart - controller.currentRow) * spacing;
+      final bottom =
+          cursorY + (move.rangeEnd - controller.currentRow) * spacing;
+      final visible = Rect.fromLTRB(
+        chart.left,
+        top,
+        chart.right,
+        bottom,
+      ).intersect(chart);
+      if (visible.isEmpty) {
+        continue;
+      }
+      canvas.drawRect(
+        visible,
+        Paint()..color = EditorColors.markerD.withValues(alpha: 0.10),
+      );
+      if (move.isLast) {
+        final openTop =
+            cursorY + (move.rangeEnd - 8 - controller.currentRow) * spacing;
+        final openRect = Rect.fromLTRB(
+          chart.left,
+          openTop,
+          chart.right,
+          bottom,
+        ).intersect(chart);
+        canvas.drawRect(
+          openRect,
+          Paint()..color = EditorColors.markerD.withValues(alpha: 0.055),
+        );
+        final dash = Paint()
+          ..color = EditorColors.markerD.withValues(alpha: 0.55)
+          ..strokeWidth = 1;
+        for (var x = chart.left; x < chart.right; x += 8) {
+          canvas.drawLine(
+            Offset(x, openTop),
+            Offset(math.min(x + 4, chart.right), openTop),
+            dash,
+          );
+        }
+      }
+    }
+  }
+
+  void _drawGrid(Canvas canvas, Rect chart, double cursorY, double spacing) {
+    if (controller.bpm == 0) {
+      return;
+    }
+    final first = math.max(
+      0,
+      (controller.currentRow - cursorY / spacing).floor() - 1,
+    );
+    final last = (controller.currentRow + (chart.bottom - cursorY) / spacing)
+        .ceil();
+    for (var row = first; row <= last; row++) {
+      final y = cursorY + (row - controller.currentRow) * spacing;
+      if (y < chart.top || y > chart.bottom) {
+        continue;
+      }
+      final measure = row % 16 == 0;
+      final beat = !measure && row % 4 == 0;
+      final color = measure
+          ? EditorColors.text.withValues(alpha: 0.34)
+          : beat
+          ? EditorColors.text.withValues(alpha: 0.18)
+          : EditorColors.text.withValues(alpha: 0.075);
+      canvas.drawLine(
+        Offset(chart.left, y),
+        Offset(chart.right, y),
+        Paint()
+          ..color = color
+          ..strokeWidth = measure ? 1.5 : 1,
+      );
+      if (measure) {
+        _paintText(
+          canvas,
+          '${row ~/ 16 + 1}',
+          Offset(7, y - 7),
+          const TextStyle(color: EditorColors.textMuted, fontSize: 10),
+        );
+      }
+    }
+  }
+
+  void _drawMarkers(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+    double columnWidth,
+  ) {
+    final circleSize = editorMarkerSize(
+      rowSpacing: spacing,
+      mobile: mobile,
+      diamond: false,
+    );
+    final diamondSize = editorMarkerSize(
+      rowSpacing: spacing,
+      mobile: mobile,
+      diamond: true,
+    );
+    for (final marker in controller.markers) {
+      final center = Offset(
+        chart.left + (marker.column + 0.5) * columnWidth,
+        cursorY + (marker.row - controller.currentRow) * spacing,
+      );
+      if (center.dy < chart.top - diamondSize ||
+          center.dy > chart.bottom + diamondSize) {
+        continue;
+      }
+      final isDiamond = _isDiamondMarker(marker.type);
+      if (isDiamond) {
+        final half = diamondSize / 2;
+        final path = Path()
+          ..moveTo(center.dx, center.dy - half)
+          ..lineTo(center.dx + half, center.dy)
+          ..lineTo(center.dx, center.dy + half)
+          ..lineTo(center.dx - half, center.dy)
+          ..close();
+        canvas.drawPath(path, Paint()..color = EditorColors.markerC);
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = const Color(0xFF7D682C)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6,
+        );
+        continue;
+      }
+
+      final color = switch (marker.type) {
+        OTGY_CHART_MARKER_NPC_NOTE ||
+        OTGY_CHART_MARKER_PLAYER_NOTE => EditorColors.markerN,
+        OTGY_CHART_MARKER_NPC_MOVE_END ||
+        OTGY_CHART_MARKER_PLAYER_MOVE_END => EditorColors.markerS,
+        _ => EditorColors.markerD,
+      };
+      final radius = circleSize / 2;
+      canvas.drawCircle(center, radius, Paint()..color = color);
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = EditorColors.canvas.withValues(alpha: 0.72)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.7,
+      );
+
+      if (marker.type == OTGY_CHART_MARKER_NPC_NOTE ||
+          marker.type == OTGY_CHART_MARKER_PLAYER_NOTE) {
+        canvas.drawCircle(
+          center,
+          math.max(1, radius - 3.5),
+          Paint()
+            ..color = EditorColors.canvas.withValues(alpha: 0.58)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1,
+        );
+      } else if (marker.type == OTGY_CHART_MARKER_NPC_MOVE_END ||
+          marker.type == OTGY_CHART_MARKER_PLAYER_MOVE_END) {
+        canvas.drawLine(
+          Offset(center.dx - radius * 0.55, center.dy + radius * 0.45),
+          Offset(center.dx + radius * 0.55, center.dy + radius * 0.45),
+          Paint()
+            ..color = EditorColors.canvas.withValues(alpha: 0.68)
+            ..strokeWidth = 1.5,
+        );
+      } else {
+        final cue = Paint()
+          ..color = EditorColors.text.withValues(alpha: 0.72)
+          ..strokeWidth = 1.2;
+        canvas.drawLine(
+          Offset(center.dx, center.dy - radius - 2),
+          Offset(center.dx, center.dy - radius + 1),
+          cue,
+        );
+        canvas.drawLine(
+          Offset(center.dx, center.dy + radius - 1),
+          Offset(center.dx, center.dy + radius + 2),
+          cue,
+        );
+      }
+
+      final number = marker.type == OTGY_CHART_MARKER_SHOWTIME_MOVE
+          ? marker.showNCount
+          : marker.ordinal;
+      if (number != null && circleSize >= 18) {
+        final text = '$number';
+        final fontSize = math
+            .max(
+              7,
+              math.min(13, circleSize * 0.45 * math.min(1, 2.2 / text.length)),
+            )
+            .toDouble();
+        _paintText(
+          canvas,
+          text,
+          center,
+          TextStyle(
+            color: EditorColors.canvas,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w700,
+          ),
+          centered: true,
+        );
+      }
+    }
+  }
+
+  void _drawCursor(Canvas canvas, Rect chart, double y) {
+    canvas.drawLine(
+      Offset(chart.left, y),
+      Offset(chart.right, y),
+      Paint()
+        ..color = EditorColors.judgement
+        ..strokeWidth = 2,
+    );
+    canvas.drawCircle(
+      Offset(chart.left - 4, y),
+      3,
+      Paint()..color = EditorColors.judgement,
+    );
+  }
+
+  void _drawHeaders(Canvas canvas, Rect chart, double columnWidth) {
+    canvas.drawRect(
+      Rect.fromLTRB(chart.left, 0, chart.right, chart.top),
+      Paint()..color = EditorColors.surfaceRaised,
+    );
+    const labels = ['NPC', '玩家', 'Showtime'];
+    for (var index = 0; index < labels.length; index++) {
+      _paintText(
+        canvas,
+        labels[index],
+        Offset(chart.left + (index + 0.5) * columnWidth, 14),
+        const TextStyle(
+          color: EditorColors.textMuted,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+        centered: true,
+      );
+    }
+  }
+
+  void _paintText(
+    Canvas canvas,
+    String text,
+    Offset position,
+    TextStyle style, {
+    bool centered = false,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    painter.paint(
+      canvas,
+      centered
+          ? position - Offset(painter.width / 2, painter.height / 2)
+          : position,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _EditorCanvasPainter oldDelegate) => true;
+}
+
+String _markerSemanticLabel(ChartMarker marker) {
+  final role = switch (marker.column) {
+    OTGY_CHART_COLUMN_NPC => 'NPC',
+    OTGY_CHART_COLUMN_PLAYER => '玩家',
+    _ => 'Showtime',
+  };
+  final type = switch (marker.type) {
+    OTGY_CHART_MARKER_NPC_BLOCK_START ||
+    OTGY_CHART_MARKER_PLAYER_BLOCK_START ||
+    OTGY_CHART_MARKER_SHOWTIME_START => '起点',
+    OTGY_CHART_MARKER_NPC_NOTE ||
+    OTGY_CHART_MARKER_PLAYER_NOTE => '动作 ${marker.ordinal}',
+    OTGY_CHART_MARKER_NPC_MOVE_END || OTGY_CHART_MARKER_PLAYER_MOVE_END => '结束',
+    _ => '舞步 ${marker.showNCount}',
+  };
+  return '$role $type，第 ${marker.row} 个十六分行';
+}
+
+bool _isDiamondMarker(int type) =>
+    type == OTGY_CHART_MARKER_NPC_BLOCK_START ||
+    type == OTGY_CHART_MARKER_PLAYER_BLOCK_START ||
+    type == OTGY_CHART_MARKER_SHOWTIME_START;

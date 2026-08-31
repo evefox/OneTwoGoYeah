@@ -1,0 +1,17 @@
+name: OtgyNativeBindings
+description: |
+  Bindings for the stable OneTwoGoYeah C ABI.
+
+  Regenerate bindings with `dart run ffigen --config ffigen.yaml`.
+output: 'lib/otgy_native_bindings_generated.dart'
+llvm-path:
+  - '/Library/Developer/CommandLineTools/usr/lib/libclang.dylib'
+headers:
+  entry-points:
+    - '../../../native/av_c_api/include/otgy/av_c_api.h'
+  include-directives:
+    - '../../../native/av_c_api/include/otgy/av_c_api.h'
+comments:
+  style: any
+  length: full
+ffi-native:

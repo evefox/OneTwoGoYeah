@@ -1,0 +1,18 @@
+name: otgy_native
+description: "Native asset bindings for the OneTwoGoYeah shared core."
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  code_assets: ^1.1.0
+  ffi: ^2.1.4
+  hooks: ^2.0.0
+  native_toolchain_c: ^0.19.0
+
+dev_dependencies:
+  ffigen: ^20.1.1
+  flutter_lints: ^6.0.0
+  test: ^1.28.0

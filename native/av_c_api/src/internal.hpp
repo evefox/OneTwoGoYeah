@@ -14,6 +14,7 @@
 #include "av_core/chart/chart_validator.hpp"
 #include "av_core/coordination/operation_gate.hpp"
 #include "av_core/playback/playback_position.hpp"
+#include "av_core/playback/playback_pcm.hpp"
 #include "av_core/project/project_serialization.hpp"
 #include "av_core/slk/slk_chart_draft_projection.hpp"
 #include "av_core/slk/slk_export.hpp"
@@ -29,6 +30,7 @@
 #include "av_core/version.hpp"
 #include "av_core/waveform/waveform_tile.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -61,6 +63,10 @@ struct otgy_audio_export_snapshot final {
 
 struct otgy_audio_export_output final {
   otgy::core::AudioExportBytes value;
+};
+
+struct otgy_audio_export_cancel_flag final {
+  std::atomic_bool requested{false};
 };
 
 struct otgy_waveform_tile final {
@@ -128,6 +134,10 @@ struct otgy_chart_validation final {
 
 struct otgy_slk_document final {
   otgy::core::FinishedSlkDocument value;
+};
+
+struct otgy_playback_pcm final {
+  otgy::core::PlaybackPcm value;
 };
 
 namespace otgy::c_api {

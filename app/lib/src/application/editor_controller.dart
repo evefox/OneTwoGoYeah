@@ -1,0 +1,895 @@
+import 'dart:async';
+import 'dart:isolate';
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:otgy_native/otgy_native.dart';
+
+import '../infrastructure/playback_output.dart';
+
+enum EditorNoticeKind { info, error }
+
+enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
+
+bool mobileChartEditingEnabled(double rowSpacing) => rowSpacing >= 40;
+
+typedef AudioExportSaveCallback = Future<void> Function(
+  AudioExportResult result,
+  bool Function() isCancelled,
+  void Function(int completedUnits, int totalUnits) onProgress,
+);
+
+final class AudioExportCancelled implements Exception {
+  const AudioExportCancelled();
+}
+
+final class EditorNotice {
+  const EditorNotice(this.message, {this.kind = EditorNoticeKind.info});
+
+  final String message;
+  final EditorNoticeKind kind;
+}
+
+class EditorController extends ChangeNotifier {
+  EditorController({NativeChartEditor? editor, PlaybackOutput? playbackOutput})
+    : _editor = editor ?? NativeChartEditor.createEmpty(),
+      _playbackOutput = playbackOutput ?? const MethodChannelPlaybackOutput() {
+    _refreshProjection();
+    _refreshViewMetrics();
+    _savedPayload = _editor.encodeFormal(bpm: _bpm, offset: _offset);
+  }
+
+  NativeChartEditor _editor;
+  final PlaybackOutput _playbackOutput;
+  NativeAudio? _audio;
+  List<ChartMarker> _markers = const [];
+  List<ShowtimeMove> _showtimeMoves = const [];
+  List<WaveformBlock> _waveformBlocks = const [];
+  EditorNotice? _notice;
+  bool _isBusy = false;
+  bool _isExportingAudio = false;
+  bool _audioExportCancellationRequested = false;
+  bool _isPlaying = false;
+  bool _isDirty = false;
+  bool _waveformVisible = true;
+  String? _audioFileName;
+  Uint8List? _audioSourceBytes;
+  String? _audioExtension;
+  AudioExportQualityPolicy? _audioExportQuality;
+  List<AudioAnalysisCandidate>? _analysisCandidates;
+  Future<List<AudioAnalysisCandidate>>? _analysisFuture;
+  SyncAnalysisStage? _analysisStage;
+  int _audioVersion = 0;
+  WorkspaceSourceKind _sourceKind = WorkspaceSourceKind.untitled;
+  String? _sourceName;
+  String? _draftId;
+  Uint8List? _savedPayload;
+  int _projectRevision = 0;
+  double _bpm = 100;
+  double _offset = 0;
+  double _zoom = 10;
+  double _scale = 4;
+  double _currentRow = 0;
+  int _pixelsPerSecond = 0;
+  Timer? _playbackTimer;
+  PlaybackPosition? _playbackStart;
+  int _playbackSampleRate = 0;
+  int _playbackFrameCount = 0;
+  int _playbackPlayedFrames = 0;
+  bool _playbackPollActive = false;
+  AudioExportCancellation? _audioExportCancellation;
+  AudioExportProgress? _audioExportProgress;
+
+  List<ChartMarker> get markers => _markers;
+  List<ShowtimeMove> get showtimeMoves => _showtimeMoves;
+  List<WaveformBlock> get waveformBlocks => _waveformBlocks;
+  EditorNotice? get notice => _notice;
+  bool get isBusy => _isBusy;
+  bool get isExportingAudio => _isExportingAudio;
+  bool get audioExportCancellationRequested =>
+      _audioExportCancellationRequested;
+  AudioExportProgress? get audioExportProgress => _audioExportProgress;
+  bool get isPlaying => _isPlaying;
+  bool get generalActionsEnabled =>
+      OtgyNative.coordinateApplicationOperation(
+        mode: _isPlaying
+            ? 1
+            : _isExportingAudio
+            ? 2
+            : 0,
+        operation: 0,
+      ) ==
+      0;
+  bool get isDirty => _isDirty;
+  bool get waveformVisible => _waveformVisible;
+  bool get hasAudio => _audio != null;
+  bool get canUndo => _editor.canUndo;
+  bool get canRedo => _editor.canRedo;
+  String? get audioFileName => _audioFileName;
+  String get chartName => _sourceName ?? '未命名草稿';
+  WorkspaceSourceKind get sourceKind => _sourceKind;
+  String? get draftId => _draftId;
+  int get projectRevision => _projectRevision;
+  AudioExportQualityPolicy? get audioExportQuality => _audioExportQuality;
+  List<AudioAnalysisCandidate>? get analysisCandidates => _analysisCandidates;
+  SyncAnalysisStage? get analysisStage => _analysisStage;
+  double get bpm => _bpm;
+  double get offset => _offset;
+  double get zoom => _zoom;
+  double get scale => _scale;
+  double get currentRow => _currentRow;
+  int get pixelsPerSecond => _pixelsPerSecond;
+  double? get audioDurationSeconds => _audio?.durationSeconds;
+
+  double get projectedBpm => _bpm == 0 ? 100 : _bpm;
+  double get rowSpacing {
+    final first = OtgyNative.sixteenthRowToSeconds(
+      bpm: projectedBpm,
+      offset: _offset,
+      row: 0,
+    );
+    final second = OtgyNative.sixteenthRowToSeconds(
+      bpm: projectedBpm,
+      offset: _offset,
+      row: 1,
+    );
+    return _pixelsPerSecond * (second - first);
+  }
+
+  TimelineRange get timelineRange => _editor.timelineRange(
+    bpm: _bpm,
+    offset: _offset,
+    audioEndSeconds: _audio?.durationSeconds,
+  );
+
+  TimelineNavigation navigation(double visibleBeats) {
+    final range = timelineRange;
+    final clampedRow = _currentRow.clamp(0, range.endRow).toDouble();
+    return OtgyNative.calculateNavigation(
+      range: range,
+      currentRow: clampedRow,
+      visibleBeats: math.max(1, visibleBeats),
+    );
+  }
+
+  Future<void> loadAudioBytes(Uint8List bytes, String fileName) async {
+    if (_isBusy || !generalActionsEnabled) {
+      return;
+    }
+    _setBusy(true);
+    NativeAudio? pending;
+    try {
+      final dot = fileName.lastIndexOf('.');
+      final extension = dot < 0 ? '' : fileName.substring(dot);
+      pending = OtgyNative.decodeAudio(bytes, extension);
+      final first = pending.generateWaveform(
+        zoom: _zoom,
+        scale: _effectiveScale,
+        blockIndex: 0,
+      );
+      final blockCount = math.max(
+        1,
+        (pending.durationSeconds * first.pixelsPerSecond / 128).ceil(),
+      );
+      final blocks = <WaveformBlock>[first];
+      for (var index = 1; index < blockCount; index++) {
+        blocks.add(
+          pending.generateWaveform(
+            zoom: _zoom,
+            scale: _effectiveScale,
+            blockIndex: index,
+          ),
+        );
+      }
+
+      _audio?.dispose();
+      _audio = pending;
+      pending = null;
+      _audioFileName = fileName;
+      _audioSourceBytes = Uint8List.fromList(bytes);
+      _audioExtension = extension;
+      _audioExportQuality = _audio!.exportQualityPolicy();
+      _analysisCandidates = null;
+      _analysisFuture = null;
+      _analysisStage = null;
+      _audioVersion++;
+      _waveformBlocks = List.unmodifiable(blocks);
+      _pixelsPerSecond = first.pixelsPerSecond;
+      _bpm = 100;
+      _offset = 0;
+      _currentRow = 0;
+      _notice = const EditorNotice('音频已加载');
+      _updateDirty();
+    } on Object {
+      pending?.dispose();
+      _notice = const EditorNotice(
+        '音频加载失败：无法解码或生成波形，所选音频未加载。',
+        kind: EditorNoticeKind.error,
+      );
+      notifyListeners();
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  void setBpm(double value) {
+    if (!generalActionsEnabled ||
+        !value.isFinite ||
+        value < 0 ||
+        value > 100000 ||
+        value == _bpm) {
+      return;
+    }
+    _bpm = value;
+    _updateDirty();
+  }
+
+  void nudgeBpm(double delta) {
+    setBpm((_bpm + delta).clamp(0, 100000).toDouble());
+  }
+
+  void setOffset(double value) {
+    if (!generalActionsEnabled ||
+        !value.isFinite ||
+        value < -30 ||
+        value > 30 ||
+        value == _offset) {
+      return;
+    }
+    _offset = value;
+    _updateDirty();
+  }
+
+  void nudgeOffsetByBeat(double beats) {
+    if (_bpm == 0) {
+      return;
+    }
+    setOffset((_offset + 60 / _bpm * beats).clamp(-30, 30).toDouble());
+  }
+
+  void clickCell(int column, int row, {required bool mobile}) {
+    if (_isBusy || !generalActionsEnabled) {
+      return;
+    }
+    if (mobile && !mobileChartEditingEnabled(rowSpacing)) {
+      _notice = const EditorNotice('请放大后编辑');
+      notifyListeners();
+      return;
+    }
+    final result = _editor.click(column, math.max(0, row));
+    if (result.changed) {
+      _refreshProjection();
+      _commitChartChange();
+    } else {
+      _notice = EditorNotice(_editMessage(result.code));
+      notifyListeners();
+    }
+  }
+
+  void undo() {
+    if (!canUndo || _isBusy || !generalActionsEnabled) {
+      return;
+    }
+    _editor.undo();
+    _refreshProjection();
+    _commitChartChange();
+  }
+
+  void redo() {
+    if (!canRedo || _isBusy || !generalActionsEnabled) {
+      return;
+    }
+    _editor.redo();
+    _refreshProjection();
+    _commitChartChange();
+  }
+
+  void clearChart() {
+    if (_isBusy || !generalActionsEnabled) {
+      return;
+    }
+    final result = _editor.clear();
+    if (result.changed) {
+      _refreshProjection();
+      _commitChartChange();
+    }
+  }
+
+  Future<List<AudioAnalysisCandidate>> analyzeAudio() {
+    final cached = _analysisCandidates;
+    if (cached != null) {
+      return Future.value(cached);
+    }
+    final existing = _analysisFuture;
+    if (existing != null) {
+      return existing;
+    }
+    final bytes = _audioSourceBytes;
+    final extension = _audioExtension;
+    if (bytes == null || extension == null) {
+      return Future.error(StateError('No audio is loaded.'));
+    }
+    final version = _audioVersion;
+    final source = Uint8List.fromList(bytes);
+    final stagePort = ReceivePort();
+    final stageSendPort = stagePort.sendPort;
+    final stageSubscription = stagePort.listen((message) {
+      if (version != _audioVersion || message is! int) {
+        return;
+      }
+      final stage = SyncAnalysisStage.fromValue(message);
+      if (stage != null) {
+        _analysisStage = stage;
+        notifyListeners();
+      }
+    });
+    _analysisStage = SyncAnalysisStage.detectingOnsets;
+    _setBusy(true);
+    final future =
+        Isolate.run(() {
+              final audio = OtgyNative.decodeAudio(source, extension);
+              try {
+                return audio
+                    .analyzeSync(
+                      onStage: (stage) => stageSendPort.send(stage.value),
+                    )
+                    .candidates;
+              } finally {
+                audio.dispose();
+              }
+            })
+            .then((candidates) {
+              if (version == _audioVersion) {
+                _analysisCandidates = List.unmodifiable(candidates);
+                return _analysisCandidates!;
+              }
+              throw StateError('Audio changed while analysis was running.');
+            })
+            .whenComplete(() async {
+              await stageSubscription.cancel();
+              stagePort.close();
+              if (version == _audioVersion) {
+                _analysisFuture = null;
+              }
+              _setBusy(false);
+            });
+    _analysisFuture = future;
+    return future;
+  }
+
+  void applyAnalysisCandidate(AudioAnalysisCandidate candidate) {
+    if (!generalActionsEnabled ||
+        !candidate.bpm.isFinite ||
+        !candidate.appOffsetSeconds.isFinite) {
+      return;
+    }
+    _bpm = candidate.bpm;
+    _offset = candidate.appOffsetSeconds;
+    _updateDirty();
+  }
+
+  Future<void> exportAudio({
+    required int quality,
+    required String baseName,
+    required AudioExportSaveCallback save,
+  }) async {
+    if (!generalActionsEnabled) {
+      throw StateError('Another application operation is active.');
+    }
+    final bytes = _audioSourceBytes;
+    final extension = _audioExtension;
+    if (bytes == null || extension == null) {
+      throw StateError('No audio is loaded.');
+    }
+    final source = Uint8List.fromList(bytes);
+    final offset = _offset;
+    final cancellation = AudioExportCancellation.create();
+    final progressPort = ReceivePort();
+    StreamSubscription<Object?>? progressSubscription;
+    final cancelAddress = cancellation.address;
+    final progressSendPort = progressPort.sendPort;
+    _audioExportCancellation = cancellation;
+    _isExportingAudio = true;
+    _audioExportCancellationRequested = false;
+    _audioExportProgress = const AudioExportProgress(
+      stage: AudioExportStage.preparingAudio,
+      completedUnits: 0,
+      totalUnits: 0,
+    );
+    _setBusy(true);
+    progressSubscription = progressPort.listen((message) {
+      if (!identical(_audioExportCancellation, cancellation) ||
+          message is! List<Object?> ||
+          message.length != 3 ||
+          message[0] is! int ||
+          message[1] is! int ||
+          message[2] is! int) {
+        return;
+      }
+      final stage = AudioExportStage.fromValue(message[0]! as int);
+      if (stage == null) {
+        return;
+      }
+      _audioExportProgress = AudioExportProgress(
+        stage: stage,
+        completedUnits: message[1]! as int,
+        totalUnits: message[2]! as int,
+      );
+      notifyListeners();
+    });
+    try {
+      final result = await Isolate.run(() {
+        final borrowedCancellation = AudioExportCancellation.borrowAddress(
+          cancelAddress,
+        );
+        final audio = OtgyNative.decodeAudio(source, extension);
+        try {
+          return audio.exportOgg(
+            offset: offset,
+            quality: quality,
+            baseName: baseName,
+            cancellation: borrowedCancellation,
+            onProgress: (progress) {
+              progressSendPort.send([
+                progress.stage.value,
+                progress.completedUnits,
+                progress.totalUnits,
+              ]);
+            },
+          );
+        } finally {
+          audio.dispose();
+          borrowedCancellation.dispose();
+        }
+      });
+      await progressSubscription.cancel();
+      progressSubscription = null;
+      progressPort.close();
+      if (cancellation.isRequested) {
+        throw const AudioExportCancelled();
+      }
+      _audioExportProgress = AudioExportProgress(
+        stage: AudioExportStage.saving,
+        completedUnits: 0,
+        totalUnits: result.bytes.length,
+      );
+      notifyListeners();
+      try {
+        await save(result, () => cancellation.isRequested, (
+          completedUnits,
+          totalUnits,
+        ) {
+          if (!identical(_audioExportCancellation, cancellation)) {
+            return;
+          }
+          _audioExportProgress = AudioExportProgress(
+            stage: AudioExportStage.saving,
+            completedUnits: completedUnits,
+            totalUnits: totalUnits,
+          );
+          notifyListeners();
+        });
+      } on Object {
+        if (cancellation.isRequested) {
+          throw const AudioExportCancelled();
+        }
+        rethrow;
+      }
+      if (cancellation.isRequested) {
+        throw const AudioExportCancelled();
+      }
+    } on OtgyException catch (error) {
+      if (error.domain == 9 && error.code == 1) {
+        throw const AudioExportCancelled();
+      }
+      rethrow;
+    } finally {
+      await progressSubscription?.cancel();
+      progressPort.close();
+      if (identical(_audioExportCancellation, cancellation)) {
+        _audioExportCancellation = null;
+        _audioExportProgress = null;
+        _audioExportCancellationRequested = false;
+      }
+      cancellation.dispose();
+      _isExportingAudio = false;
+      _setBusy(false);
+    }
+  }
+
+  void cancelAudioExport() {
+    if (!_isExportingAudio ||
+        OtgyNative.coordinateApplicationOperation(mode: 2, operation: 3) != 0) {
+      return;
+    }
+    _audioExportCancellation?.request();
+    _audioExportCancellationRequested = true;
+    notifyListeners();
+  }
+
+  void importSlkBytes(Uint8List bytes, String fileName) {
+    if (!generalActionsEnabled) {
+      return;
+    }
+    final pending = NativeChartEditor.importSlk(bytes);
+    _replaceEditor(pending);
+    _sourceKind = WorkspaceSourceKind.importedSlk;
+    _sourceName = fileName;
+    _draftId = null;
+    _savedPayload = null;
+    _isDirty = true;
+    _projectRevision++;
+    _currentRow = 0;
+    notifyListeners();
+  }
+
+  void loadFormalDraft({
+    required Uint8List payload,
+    required String draftId,
+    required String draftName,
+  }) {
+    if (!generalActionsEnabled) {
+      return;
+    }
+    final decoded = NativeChartEditor.decodeFormal(payload);
+    _replaceEditor(decoded.editor);
+    _bpm = decoded.bpm;
+    _offset = decoded.offset;
+    _sourceKind = WorkspaceSourceKind.savedDraft;
+    _sourceName = draftName;
+    _draftId = draftId;
+    _savedPayload = Uint8List.fromList(payload);
+    _isDirty = false;
+    _projectRevision++;
+    _currentRow = 0;
+    notifyListeners();
+  }
+
+  void restoreRecovery(Uint8List payload) {
+    if (!generalActionsEnabled) {
+      return;
+    }
+    final pending = NativeChartEditor.decodeRecovery(payload);
+    _replaceEditor(pending);
+    _sourceKind = WorkspaceSourceKind.untitled;
+    _sourceName = null;
+    _draftId = null;
+    _savedPayload = null;
+    _isDirty = true;
+    _projectRevision++;
+    _currentRow = 0;
+    notifyListeners();
+  }
+
+  Uint8List encodeFormalDraft() =>
+      _editor.encodeFormal(bpm: _bpm, offset: _offset);
+
+  Uint8List encodeRecoverySnapshot() => _editor.encodeRecovery();
+
+  SlkExport exportSlk() => _editor.exportSlk();
+
+  void markSaved({
+    required String draftId,
+    required String draftName,
+    required Uint8List payload,
+  }) {
+    _sourceKind = WorkspaceSourceKind.savedDraft;
+    _sourceName = draftName;
+    _draftId = draftId;
+    _savedPayload = Uint8List.fromList(payload);
+    _isDirty = false;
+    _notice = const EditorNotice('草稿已保存');
+    notifyListeners();
+  }
+
+  String get suggestedProjectBaseName {
+    final name = _sourceName;
+    if (name == null || name.isEmpty) {
+      return 'chart';
+    }
+    final dot = name.lastIndexOf('.');
+    return dot > 0 ? name.substring(0, dot) : name;
+  }
+
+  String get suggestedAudioBaseName =>
+      OtgyNative.defaultAudioExportBaseName(_audioFileName ?? 'audio');
+
+  Future<void> togglePlayback() async {
+    if (_isPlaying) {
+      await pausePlayback();
+      return;
+    }
+    final audio = _audio;
+    if (audio == null || !generalActionsEnabled) {
+      showNotice('请先加载音频');
+      return;
+    }
+    try {
+      final cursorSeconds = OtgyNative.sixteenthRowToSeconds(
+        bpm: projectedBpm,
+        offset: _offset,
+        row: _currentRow,
+      );
+      final start = OtgyNative.startPlayback(
+        audioDurationSeconds: audio.durationSeconds,
+        cursorTimelineSeconds: cursorSeconds,
+      );
+      if (!start.isPlaying) {
+        return;
+      }
+      final playback = audio.renderPlayback(start.timelineSeconds);
+      if (playback.frameCount == 0) {
+        _applyPlaybackPosition(
+          PlaybackPosition(
+            isPlaying: false,
+            timelineSeconds: audio.durationSeconds,
+            audioDurationSeconds: audio.durationSeconds,
+          ),
+        );
+        notifyListeners();
+        return;
+      }
+      await _playbackOutput.start(
+        sampleRate: playback.sampleRate,
+        interleavedPcm16le: playback.interleavedPcm16le,
+      );
+      _playbackStart = start;
+      _playbackSampleRate = playback.sampleRate;
+      _playbackFrameCount = playback.frameCount;
+      _playbackPlayedFrames = 0;
+      _isPlaying = true;
+      _playbackTimer?.cancel();
+      _playbackTimer = Timer.periodic(
+        const Duration(milliseconds: 33),
+        (_) => unawaited(_pollPlayback()),
+      );
+      notifyListeners();
+    } on Object {
+      _isPlaying = false;
+      _playbackStart = null;
+      showNotice('无法启动音频播放', error: true);
+    }
+  }
+
+  Future<void> pausePlayback() async {
+    if (!_isPlaying) {
+      return;
+    }
+    try {
+      final state = await _playbackOutput.pause();
+      _finishPlaybackAt(state.playedFrames, forcePause: true);
+    } on Object {
+      _finishPlaybackAt(_playbackPlayedFrames, forcePause: true);
+    }
+  }
+
+  Future<void> _pollPlayback() async {
+    if (!_isPlaying || _playbackPollActive) {
+      return;
+    }
+    _playbackPollActive = true;
+    try {
+      final state = await _playbackOutput.query();
+      _finishPlaybackAt(state.playedFrames, forcePause: !state.playing);
+    } on Object {
+      _finishPlaybackAt(_playbackPlayedFrames, forcePause: true);
+      showNotice('音频输出已中断', error: true);
+    } finally {
+      _playbackPollActive = false;
+    }
+  }
+
+  void _finishPlaybackAt(int frames, {required bool forcePause}) {
+    final start = _playbackStart;
+    if (start == null) {
+      return;
+    }
+    _playbackPlayedFrames = math.max(0, math.min(frames, _playbackFrameCount));
+    var position = OtgyNative.advancePlaybackFrames(
+      start: start,
+      playedFrames: _playbackPlayedFrames,
+      sampleRate: _playbackSampleRate,
+    );
+    if (forcePause && position.isPlaying) {
+      position = OtgyNative.pausePlayback(position);
+    }
+    _applyPlaybackPosition(position);
+    if (!position.isPlaying || forcePause) {
+      _playbackTimer?.cancel();
+      _playbackTimer = null;
+      _playbackStart = null;
+      _isPlaying = false;
+    }
+    notifyListeners();
+  }
+
+  void _applyPlaybackPosition(PlaybackPosition position) {
+    final row = OtgyNative.secondsToSixteenthRow(
+      bpm: projectedBpm,
+      offset: _offset,
+      seconds: position.timelineSeconds,
+    );
+    _currentRow = row.clamp(0, timelineRange.endRow).toDouble();
+  }
+
+  void toggleWaveform() {
+    _waveformVisible = !_waveformVisible;
+    notifyListeners();
+  }
+
+  void moveToRow(double value) {
+    if (!generalActionsEnabled) {
+      return;
+    }
+    final end = timelineRange.endRow;
+    final next = value.clamp(0, end).toDouble();
+    if (next == _currentRow) {
+      return;
+    }
+    _currentRow = next;
+    notifyListeners();
+  }
+
+  void moveByPixels(double pixels) {
+    if (rowSpacing <= 0) {
+      return;
+    }
+    moveToRow(_currentRow + pixels / rowSpacing);
+  }
+
+  Future<void> setZoom(double value) async {
+    final next = (value * 4).round() / 4;
+    final clamped = next.clamp(1, 19).toDouble();
+    if (clamped == _zoom || _isBusy || !generalActionsEnabled) {
+      return;
+    }
+    _zoom = clamped;
+    await _regenerateWaveform();
+  }
+
+  Future<void> setScale(double value) async {
+    final next = (value * 4).round() / 4;
+    final clamped = next.clamp(1, 10).toDouble();
+    if (clamped == _scale || _isBusy || !generalActionsEnabled) {
+      return;
+    }
+    _scale = clamped;
+    await _regenerateWaveform();
+  }
+
+  void dismissNotice() {
+    if (_notice != null) {
+      _notice = null;
+      notifyListeners();
+    }
+  }
+
+  void showNotice(String message, {bool error = false}) {
+    _notice = EditorNotice(
+      message,
+      kind: error ? EditorNoticeKind.error : EditorNoticeKind.info,
+    );
+    notifyListeners();
+  }
+
+  double get _effectiveScale {
+    final mobile =
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android;
+    return mobile ? 4 : _scale;
+  }
+
+  Future<void> _regenerateWaveform() async {
+    _setBusy(true);
+    try {
+      final audio = _audio;
+      if (audio == null) {
+        _refreshViewMetrics();
+      } else {
+        final first = audio.generateWaveform(
+          zoom: _zoom,
+          scale: _effectiveScale,
+          blockIndex: 0,
+        );
+        final count = math.max(
+          1,
+          (audio.durationSeconds * first.pixelsPerSecond / 128).ceil(),
+        );
+        final blocks = <WaveformBlock>[first];
+        for (var index = 1; index < count; index++) {
+          blocks.add(
+            audio.generateWaveform(
+              zoom: _zoom,
+              scale: _effectiveScale,
+              blockIndex: index,
+            ),
+          );
+        }
+        _waveformBlocks = List.unmodifiable(blocks);
+        _pixelsPerSecond = first.pixelsPerSecond;
+      }
+      notifyListeners();
+    } finally {
+      _setBusy(false);
+    }
+  }
+
+  void _refreshViewMetrics() {
+    _pixelsPerSecond = OtgyNative.waveformPixelsPerSecond(
+      _zoom,
+      _effectiveScale,
+    );
+  }
+
+  void _refreshProjection() {
+    _markers = List.unmodifiable(_editor.markers());
+    _showtimeMoves = List.unmodifiable(_editor.showtimeMoves());
+  }
+
+  void _replaceEditor(NativeChartEditor pending) {
+    final previous = _editor;
+    _editor = pending;
+    _refreshProjection();
+    previous.dispose();
+  }
+
+  void _commitChartChange() {
+    _projectRevision++;
+    _updateDirty();
+  }
+
+  void _updateDirty() {
+    final saved = _savedPayload;
+    if (saved == null) {
+      _isDirty = _projectRevision > 0 || _bpm != 100 || _offset != 0;
+    } else {
+      _isDirty = !_bytesEqual(
+        saved,
+        _editor.encodeFormal(bpm: _bpm, offset: _offset),
+      );
+    }
+    notifyListeners();
+  }
+
+  void _setBusy(bool value) {
+    if (_isBusy != value) {
+      _isBusy = value;
+      notifyListeners();
+    }
+  }
+
+  static String _editMessage(int code) => switch (code) {
+    2 => '当前位置已有标记',
+    3 => '不能在结束符后追加',
+    4 => '不可放置',
+    5 => '没有可复制的 NPC 演示',
+    6 => '生成范围内存在其他标记',
+    7 => '自动生成标记无法编辑',
+    8 => 'Showtime 位置不合法',
+    9 => '没有剩余舞步可以生成',
+    10 => 'Showtime 范围内存在其他标记',
+    _ => '没有可应用的修改',
+  };
+
+  @override
+  void dispose() {
+    _playbackTimer?.cancel();
+    _audioExportCancellation?.request();
+    unawaited(_playbackOutput.dispose());
+    _audio?.dispose();
+    _editor.dispose();
+    super.dispose();
+  }
+}
+
+bool _bytesEqual(Uint8List left, Uint8List right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) {
+      return false;
+    }
+  }
+  return true;
+}
