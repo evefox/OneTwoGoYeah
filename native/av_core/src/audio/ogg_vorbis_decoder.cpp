@@ -205,12 +205,14 @@ enum class OggPageValidation : std::uint8_t {
 
 }  // namespace
 
-OggVorbisDecodeResult::OggVorbisDecodeResult(Pcm16 pcm) noexcept
-    : storage_(std::move(pcm)) {}
+OggVorbisDecodeResult::OggVorbisDecodeResult(
+    Pcm16 pcm, AudioSourceInfo source_info) noexcept
+    : storage_(std::move(pcm)), source_info_(source_info) {}
 
 OggVorbisDecodeResult::OggVorbisDecodeResult(
     OggVorbisDecodeError error) noexcept
-    : storage_(error) {}
+    : storage_(error),
+      source_info_{AudioSourceCodec::OggVorbis, 0U, 0U} {}
 
 bool OggVorbisDecodeResult::has_value() const noexcept {
   return std::holds_alternative<Pcm16>(storage_);
@@ -222,6 +224,10 @@ const Pcm16* OggVorbisDecodeResult::pcm() const noexcept {
 
 Pcm16* OggVorbisDecodeResult::pcm() noexcept {
   return std::get_if<Pcm16>(&storage_);
+}
+
+const AudioSourceInfo* OggVorbisDecodeResult::source_info() const noexcept {
+  return has_value() ? &source_info_ : nullptr;
 }
 
 OggVorbisDecodeError OggVorbisDecodeResult::error() const noexcept {
@@ -280,6 +286,10 @@ OggVorbisDecodeResult decode_ogg_vorbis(const std::uint8_t* data,
     }
     const auto sample_rate = static_cast<std::uint32_t>(first_info->rate);
     const auto source_channels = first_info->channels;
+    std::uint64_t nominal_bitrate =
+        first_info->bitrate_nominal > 0L
+            ? static_cast<std::uint64_t>(first_info->bitrate_nominal)
+            : 0U;
 
     for (long link = 1L; link < link_count; ++link) {
       const auto* const info = ov_info(file, static_cast<int>(link));
@@ -288,7 +298,16 @@ OggVorbisDecodeResult decode_ogg_vorbis(const std::uint8_t* data,
         return OggVorbisDecodeResult{
             OggVorbisDecodeError::StreamFormatChanged};
       }
+      if (info->bitrate_nominal <= 0L ||
+          static_cast<std::uint64_t>(info->bitrate_nominal) !=
+              nominal_bitrate) {
+        nominal_bitrate = 0U;
+      }
     }
+
+    const auto measured = ov_bitrate(file, -1);
+    auto measured_bitrate =
+        measured > 0L ? static_cast<std::uint64_t>(measured) : 0U;
 
     const auto total_frames = ov_pcm_total(file, -1);
     if (total_frames < 0 ||
@@ -298,6 +317,19 @@ OggVorbisDecodeResult decode_ogg_vorbis(const std::uint8_t* data,
       return OggVorbisDecodeResult{OggVorbisDecodeError::SizeOverflow};
     }
     const auto frame_count = static_cast<std::size_t>(total_frames);
+    if (measured_bitrate == 0U && frame_count != 0U &&
+        size <= std::numeric_limits<std::uint64_t>::max() / 8U) {
+      const auto encoded_bits = static_cast<std::uint64_t>(size) * 8U;
+      const auto whole_seconds_term = encoded_bits / frame_count;
+      const auto remainder = encoded_bits % frame_count;
+      if (whole_seconds_term <=
+              std::numeric_limits<std::uint64_t>::max() / sample_rate &&
+          remainder <=
+              std::numeric_limits<std::uint64_t>::max() / sample_rate) {
+        measured_bitrate = whole_seconds_term * sample_rate +
+                           remainder * sample_rate / frame_count;
+      }
+    }
 
     auto pcm_result = Pcm16::allocate(sample_rate, frame_count);
     if (!pcm_result) {
@@ -358,7 +390,9 @@ OggVorbisDecodeResult decode_ogg_vorbis(const std::uint8_t* data,
     if (written_frames != frame_count) {
       return OggVorbisDecodeResult{OggVorbisDecodeError::InvalidData};
     }
-    return OggVorbisDecodeResult{std::move(pcm)};
+    return OggVorbisDecodeResult{
+        std::move(pcm),
+        {AudioSourceCodec::OggVorbis, measured_bitrate, nominal_bitrate}};
   } catch (const std::length_error&) {
     return OggVorbisDecodeResult{OggVorbisDecodeError::SizeOverflow};
   } catch (const std::bad_alloc&) {

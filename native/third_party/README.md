@@ -18,7 +18,7 @@ Pinned inputs:
 The retained source/header set has this deterministic content digest:
 
 ```text
-cb753f44ecf99ac7f10e9ca9a7be4c60d00b9dda1eb31e38b3048868f0463da9
+d4e1715267b23503c51bd73e42f4ccfd0523aa070d980c780c692f1f2a75a422
 ```
 
 To verify it from the repository root (the command intentionally excludes the
@@ -34,10 +34,8 @@ find native/third_party/libmad/include \
      -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256
 ```
 
-Only MP3 decoder sources, Ogg framing, and the libVorbis core/vorbisfile
-sources are part of the current CMake targets. LibVorbis shares a few cleanup
-and registry symbols with its analysis engine, so those translation units are
-retained, but the VBR setup engine (`vorbisenc.c`) and its mode/codebook tables
-remain excluded until the deterministic audio-export slice. The compile
-definitions are centralized in `native/third_party/CMakeLists.txt`; no target
-uses a platform audio API, a subprocess, or `fast-math`.
+The current CMake targets include the MP3 decoder, Ogg framing, libVorbis core
+and vorbisfile sources, plus the VBR setup engine (`vorbisenc.c`) and its pinned
+mode/codebook tables for deterministic audio export. The compile definitions
+are centralized in `native/third_party/CMakeLists.txt`; no target uses a
+platform audio API, a subprocess, or `fast-math`.

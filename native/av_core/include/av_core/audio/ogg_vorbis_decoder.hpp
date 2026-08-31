@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "av_core/audio/audio_source_info.hpp"
 #include "av_core/audio/pcm16.hpp"
 
 #include <cstddef>
@@ -48,7 +49,10 @@ enum class OggVorbisDecodeError : std::uint8_t {
 
 class OggVorbisDecodeResult final {
  public:
-  explicit OggVorbisDecodeResult(Pcm16 pcm) noexcept;
+  explicit OggVorbisDecodeResult(
+      Pcm16 pcm,
+      AudioSourceInfo source_info = {AudioSourceCodec::OggVorbis, 0U,
+                                     0U}) noexcept;
   explicit OggVorbisDecodeResult(OggVorbisDecodeError error) noexcept;
 
   [[nodiscard]] bool has_value() const noexcept;
@@ -58,6 +62,7 @@ class OggVorbisDecodeResult final {
 
   [[nodiscard]] const Pcm16* pcm() const noexcept;
   [[nodiscard]] Pcm16* pcm() noexcept;
+  [[nodiscard]] const AudioSourceInfo* source_info() const noexcept;
   [[nodiscard]] OggVorbisDecodeError error() const noexcept;
 
   /// Moves the canonical PCM out of a successful result.
@@ -65,6 +70,7 @@ class OggVorbisDecodeResult final {
 
  private:
   std::variant<Pcm16, OggVorbisDecodeError> storage_;
+  AudioSourceInfo source_info_;
 };
 
 /// Decodes one complete caller-owned Ogg Vorbis byte range in memory.

@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "av_core/audio/audio_source_info.hpp"
 #include "av_core/audio/pcm16.hpp"
 
 #include <cstddef>
@@ -48,7 +49,9 @@ enum class Mp3DecodeError : std::uint8_t {
 
 class Mp3DecodeResult final {
  public:
-  explicit Mp3DecodeResult(Pcm16 pcm) noexcept;
+  explicit Mp3DecodeResult(Pcm16 pcm,
+                           AudioSourceInfo source_info = {
+                               AudioSourceCodec::Mp3, 0U, 0U}) noexcept;
   explicit Mp3DecodeResult(Mp3DecodeError error) noexcept;
 
   [[nodiscard]] bool has_value() const noexcept;
@@ -58,6 +61,7 @@ class Mp3DecodeResult final {
 
   [[nodiscard]] const Pcm16* pcm() const noexcept;
   [[nodiscard]] Pcm16* pcm() noexcept;
+  [[nodiscard]] const AudioSourceInfo* source_info() const noexcept;
   [[nodiscard]] Mp3DecodeError error() const noexcept;
 
   /// Moves the canonical PCM out of a successful result.
@@ -65,6 +69,7 @@ class Mp3DecodeResult final {
 
  private:
   std::variant<Pcm16, Mp3DecodeError> storage_;
+  AudioSourceInfo source_info_;
 };
 
 /// Decodes one complete caller-owned MP3 byte range in memory.

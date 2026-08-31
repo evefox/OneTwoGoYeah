@@ -63,6 +63,42 @@ endif()
 
 add_test(NAME av_core.audio_export_name COMMAND av_core_audio_export_name_test)
 
+add_executable(av_core_audio_export_quality_test
+  audio_export_quality_test.cpp
+)
+target_link_libraries(av_core_audio_export_quality_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+
+if(MSVC)
+  target_compile_options(av_core_audio_export_quality_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_audio_export_quality_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.audio_export_quality
+  COMMAND av_core_audio_export_quality_test
+)
+
+add_executable(av_core_audio_export_test
+  audio_export_test.cpp
+)
+target_link_libraries(av_core_audio_export_test PRIVATE OneTwoGoYeah::av_core)
+
+if(MSVC)
+  target_compile_options(av_core_audio_export_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(av_core_audio_export_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.audio_export COMMAND av_core_audio_export_test)
+
 set(OTGY_MP3_FIXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/mp3")
 
 function(otgy_assert_fixture_sha256 file_name expected_sha256)
@@ -169,6 +205,57 @@ endif()
 
 add_test(NAME av_core.ogg_vorbis_decoder
   COMMAND av_core_ogg_vorbis_decoder_test
+)
+
+add_executable(av_core_ogg_vorbis_encoder_test
+  ogg_vorbis_encoder_test.cpp
+)
+target_link_libraries(av_core_ogg_vorbis_encoder_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+set(OTGY_OGG_EXPORT_FIXTURE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/ogg_export"
+)
+
+function(otgy_assert_ogg_export_fixture_sha256 file_name expected_sha256)
+  file(SHA256 "${OTGY_OGG_EXPORT_FIXTURE_DIR}/${file_name}" actual_sha256)
+  if(NOT actual_sha256 STREQUAL expected_sha256)
+    message(FATAL_ERROR
+      "Unexpected SHA-256 for Ogg export fixture ${file_name}: ${actual_sha256}"
+    )
+  endif()
+endfunction()
+
+otgy_assert_ogg_export_fixture_sha256(
+  generated_stereo_11025.quality1.ogg
+  afe984023524e4c61b738bc305bcce89da8340068604bfdd6a325348979b8bdb
+)
+otgy_assert_ogg_export_fixture_sha256(
+  generated_stereo_11025.quality3.ogg
+  f2fa9d2a8d52b50fa291339146884740a90c7050a99e8ac1ceffaae4e9a21e3a
+)
+otgy_assert_ogg_export_fixture_sha256(
+  generated_stereo_11025.quality5.ogg
+  481edb1fd70b85268ab2b3636077cb950710c340b1bd6ce3746edaa925385839
+)
+
+target_compile_definitions(av_core_ogg_vorbis_encoder_test PRIVATE
+  OTGY_OGG_EXPORT_FIXTURE_DIR="${OTGY_OGG_EXPORT_FIXTURE_DIR}"
+  OTGY_OGG_EXPORT_PCM_FIXTURE="${OTGY_OGG_VORBIS_FIXTURE_DIR}/generated_stereo_11025.planar.pcm16le"
+)
+
+if(MSVC)
+  target_compile_options(av_core_ogg_vorbis_encoder_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_ogg_vorbis_encoder_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.ogg_vorbis_encoder
+  COMMAND av_core_ogg_vorbis_encoder_test
 )
 
 set(OTGY_WAVEFORM_FIXTURE_DIR

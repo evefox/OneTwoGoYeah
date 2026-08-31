@@ -158,11 +158,12 @@ enum class XingKind : std::uint8_t {
 
 }  // namespace
 
-Mp3DecodeResult::Mp3DecodeResult(Pcm16 pcm) noexcept
-    : storage_(std::move(pcm)) {}
+Mp3DecodeResult::Mp3DecodeResult(Pcm16 pcm,
+                                 AudioSourceInfo source_info) noexcept
+    : storage_(std::move(pcm)), source_info_(source_info) {}
 
 Mp3DecodeResult::Mp3DecodeResult(Mp3DecodeError error) noexcept
-    : storage_(error) {}
+    : storage_(error), source_info_{AudioSourceCodec::Mp3, 0U, 0U} {}
 
 bool Mp3DecodeResult::has_value() const noexcept {
   return std::holds_alternative<Pcm16>(storage_);
@@ -174,6 +175,10 @@ const Pcm16* Mp3DecodeResult::pcm() const noexcept {
 
 Pcm16* Mp3DecodeResult::pcm() noexcept {
   return std::get_if<Pcm16>(&storage_);
+}
+
+const AudioSourceInfo* Mp3DecodeResult::source_info() const noexcept {
+  return has_value() ? &source_info_ : nullptr;
 }
 
 Mp3DecodeError Mp3DecodeResult::error() const noexcept {
@@ -222,6 +227,7 @@ Mp3DecodeResult decode_mp3(const std::uint8_t* data,
     std::uint32_t sample_rate = 0U;
     unsigned int source_channels = 0U;
     bool is_first_frame = true;
+    std::uint64_t bitrate_sample_sum = 0U;
 
     while (true) {
       auto decoded = mad_frame_decode(&decoder.frame, &decoder.stream);
@@ -282,6 +288,20 @@ Mp3DecodeResult decode_mp3(const std::uint8_t* data,
           return Mp3DecodeResult{Mp3DecodeError::SizeOverflow};
         }
 
+        const auto frame_bitrate =
+            static_cast<std::uint64_t>(decoder.frame.header.bitrate);
+        if (frame_count != 0U &&
+            frame_bitrate > std::numeric_limits<std::uint64_t>::max() /
+                                frame_count) {
+          return Mp3DecodeResult{Mp3DecodeError::SizeOverflow};
+        }
+        const auto weighted_bitrate = frame_bitrate * frame_count;
+        if (weighted_bitrate >
+            std::numeric_limits<std::uint64_t>::max() - bitrate_sample_sum) {
+          return Mp3DecodeResult{Mp3DecodeError::SizeOverflow};
+        }
+        bitrate_sample_sum += weighted_bitrate;
+
         const auto old_size = left.size();
         left.resize(old_size + frame_count);
         right.resize(old_size + frame_count);
@@ -314,7 +334,11 @@ Mp3DecodeResult decode_mp3(const std::uint8_t* data,
     if (!pcm) {
       return Mp3DecodeResult{map_pcm_error(pcm.error())};
     }
-    return Mp3DecodeResult{std::move(pcm).take_pcm()};
+    const auto measured_bitrate =
+        bitrate_sample_sum / static_cast<std::uint64_t>(left.size());
+    return Mp3DecodeResult{
+        std::move(pcm).take_pcm(),
+        {AudioSourceCodec::Mp3, measured_bitrate, 0U}};
   } catch (const std::length_error&) {
     return Mp3DecodeResult{Mp3DecodeError::SizeOverflow};
   } catch (const std::bad_alloc&) {

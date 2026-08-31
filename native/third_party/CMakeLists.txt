@@ -53,11 +53,9 @@ set_target_properties(otgy_libogg PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
 
-# The libVorbis core is one static target because its public decode objects
-# share cleanup and registry symbols with analysis support.  The VBR setup
-# engine (`vorbisenc.c`) and its mode/codebook tables stay out until the
-# separately planned deterministic Ogg export slice; no export entry point is
-# available in this build.
+# The libVorbis core and VBR setup engine share one static target.  Encoder
+# mode and codebook tables are included by vorbisenc.c from this pinned source
+# tree, so no platform or system codec can change the selected setup.
 add_library(otgy_libvorbis STATIC
   libvorbis/src/analysis.c
   libvorbis/src/bitrate.c
@@ -78,6 +76,7 @@ add_library(otgy_libvorbis STATIC
   libvorbis/src/sharedbook.c
   libvorbis/src/smallft.c
   libvorbis/src/synthesis.c
+  libvorbis/src/vorbisenc.c
   libvorbis/src/vorbisfile.c
   libvorbis/src/window.c
 )

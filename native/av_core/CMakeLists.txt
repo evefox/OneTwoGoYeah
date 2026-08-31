@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(av_core STATIC
+  src/audio/audio_export.cpp
   src/audio/audio_export_name.cpp
+  src/audio/audio_export_quality.cpp
   src/chart/chart_draft.cpp
   src/chart/chart_editor.cpp
   src/chart/chart_projection.cpp
   src/chart/chart_validator.cpp
   src/audio/mp3_decoder.cpp
   src/audio/ogg_vorbis_decoder.cpp
+  src/audio/ogg_vorbis_encoder.cpp
   src/audio/pcm16.cpp
   src/audio/pcm16_hash.cpp
   src/audio/pcm_offset.cpp

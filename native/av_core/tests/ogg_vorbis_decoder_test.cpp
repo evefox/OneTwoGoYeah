@@ -60,6 +60,11 @@ void assert_matches_golden(const std::string& ogg_name,
   assert(result.has_value());
   assert(result.error() == OggVorbisDecodeError::None);
   assert(result.pcm() != nullptr);
+  assert(result.source_info() != nullptr);
+  assert(result.source_info()->codec ==
+         otgy::core::AudioSourceCodec::OggVorbis);
+  assert(result.source_info()->measured_bitrate_bps != 0U);
+  assert(result.source_info()->nominal_bitrate_bps != 0U);
   const auto& pcm = *result.pcm();
   assert(pcm.sample_rate() == expected_sample_rate);
   assert(pcm.frame_count() == 8'192U);
@@ -103,6 +108,7 @@ void assert_failure_has_no_pcm(otgy::core::OggVorbisDecodeResult result,
   assert(!result.has_value());
   assert(result.error() == expected);
   assert(result.pcm() == nullptr);
+  assert(result.source_info() == nullptr);
 }
 
 void test_input_errors() {
