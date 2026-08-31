@@ -670,3 +670,27 @@ else()
 endif()
 
 add_test(NAME av_core.slk_parser COMMAND av_core_slk_parser_test)
+
+add_executable(av_core_slk_drill_group_analyzer_test
+  slk_drill_group_analyzer_test.cpp
+)
+target_link_libraries(av_core_slk_drill_group_analyzer_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_slk_drill_group_analyzer_test PRIVATE
+  OTGY_EXAMPLE_DIR="${OTGY_EXAMPLE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_slk_drill_group_analyzer_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_slk_drill_group_analyzer_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.slk_drill_group_analyzer
+  COMMAND av_core_slk_drill_group_analyzer_test
+)

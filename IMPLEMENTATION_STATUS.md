@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3 已完成；阶段 4 的 SLK 位置换算与严格底层记录解析已完成，下一切片识别并配对成品 `DrillGroup`。
+阶段 3 已完成；阶段 4 的 SLK 位置换算、严格底层记录解析和成品 `DrillGroup` 第一层语义分析已完成，下一切片解释 `DanceMoveDrill`。
 
 ## 本次范围
 
@@ -71,10 +71,13 @@
 - SLK 位置覆盖 beat/sixteenth `0..3` 全部组合、多个 measure、小节边界、`uint64` 最大值分解/重组、分量越界、乘加溢出、第四列前后差一和稳定错误。
 - 增加 `parse_slk_records(bytes)` 二进制入口，不解码标题字节；严格扫描 ID、CRLF、六列类型 schema、受支持前导记录、Y3 起连续 sheet row、相邻 X1..X6、最终 `[r & 0]` 和容器 `E`。
 - 底层解析返回有序自有 `SlkParsedRow`，强制四列一致、位置递增及 `n/s/c/d/r` 值组合；规范/兼容 SLK 分别解析 428/404 行，并覆盖未知记录、schema/列/行号/整数/类型/边界错误、来源位置和所有权。
+- 增加 `analyze_slk_drill_groups(records, beginRowIndex)`，在单个普通序列中配对紧邻的 NPC/玩家块，并在未消费的 Showtime 或文件边界前停止。
+- `DrillGroup` 结果以 NPC 起始 sheet row 作为同文档稳定标识，逐条传播显式角色、来源行和块内索引；动作相对位置以各自首个 `n` 为原点，兼容两个 `c` 到首个 `n` 间隔不同的合法块。
+- 规范/兼容 SLK 的两个普通序列分别识别 `14 + 20` 与 `16 + 18` 个组；合成测试覆盖可选 `s`、后续阶段游标、最终空序列、深复制/移动，以及结构、内容、动作位置和结束边界的稳定来源错误。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK 成品语义/导出、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK 舞步/Showtime 语义与导出、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -109,6 +112,7 @@
 - `native/av_core/include/av_core/playback/playback_position.hpp`
 - `native/av_core/include/av_core/slk/slk_position.hpp`
 - `native/av_core/include/av_core/slk/slk_parser.hpp`
+- `native/av_core/include/av_core/slk/slk_drill_group_analyzer.hpp`
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/timing/offset_detector.hpp`
 - `native/av_core/include/av_core/timing/sync_analyzer.hpp`
@@ -125,6 +129,7 @@
 - `native/av_core/src/playback/playback_position.cpp`
 - `native/av_core/src/slk/slk_position.cpp`
 - `native/av_core/src/slk/slk_parser.cpp`
+- `native/av_core/src/slk/slk_drill_group_analyzer.cpp`
 - `native/av_core/src/timing/arrowvortex/`
 - `native/av_core/src/timing/bpm_detector.cpp`
 - `native/av_core/src/timing/bpm_detector_internal.hpp`
@@ -159,6 +164,7 @@
 - `native/av_core/tests/playback_position_test.cpp`
 - `native/av_core/tests/slk_position_test.cpp`
 - `native/av_core/tests/slk_parser_test.cpp`
+- `native/av_core/tests/slk_drill_group_analyzer_test.cpp`
 - `native/av_core/tests/sync_analyzer_test.cpp`
 - `native/av_core/tests/timing_conversion_test.cpp`
 - `native/av_core/tests/timing_grid_test.cpp`
@@ -175,30 +181,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-slk-parser-clean -DBUILD_TESTING=ON
-cmake --build build/native-slk-parser-clean --parallel 2
-ctest --test-dir build/native-slk-parser-clean --output-on-failure
+cmake -S native -B build/native-slk-drill-groups-clean -DBUILD_TESTING=ON
+cmake --build build/native-slk-drill-groups-clean --parallel 2
+ctest --test-dir build/native-slk-drill-groups-clean --output-on-failure
 
-cmake -S native -B build/native-slk-parser-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-slk-parser-asan --parallel 2
-ctest --test-dir build/native-slk-parser-asan --output-on-failure
+cmake -S native -B build/native-slk-drill-groups-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-slk-drill-groups-asan --parallel 2
+ctest --test-dir build/native-slk-drill-groups-asan --output-on-failure
 
-cmake -S native -B build/native-slk-parser-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-slk-parser-asan-ubsan --parallel 2 --target av_core_slk_parser_test
-ctest --test-dir build/native-slk-parser-asan-ubsan -R '^av_core.slk_parser$' --output-on-failure
+cmake -S native -B build/native-slk-drill-groups-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-slk-drill-groups-asan-ubsan --parallel 2 --target av_core_slk_drill_group_analyzer_test
+ctest --test-dir build/native-slk-drill-groups-asan-ubsan -R '^av_core.slk_drill_group_analyzer$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，25/25 测试通过；全新 AddressSanitizer 构建后 25/25 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.slk_parser` 1/1 通过。规范与兼容示例分别得到 428/404 个含边界底层行，二进制前导差异不改变谱面行算法；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、SLK 位置、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，26/26 测试通过；全新 AddressSanitizer 构建后 26/26 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.slk_drill_group_analyzer` 1/1 通过。规范与兼容示例的两个普通序列分别得到 `14 + 20` 与 `16 + 18` 个配对演练组，角色、稳定标识、来源映射及两个结束类型均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、SLK 解析/位置、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的 SLK 解析路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的 `DrillGroup` 分析路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-实现成品 `DrillGroup` 第一层语义分析：从已解析底层行中识别 `[c & 非0] + 一个或多个 [n & 0] + 可选 [s & 0]` 块，要求紧邻两块内容与相对位置完全相同，并显式返回首块 NPC、次块玩家角色及稳定组标识；遇到 Showtime/边界时结束普通块序列。本切片不分析舞步拆分或 Showtime 关联，不构造 ChartDraft。
+实现成品 `DanceMoveDrill` 语义分析：消费一个普通序列内已配对的有序 `DrillGroup`，解码未拆分 `1..11` 与拆分 `segmentNCount * 100 + moveNCount`，校验实际 `n` 数量、统一完整舞步数量、分段总和及仅末组双方带 `s`，并返回稳定舞步演练标识与组映射。本切片不关联 Showtime、不构造 `ChartDraft`，也不实现导出、C ABI 或 Flutter。
