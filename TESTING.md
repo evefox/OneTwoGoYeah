@@ -407,6 +407,25 @@ avtool export-slk <project> --output <chart.slk>
 严格的 `decode <audio> --pcm-hash` 参数形态、未知扩展名、文件读取失败和解码失败，
 并精确比较退出码、stdout/stderr 分流及稳定错误 JSON。
 
+当前已经实现的 `export-audio` 成功输出同样只包含一行 schema v1 ASCII JSON，
+字段按 `schemaVersion`、`codec`、`sampleRate`、`frameCount`、
+`signedShiftFrames`、`quality`、`byteCount` 的固定顺序输出。三份集成用例分别覆盖
+MP3 零 Offset/品质 1、Ogg 正半帧远离零舍入/品质 3，以及 Ogg 负半帧远离零
+舍入/品质 5；每份都运行直接链接 `av_core` 的 C++ 探针和真实 `avtool` 进程，
+逐字节比较完整 Ogg 文件并精确比较成功 JSON。
+
+CLI 失败测试必须覆盖严格参数形态、逗号小数、非法/越界品质、超过来源品质上限、
+删除全部帧、未知输入扩展名、文件读取/解码失败、非 Ogg 输出、不可写目标和已存在
+目标；逐项精确比较退出码与稳定错误 JSON。失败后最终目标和 `.otgy-tmp*` 均不
+存在；已有目标的原始字节保持不变。品质 `1`、`3`、`5` 的核心编码测试还必须
+分别读取已提交黄金 Ogg，执行配置期 SHA-256 校验和运行时完整字节比较，普通测试
+不得重新生成黄金文件。
+
+应用操作协调测试枚举 `Idle`、`Playing`、`ExportingAudio` 与全部操作分类：播放态
+只允许暂停和切换波形，导出态只允许取消导出，其他组合分别精确返回
+`PlaybackActive` 或 `AudioExportActive`；无效枚举返回稳定错误，查询期间无任何
+状态可被修改。
+
 ### 4. C ABI 一致性测试
 
 每个导出操作都使用相同输入分别调用直接 C++ API 和 C ABI，并比较所有权、错误、长度、字节和值。App 看起来能工作并不能证明 FFI 粘合层正确。

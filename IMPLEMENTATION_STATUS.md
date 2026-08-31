@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 5 已完成：三列统一投影与派生查询、NPC/玩家/Showtime 全部上下文编辑、一次性自动生成、关系清理、原子撤销/重做，以及正式草稿/恢复快照 version 1 核心编码均已落地。下一阶段进入音频 Offset 变换、确定性 Ogg 编码与播放协调。
+阶段 6 已完成：PCM Offset 变换、文件名规范化、来源品质上限、确定性 Ogg Vorbis 编码、不可变快照、进度与协作取消、播放/导出操作白名单，以及 `avtool export-audio` 原子文件发布均已落地。下一阶段进入稳定 C ABI。
 
 ## 本次范围
 
@@ -28,6 +28,18 @@
 - 在 `av_core` 增加规范 PCM16LE SHA-256 查询，固定 Left 后 Right、每样本小端字节和小写十六进制契约；空 PCM 与五份黄金 PCM 均直接验证。
 - 实现 `avtool decode <audio> --pcm-hash`，CLI 只读取文件、选择现有 MP3/Ogg 权威入口并输出独立于区域设置的 schema v1 JSON。
 - 增加直接 C++ 探针与真实 CLI 的运行时集成比较，覆盖五份夹具的格式、采样率、帧数和哈希，以及大小写扩展名、参数、格式、读取和解码错误。
+- 增加 `calculate_pcm_offset_plan` 与 `apply_pcm_offset`，按当前采样率执行正 Offset 双声道前置静音、负 Offset 开头裁剪和零 Offset 深复制；小数帧正好一半时远离零，且不覆盖权威 Offset。
+- Offset 测试覆盖正负/零、正负半帧、删除全部帧拒绝、有限范围、尺寸溢出、输入不变和深复制/移动所有权。
+- 增加共享音频导出基础名和最终建议名纯函数，保留合法 Unicode，统一处理控制字符、跨平台非法字符、首尾空白、末尾句点、保留名称、时间戳及 `_2` 起最小冲突后缀。
+- MP3/Ogg 解码成功结果增加自有 `AudioSourceInfo`；MP3 按解码样本数加权测得平均码率且排除 Xing 帧，Ogg 保留有效标称码率并以测得/容器时长码率回退。
+- 增加 `calculate_audio_export_quality`，直接查询固定 libvorbis 在当前采样率下品质 `1..5` 的标称码率；未知来源上限为 `5`，默认值为 `min(3, ceiling)`，明确拒绝越界或超过来源上限的请求。
+- 把固定 libVorbis `vorbisenc.c`、公开编码头和 23 份模式/码本表纳入离线快照；第三方源码总摘要更新为 `d4e1715267b23503c51bd73e42f4ccfd0523aa070d980c780c692f1f2a75a422`。
+- 增加进程内 `encode_ogg_vorbis`，固定 Ogg serial、1024 帧提交块、PCM float 转换、品质映射和 TITLE/ARTIST/ALBUM 顺序；有效 UTF-8 元数据确定写入，无效字段省略。
+- 增加品质 `1`、`3`、`5` 三份 CC0 确定性 Ogg 黄金输出，分别固定 SHA-256 并在普通测试中完整逐字节比较；重复编码、解码有效性、进度、取消、错误和所有权均通过。
+- 增加 `AudioExportSnapshot` 与高层编码任务，在确认时深复制 PCM/元数据并捕获 PCM 标识、原始 Offset、品质、来源信息、规范基础名和变换计划；在途任务只读取快照，取消不返回部分字节。
+- 增加纯 `coordinate_application_operation` 门控；`Playing` 只允许暂停和切换波形，`ExportingAudio` 只允许取消导出，其余分别返回稳定 `PlaybackActive`/`AudioExportActive`。
+- 实现 `avtool export-audio <audio> --offset <seconds> --quality <q> --output <file.ogg>`，严格独立于区域设置解析参数，直接复用解码、来源品质、快照、Offset 和 Ogg 核心；同目录临时写入后以不覆盖式硬链接原子发布。
+- 增加直接核心导出探针与真实 CLI 逐字节一致性测试，覆盖 MP3/Ogg、零/正/负半帧 Offset 和品质 `1/3/5`；稳定错误测试覆盖参数、来源上限、删除全部帧、读取/解码、目标格式、写入、已有目标及临时文件清理。
 - 从固定 ArrowVortex `Waveform.cpp`/`View.cpp` 参考提取 CPU 波形采样边缘、负幅值整数缩放、有符号/整流形状投影和均匀/振幅亮度算术，核心不依赖全局视图、GPU 或纹理。
 - 增加拥有 Left/Right 平面的 `WaveformTile` 和稳定结果/错误类型；支持 UI Zoom `1..19`、Scale `1..10`、128 行 block、空音频和音频末尾透明图块。
 - 增加 `generate_rectified_uniform_waveform_tile_1x`，与既有有符号入口共享全部几何、采样边缘、限制、错误和所有权路径，只按 ArrowVortex 规则把每行最大绝对幅值对称投影到声道中心两侧。
@@ -101,7 +113,7 @@
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、平台草稿索引与原子文件发布、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、平台草稿索引与平台文件发布、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -130,8 +142,15 @@
 - `native/av_core/CMakeLists.txt`
 - `native/av_core/include/av_core/audio/mp3_decoder.hpp`
 - `native/av_core/include/av_core/audio/ogg_vorbis_decoder.hpp`
+- `native/av_core/include/av_core/audio/audio_export.hpp`
+- `native/av_core/include/av_core/audio/audio_export_name.hpp`
+- `native/av_core/include/av_core/audio/audio_export_quality.hpp`
+- `native/av_core/include/av_core/audio/audio_source_info.hpp`
+- `native/av_core/include/av_core/audio/ogg_vorbis_encoder.hpp`
 - `native/av_core/include/av_core/audio/pcm16.hpp`
 - `native/av_core/include/av_core/audio/pcm16_hash.hpp`
+- `native/av_core/include/av_core/audio/pcm_offset.hpp`
+- `native/av_core/include/av_core/coordination/operation_gate.hpp`
 - `native/av_core/include/av_core/timing/bpm_detector.hpp`
 - `native/av_core/include/av_core/playback/playback_position.hpp`
 - `native/av_core/include/av_core/slk/slk_position.hpp`
@@ -158,8 +177,14 @@
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
 - `native/av_core/src/audio/ogg_vorbis_decoder.cpp`
+- `native/av_core/src/audio/audio_export.cpp`
+- `native/av_core/src/audio/audio_export_name.cpp`
+- `native/av_core/src/audio/audio_export_quality.cpp`
+- `native/av_core/src/audio/ogg_vorbis_encoder.cpp`
 - `native/av_core/src/audio/pcm16.cpp`
 - `native/av_core/src/audio/pcm16_hash.cpp`
+- `native/av_core/src/audio/pcm_offset.cpp`
+- `native/av_core/src/coordination/operation_gate.cpp`
 - `native/av_core/src/playback/playback_position.cpp`
 - `native/av_core/src/slk/slk_position.cpp`
 - `native/av_core/src/slk/slk_parser.cpp`
@@ -192,16 +217,23 @@
 - `native/av_core/src/waveform/waveform_tile.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
+- `native/av_core/tests/audio_export_name_test.cpp`
+- `native/av_core/tests/audio_export_quality_test.cpp`
+- `native/av_core/tests/audio_export_test.cpp`
 - `native/av_core/tests/bpm_detector_test.cpp`
 - `native/av_core/tests/fixtures/bpm/`
 - `native/av_core/tests/fixtures/mp3/`
 - `native/av_core/tests/fixtures/ogg_vorbis/`
+- `native/av_core/tests/fixtures/ogg_export/`
 - `native/av_core/tests/fixtures/onset/`
 - `native/av_core/tests/fixtures/offset/`
 - `native/av_core/tests/fixtures/sync/`
 - `native/av_core/tests/fixtures/waveform/`
 - `native/av_core/tests/mp3_decoder_test.cpp`
 - `native/av_core/tests/ogg_vorbis_decoder_test.cpp`
+- `native/av_core/tests/ogg_vorbis_encoder_test.cpp`
+- `native/av_core/tests/operation_gate_test.cpp`
+- `native/av_core/tests/pcm_offset_test.cpp`
 - `native/av_core/tests/onset_detector_test.cpp`
 - `native/av_core/tests/offset_detector_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
@@ -234,30 +266,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-stage5 -DBUILD_TESTING=ON
-cmake --build build/native-stage5 --parallel 2
-ctest --test-dir build/native-stage5 --output-on-failure
+cmake -S native -B build/native-stage6-final -DBUILD_TESTING=ON
+cmake --build build/native-stage6-final --parallel 2
+ctest --test-dir build/native-stage6-final --output-on-failure
 
-cmake -S native -B build/native-stage5-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-stage5-asan --parallel 2
-ctest --test-dir build/native-stage5-asan --output-on-failure
+cmake -S native -B build/native-stage6-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-stage6-asan --parallel 2
+ctest --test-dir build/native-stage6-asan --output-on-failure
 
-cmake -S native -B build/native-stage5-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-stage5-asan-ubsan --parallel 2 --target av_core_chart_projection_test av_core_chart_editor_test av_core_project_serialization_test
-ctest --test-dir build/native-stage5-asan-ubsan -R '^av_core\.(chart_projection|chart_editor|project_serialization)$' --output-on-failure
+cmake -S native -B build/native-stage6-cxx-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-stage6-cxx-asan-ubsan --parallel 2 --target av_core_pcm_offset_test av_core_audio_export_name_test av_core_audio_export_quality_test av_core_audio_export_test av_core_operation_gate_test av_core_mp3_decoder_test av_core_ogg_vorbis_decoder_test av_core_ogg_vorbis_encoder_test avtool avtool_direct_export_probe
+UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir build/native-stage6-cxx-asan-ubsan -R '^av_core\.(pcm_offset|audio_export_name|audio_export_quality|audio_export|operation_gate|mp3_decoder|ogg_vorbis_decoder|ogg_vorbis_encoder)$|^avtool\.export_audio_' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，35/35 测试通过；全新 AddressSanitizer 构建后 35/35 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下定向运行阶段 5 的统一投影、上下文编辑和项目编码 3/3 通过。三列点击规则、自动生成脱钩、完整快照撤销/重做、不完整草稿与 binary64 精度往返均通过；既有解码、十六份波形 Alpha、起音/BPM/Offset、时序/导航/播放位置和 SLK 逐字节黄金继续全部通过。
+结果：全新普通配置和构建成功，45/45 测试通过；全新 AddressSanitizer 构建后 45/45 通过；阶段 6 自有 C++ 代码启用 AddressSanitizer/UndefinedBehaviorSanitizer、固定第三方 C 快照启用 AddressSanitizer 时，定向 12/12 通过并设置 `UBSAN_OPTIONS=halt_on_error=1`。Offset、文件名、来源品质、品质 `1/3/5` Ogg 黄金、不可变快照、取消、操作白名单和核心/CLI 逐字节一致性均通过；既有解码、十六份波形 Alpha、起音/BPM/Offset、时序/导航/播放位置、原生草稿和 SLK 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本阶段未修改第三方兼容代码，也未用测试过滤这些诊断；新增的阶段 5 投影、编辑和持久化路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 6 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 12/12。
 
 ## 唯一下一步
 
-进入阶段 6 的第一个纯核心切片：实现规范 PCM 的 Offset 帧变换，按 `roundHalfAwayFromZero(offsetSeconds * sampleRate)` 生成正 Offset 前置双声道静音、负 Offset 开头裁剪和零 Offset 深复制；覆盖正负半帧舍入、删除全部帧拒绝、尺寸溢出、输入不变和稳定所有权。此切片不引入 Ogg 编码器、取消协调、C ABI 或 Flutter。
+进入阶段 7：为已稳定的核心能力提供薄 C ABI，明确所有权、长度、错误码和异常边界；每项 ABI 必须与直接 C++ API 的值、字节、错误和所有权一致。此阶段不进入 Flutter 或平台 UI。

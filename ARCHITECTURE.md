@@ -375,9 +375,9 @@ ArrowVortex 随附 libogg 快照（公开 `ogg.h` 修订 `18044`，源文件修�
 内容摘要保存在 `native/third_party`，常规配置、构建和测试不得从网络下载依赖，
 也不得搜索或链接系统安装的同名库。libmad 统一定义 `HAVE_CONFIG_H`、
 `FPM_64BIT`、`ASO_ZEROCHECK`，三个依赖目标都明确禁用 `fast-math` 并构建为
-位置无关静态库。当前 libVorbis 目标只提供核心与 `vorbisfile` 解码入口；因
-上游对象共享清理和注册符号而同时保留少量分析翻译单元，但不编译
-`vorbisenc.c` 与编码模式表，因此本阶段不提供音频编码入口。
+位置无关静态库。当前 libVorbis 目标同时包含核心、`vorbisfile`、
+`vorbisenc.c` 与固定的编码模式/码本表；解码和编码均只链接该仓库内快照，
+不搜索平台或系统编解码器。
 
 - MP3 使用固定版本和配置的 libmad。
 - Ogg Vorbis 使用固定版本和配置的 libogg/libvorbis。
@@ -401,6 +401,8 @@ libmad 定点样本严格按参考顺序转换：先加
 Right；双声道保持原始左右顺序。成功结果才构造并返回 `Pcm16`。空指针、空输入、
 libmad 长度上限、无可解码完整帧、中途格式变化、尺寸溢出和分配失败都有稳定的
 `Mp3DecodeError`；即使错误发生前已经解码帧，失败结果也不包含部分 PCM。
+成功结果还携带 `AudioSourceInfo`：编解码器固定为 MP3，来源码率按每个已解码
+音频帧产生的样本数对帧头码率加权求平均，首个 Xing 非音频帧不进入分子或分母。
 
 当前 Ogg Vorbis 权威入口为同步 `decode_ogg_vorbis(data, size)`。它同样只接收
 调用方拥有的内存字节，不接受路径或保留输入别名；libogg/libVorbis 是
@@ -416,6 +418,9 @@ libvorbisfile 的宽容扫描误当作合法零帧音频。
 始终相同时才可解码；格式变化返回 `StreamFormatChanged`。空指针、空输入、内存
 游标范围、容器/编解码错误、格式变化、尺寸溢出和分配失败由稳定的
 `OggVorbisDecodeError` 区分，任一失败结果都不包含已经暂存的部分 PCM。
+成功结果的 `AudioSourceInfo` 保留 Ogg Vorbis 流头标称码率和 `ov_bitrate` 测得
+码率；标称值无效或串联流不一致时置零，测得值不可用时才按完整容器位数与实际
+PCM 时长回退计算。
 
 规范 PCM 的诊断哈希同样由 `av_core` 唯一实现。`pcm16le_sha256_hex(pcm)` 按
 Left 全部帧后接 Right 全部帧的顺序，把每个有符号样本投影为恰好两个小端字节，
@@ -485,6 +490,36 @@ Offset 到帧的量化只是导出投影，绝不能覆盖权威 binary64 Offset
 桌面平台通过原生保存界面取得目标授权，移动平台通过系统文档保存界面取得目标授权，二者都使用核心生成的规范建议名称。用户取消目标选择时不得启动编码。导出期间应用进入后台或平台撤销继续执行资格时，应用协调层发送取消信号并等待任务停止，平台层删除临时输出且不发布最终文件；恢复前台后不自动重试。
 
 Vorbis 注释不是文件正确性的必要条件。存在有效 UTF-8 来源元数据时，按固定、确定的顺序写入支持字段。缺失、格式错误或不支持的元数据应省略，并且元数据处理绝不能使 Ogg 流无效。
+
+当前共享实现由以下边界组成：`calculate_pcm_offset_plan` 与
+`apply_pcm_offset` 唯一执行 Offset 帧量化/变换；
+`calculate_audio_export_quality` 查询同一固定 libvorbis 配置得到品质表和来源
+上限；`encode_ogg_vorbis` 固定 Ogg serial `0x4F544759`、1024 帧提交块、
+`TITLE`/`ARTIST`/`ALBUM` 注释顺序和品质映射。品质 `1`、`3`、`5` 各有独立
+逐字节黄金文件及配置期 SHA-256 校验。
+
+`create_audio_export_snapshot` 在开始任务前深复制 PCM 和元数据，并捕获 PCM
+标识、原始 binary64 Offset、品质、来源信息、规范基础名及预计算变换计划；
+`encode_audio_export_snapshot` 之后只读取该不可变快照，依次报告准备音频和编码
+进度，协作取消时不返回部分字节。所有成功字节拥有独立生命周期；来源容器类型
+不进入编码分支。
+
+当前 `avtool export-audio` 的严格参数形态为
+`avtool export-audio <audio> --offset <seconds> --quality <q> --output <file.ogg>`。
+它是上述入口的轻量文件适配层，Offset 与品质使用独立于区域设置的
+`from_chars` 严格解析；CLI 从解码结果取得 `AudioSourceInfo`，创建同一快照并调用
+同一编码任务。输出先完整写入目标同目录的 `.otgy-tmp` 临时文件，再以不替换既有
+目标的硬链接操作原子发布并删除临时名；任何解析、解码、编码、写入或发布失败都
+不留下最终文件，也不覆盖已有目标。成功只输出一行固定字段顺序的 schema v1
+ASCII JSON，例如：
+
+```json
+{"schemaVersion":1,"codec":"ogg-vorbis","sampleRate":11025,"frameCount":8192,"signedShiftFrames":0,"quality":3,"byteCount":4421}
+```
+
+参数形态错误返回 `2`；输入/输出路径、已有目标、写入或发布失败返回 `3`；数值、
+解码或核心导出拒绝返回 `4`；未预期异常或机器输出失败返回 `5`。运行错误保持
+stdout 为空，并在 stderr 输出单行稳定错误 JSON。
 
 ## 波形兼容契约
 
@@ -875,6 +910,12 @@ Zoom 只改变纵向时间密度，Scale 只改变波形和谱面对象区域的
 共享核心返回时间线范围，不由 Flutter 扫描绘制对象猜测。基础编辑范围固定为四小节，即 16 拍、64 个 1/16 行；默认 BPM `100`、Offset `0` 时对应 9.6 秒。时间线末尾取基础范围末尾、已加载音频结尾、最后一个谱面事件位置以及全部 `SHOW-D.rangeEnd` 中的最大值。没有音频和谱面事件时只使用四小节基础范围；“跳到末尾”和向后翻页的边界都消费同一结果。
 
 应用操作协调层把 `Playing` 作为显式的全局交互门控状态。该状态下只接受暂停播放与切换波形可见性；音频、谱面、BPM/Offset、导入导出、草稿持久化、撤销/重做、导航、时间线、Zoom 和 Scale 的其他请求统一返回 `PlaybackActive`，且不调用后续领域命令。Flutter 的按钮、手势、键盘、鼠标和无障碍入口都必须查询同一门控状态并展示禁用样式，不能各自维护不一致的白名单。切换波形可见性是纯视图操作，不进入核心项目数据；暂停仍由共享播放状态执行并保留精确位置。
+
+当前纯查询入口 `coordinate_application_operation` 接收互斥的 `Idle`、`Playing`
+或 `ExportingAudio` 模式，以及默认保守的 `General` 操作分类。`Playing` 只放行
+`PausePlayback` 和 `ToggleWaveformVisibility`，其余返回 `PlaybackActive`；
+`ExportingAudio` 只放行 `CancelAudioExport`，其余返回 `AudioExportActive`。
+该入口不执行命令也不修改项目、播放、导出或视图状态。
 
 移动端单指拖动空白画布时，更新时间线位置且不使用惯性。双指缩放围绕固定当前时间光标连续预览，并在松开时提交到最近的 `0.25` 参考缩放级别。播放期间由全局门控拒绝时间线拖动和双指缩放命令。谱面编辑对象的命中测试优先于时间线手势。
 

@@ -133,6 +133,22 @@ void test_task_progress_cancel_and_output() {
   assert(cancelled_result.error() == AudioExportTaskError::Cancelled);
 }
 
+void test_source_codec_does_not_change_encoding() {
+  const auto pcm = make_pcm();
+  const auto mp3_snapshot = otgy::core::create_audio_export_snapshot(
+      pcm, 1U, 0.0, 3U, {AudioSourceCodec::Mp3, 0U, 0U}, "audio");
+  const auto ogg_snapshot = otgy::core::create_audio_export_snapshot(
+      pcm, 2U, 0.0, 3U, {AudioSourceCodec::OggVorbis, 0U, 0U}, "audio");
+  assert(mp3_snapshot && ogg_snapshot);
+
+  const auto mp3_export = otgy::core::encode_audio_export_snapshot(
+      *mp3_snapshot.snapshot());
+  const auto ogg_export = otgy::core::encode_audio_export_snapshot(
+      *ogg_snapshot.snapshot());
+  assert(mp3_export && ogg_export);
+  assert(mp3_export.output()->bytes == ogg_export.output()->bytes);
+}
+
 void test_error_messages() {
   for (unsigned int raw = 0U;
        raw <= static_cast<unsigned int>(
@@ -166,6 +182,7 @@ int main() {
   test_snapshot_owns_all_inputs();
   test_snapshot_validation();
   test_task_progress_cancel_and_output();
+  test_source_codec_does_not_change_encoding();
   test_error_messages();
   return 0;
 }
