@@ -595,7 +595,8 @@ UI Zoom 或 Scale 非有限或超出上述范围时分别返回稳定
 `UnsupportedSampleRate`，不进入会产生负环形索引的参考路径。超过参考整数范围、
 工作内存分配失败分别返回 `InputTooLarge`、`AllocationFailure`，失败不暴露部分
 候选。成功数组由结果拥有，复制为深复制、移动转移所有权。Offset、600 秒应用层
-范围、六阶段进度、任务取消/缓存、CLI、C ABI 和 Flutter 继续属于后续切片。
+范围和六阶段进度不属于这个独立 BPM 入口；任务取消/缓存、CLI、C ABI 和 Flutter
+继续属于后续切片。
 
 当前 Offset 权威入口为同步 `detect_offsets(pcm, bpmCandidates)`。它只接受零至三个
 有限、位于 `89..205` 的 `BpmCandidate`，并保持输入顺序、未舍入 BPM 与 fitness
@@ -614,8 +615,22 @@ offbeat 在整个 PCM 上的斜率支持相加；基础支持大于或等于 off
 `OffsetCandidate` 同时返回 BPM、检测相位、App 权威 Offset 和 fitness，避免适配层
 按数组位置自行重新配对。空 BPM 候选成功返回空数组；超过三名、非有限、越过
 兼容 BPM 范围或 fitness 非有限时返回 `InvalidBpmCandidates`。采样率、参考整数和
-分配边界与 BPM 入口一致，失败不暴露部分候选。600 秒范围、联合单次起音执行、
-六阶段进度、任务取消/缓存、CLI、C ABI 和 Flutter 仍留给后续组合切片。
+分配边界与 BPM 入口一致，失败不暴露部分候选。这个独立入口分析全部 PCM，并会
+自行调用起音检测；需要 600 秒范围和单次起音执行的调用方必须使用联合入口。
+
+当前联合权威入口为同步 `analyze_sync(pcm, stageCallback, context)`。它从 PCM 帧零
+开始，把实际分析帧数固定为 `min(frameCount, sampleRate * 600)`，然后只对这个前缀
+运行一次起音检测；BPM strength 重算、BPM 候选和 Offset/offbeat 比较全部复用同一
+起音序列和同一个前缀帧边界。后缀 PCM 不能进入任一阶段。独立起音、BPM 和 Offset
+入口继续保留为直接算法测试与诊断接口，但产品联合分析不得依次调用它们而重复起音。
+
+可选同步回调严格按真实转换报告
+`DetectingOnsets`、`ScanningIntervals`、`RefiningCandidates`、`SelectingBpm`、
+`CalculatingOffsets`、`FinalizingResults` 六个阶段，不虚构阶段内百分比。成功结果
+拥有实际分析帧数和原顺序 `OffsetCandidate` 数组，其中 BPM、检测相位、已转换的
+App Offset 与 fitness 均保持未舍入 binary64；复制执行深复制，移动转移所有权。
+不支持的采样率、参考整数边界和分配失败返回稳定错误且不暴露部分结果。任务取消、
+按音频版本协调与缓存、CLI、C ABI 和 Flutter 仍属于后续切片。
 
 ## 精度模型
 

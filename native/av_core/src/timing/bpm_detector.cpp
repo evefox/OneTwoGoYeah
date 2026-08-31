@@ -3,6 +3,7 @@
 #include "av_core/timing/bpm_detector.hpp"
 
 #include "av_core/timing/onset_detector.hpp"
+#include "bpm_detector_internal.hpp"
 #include "pcm_mix.hpp"
 #include "tempo_constants.hpp"
 #include "tempo_gap.hpp"
@@ -12,6 +13,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <new>
 #include <stdexcept>
 #include <utility>
@@ -212,9 +215,17 @@ struct CandidateFitnessDescending final {
 };
 
 [[nodiscard]] std::vector<BpmCandidate> calculate_bpm_candidates(
-    int sample_rate, std::vector<Onset>& onsets) {
+    int sample_rate, std::vector<Onset>& onsets,
+    detail::BpmCalculationStageCallback stage_callback,
+    void* stage_context) {
   std::vector<BpmCandidate> candidates;
   if (onsets.size() < 2U) {
+    if (stage_callback != nullptr) {
+      stage_callback(detail::BpmCalculationStage::RefiningCandidates,
+                     stage_context);
+      stage_callback(detail::BpmCalculationStage::SelectingBpm,
+                     stage_context);
+    }
     candidates.push_back(
         {static_cast<Real>(kDefaultBpm), static_cast<Real>(1.0)});
     return candidates;
@@ -225,6 +236,10 @@ struct CandidateFitnessDescending final {
                                    kIntervalDownsample, onsets);
   std::fill(tester.fitness.begin(), tester.fitness.end(), 0.0);
   fill_coarse_intervals(tester, coarse_data);
+  if (stage_callback != nullptr) {
+    stage_callback(detail::BpmCalculationStage::RefiningCandidates,
+                   stage_context);
+  }
   const int coarse_count =
       (tester.num_intervals + kIntervalDelta - 1) / kIntervalDelta;
 
@@ -252,6 +267,11 @@ struct CandidateFitnessDescending final {
       candidates.push_back({interval_to_bpm(tester, best),
                             tester.fitness[static_cast<std::size_t>(best)]});
     }
+  }
+
+  if (stage_callback != nullptr) {
+    stage_callback(detail::BpmCalculationStage::SelectingBpm,
+                   stage_context);
   }
 
   detail::TempoGapData fine_data(tester.max_interval, 0, onsets);
@@ -322,31 +342,46 @@ std::vector<BpmCandidate> BpmDetectionResult::take_candidates() && {
 }
 
 BpmDetectionResult detect_bpm_candidates(const Pcm16& pcm) noexcept {
-  const int minimum_interval = static_cast<int>(
-      static_cast<double>(pcm.sample_rate()) * 60.0 /
-          detail::kMaximumDetectedBpm +
-      0.5);
-  if (minimum_interval < detail::kMinimumSupportedTempoInterval) {
+  if (!detail::supports_detected_tempo_sample_rate(pcm.sample_rate())) {
+    return BpmDetectionResult{BpmDetectionError::UnsupportedSampleRate};
+  }
+
+  auto onset_result = detect_onsets(pcm);
+  if (!onset_result) {
+    return BpmDetectionResult{map_onset_error(onset_result.error())};
+  }
+  return detail::detect_bpm_candidates_from_onsets(
+      pcm, pcm.frame_count(), *onset_result.onsets());
+}
+
+BpmDetectionResult detail::detect_bpm_candidates_from_onsets(
+    const Pcm16& pcm, std::size_t frame_count,
+    const std::vector<Onset>& detected_onsets,
+    BpmCalculationStageCallback stage_callback,
+    void* stage_context) noexcept {
+  constexpr auto kReferenceIntMax =
+      static_cast<std::uint64_t>(std::numeric_limits<int>::max());
+  if (static_cast<std::uint64_t>(pcm.sample_rate()) > kReferenceIntMax ||
+      frame_count > kReferenceIntMax || frame_count > pcm.frame_count()) {
+    return BpmDetectionResult{BpmDetectionError::InputTooLarge};
+  }
+  if (!supports_detected_tempo_sample_rate(pcm.sample_rate())) {
     return BpmDetectionResult{BpmDetectionError::UnsupportedSampleRate};
   }
 
   try {
-    auto onset_result = detect_onsets(pcm);
-    if (!onset_result) {
-      return BpmDetectionResult{map_onset_error(onset_result.error())};
-    }
-    auto onsets = std::move(onset_result).take_onsets();
+    auto onsets = detected_onsets;
 
     const auto* left = pcm.channel_data(PcmChannel::Left);
     const auto* right = pcm.channel_data(PcmChannel::Right);
-    const int frame_count = static_cast<int>(pcm.frame_count());
+    const int reference_frame_count = static_cast<int>(frame_count);
     const int strength_count =
         std::min(static_cast<int>(onsets.size()), 100);
     for (int index = 0; index < strength_count; ++index) {
       const int position =
           static_cast<int>(onsets[static_cast<std::size_t>(index)].frame_index);
       const int begin = std::max(0, position - 100);
-      const int end = std::min(frame_count, position + 100);
+      const int end = std::min(reference_frame_count, position + 100);
       float strength = 0.0F;
       for (int frame = begin; frame < end; ++frame) {
         strength += std::abs(detail::mix_pcm16_frame(
@@ -358,7 +393,8 @@ BpmDetectionResult detect_bpm_candidates(const Pcm16& pcm) noexcept {
     }
 
     return BpmDetectionResult{calculate_bpm_candidates(
-        static_cast<int>(pcm.sample_rate()), onsets)};
+        static_cast<int>(pcm.sample_rate()), onsets, stage_callback,
+        stage_context)};
   } catch (const std::length_error&) {
     return BpmDetectionResult{BpmDetectionError::InputTooLarge};
   } catch (const std::bad_alloc&) {

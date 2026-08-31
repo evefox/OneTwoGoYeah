@@ -3,6 +3,7 @@
 #include "av_core/timing/offset_detector.hpp"
 
 #include "av_core/timing/onset_detector.hpp"
+#include "offset_detector_internal.hpp"
 #include "pcm_mix.hpp"
 #include "tempo_constants.hpp"
 #include "tempo_gap.hpp"
@@ -80,9 +81,10 @@ using Real = double;
          static_cast<Real>(sample_rate);
 }
 
-void compute_slopes(const Pcm16& pcm, std::vector<Real>& slopes) noexcept {
+void compute_slopes(const Pcm16& pcm, std::size_t analyzed_frame_count,
+                    std::vector<Real>& slopes) noexcept {
   std::fill(slopes.begin(), slopes.end(), 0.0);
-  const int frame_count = static_cast<int>(pcm.frame_count());
+  const int frame_count = static_cast<int>(analyzed_frame_count);
   const int half_window = static_cast<int>(pcm.sample_rate()) / 20;
   if (frame_count < half_window * 2) {
     return;
@@ -117,10 +119,11 @@ void compute_slopes(const Pcm16& pcm, std::vector<Real>& slopes) noexcept {
   }
 }
 
-[[nodiscard]] Real adjust_for_offbeats(const Pcm16& pcm, Real offset,
-                                       Real bpm) {
-  std::vector<Real> slopes(pcm.frame_count());
-  compute_slopes(pcm, slopes);
+[[nodiscard]] Real adjust_for_offbeats(const Pcm16& pcm,
+                                       std::size_t analyzed_frame_count,
+                                       Real offset, Real bpm) {
+  std::vector<Real> slopes(analyzed_frame_count);
+  compute_slopes(pcm, analyzed_frame_count, slopes);
 
   const Real seconds_per_beat = 60.0 / bpm;
   Real offbeat = offset + seconds_per_beat * 0.5;
@@ -128,7 +131,7 @@ void compute_slopes(const Pcm16& pcm, std::vector<Real>& slopes) noexcept {
     offbeat -= seconds_per_beat;
   }
 
-  const Real end = static_cast<Real>(pcm.frame_count());
+  const Real end = static_cast<Real>(analyzed_frame_count);
   const Real interval = seconds_per_beat * pcm.sample_rate();
   Real position_a = offset * pcm.sample_rate();
   Real position_b = offbeat * pcm.sample_rate();
@@ -193,21 +196,42 @@ OffsetDetectionResult detect_offsets(
     return OffsetDetectionResult{std::vector<OffsetCandidate>{}};
   }
 
-  const int minimum_interval = static_cast<int>(
-      static_cast<double>(pcm.sample_rate()) * 60.0 /
-          detail::kMaximumDetectedBpm +
-      0.5);
-  if (minimum_interval < detail::kMinimumSupportedTempoInterval) {
+  if (!detail::supports_detected_tempo_sample_rate(pcm.sample_rate())) {
+    return OffsetDetectionResult{
+        OffsetDetectionError::UnsupportedSampleRate};
+  }
+
+  auto onset_result = detect_onsets(pcm);
+  if (!onset_result) {
+    return OffsetDetectionResult{map_onset_error(onset_result.error())};
+  }
+  return detail::detect_offsets_from_onsets(
+      pcm, pcm.frame_count(), *onset_result.onsets(), bpm_candidates);
+}
+
+OffsetDetectionResult detail::detect_offsets_from_onsets(
+    const Pcm16& pcm, std::size_t frame_count,
+    const std::vector<Onset>& detected_onsets,
+    const std::vector<BpmCandidate>& bpm_candidates) noexcept {
+  constexpr auto kReferenceIntMax =
+      static_cast<std::uint64_t>(std::numeric_limits<int>::max());
+  if (static_cast<std::uint64_t>(pcm.sample_rate()) > kReferenceIntMax ||
+      frame_count > kReferenceIntMax || frame_count > pcm.frame_count()) {
+    return OffsetDetectionResult{OffsetDetectionError::InputTooLarge};
+  }
+  if (!valid_bpm_candidates(bpm_candidates)) {
+    return OffsetDetectionResult{
+        OffsetDetectionError::InvalidBpmCandidates};
+  }
+  if (bpm_candidates.empty()) {
+    return OffsetDetectionResult{std::vector<OffsetCandidate>{}};
+  }
+  if (!supports_detected_tempo_sample_rate(pcm.sample_rate())) {
     return OffsetDetectionResult{
         OffsetDetectionError::UnsupportedSampleRate};
   }
 
   try {
-    auto onset_result = detect_onsets(pcm);
-    if (!onset_result) {
-      return OffsetDetectionResult{map_onset_error(onset_result.error())};
-    }
-    auto onsets = std::move(onset_result).take_onsets();
 
     Real maximum_interval = 0.0;
     for (const auto& candidate : bpm_candidates) {
@@ -215,7 +239,7 @@ OffsetDetectionResult detect_offsets(
           maximum_interval, pcm.sample_rate() * 60.0 / candidate.bpm);
     }
     detail::TempoGapData gap_data(
-        static_cast<int>(maximum_interval + 1.0), 1, onsets);
+        static_cast<int>(maximum_interval + 1.0), 1, detected_onsets);
 
     std::vector<OffsetCandidate> candidates;
     candidates.reserve(bpm_candidates.size());
@@ -223,7 +247,8 @@ OffsetDetectionResult detect_offsets(
       Real detector_offset = base_offset_value(
           gap_data, static_cast<int>(pcm.sample_rate()), bpm_candidate.bpm);
       detector_offset =
-          adjust_for_offbeats(pcm, detector_offset, bpm_candidate.bpm);
+          adjust_for_offbeats(pcm, frame_count, detector_offset,
+                              bpm_candidate.bpm);
       candidates.push_back({bpm_candidate.bpm, detector_offset,
                             -detector_offset, bpm_candidate.fitness});
     }

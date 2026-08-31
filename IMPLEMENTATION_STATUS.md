@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3：ArrowVortex 兼容起音、BPM 候选与 Offset 检测已完成；下一切片组合 600 秒联合分析边界、单次起音执行和六阶段结果，再进入高精度时序换算。
+阶段 3：ArrowVortex 兼容起音、BPM、Offset 与 600 秒联合分析已完成；下一切片进入高精度时序换算。
 
 ## 本次范围
 
@@ -54,10 +54,13 @@
 - 增加 `detect_offsets(Pcm16, BpmCandidate[])` 直接 C++ 入口，以同一候选顺序返回检测器非负相位和显式一元取负后的 App 权威 Offset；BPM、fitness 不舍入也不重新排序。
 - BPM 与 Offset 共用唯一的 2048 点 Hamming gap 窗和环形置信度实现；Offset 按起音位置固定权重建立基础相位，再以 `sampleRate / 20` 单边窗口的幅值上升斜率比较半拍 offbeat，平局保留基础相位。
 - 增加一候选、三候选 Offset 黄金和真实 offbeat 胜出黄金，逐位覆盖正检测相位、负 App 值及 `+0.0 -> -0.0`；覆盖候选配对、共享混音、空/短/静音、空候选、非法候选、采样率/整数边界、稳定错误和所有权。
-- 把 `.onsets`、`.bpm_candidates`、`.offsets` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
+- 增加同步 `analyze_sync(Pcm16)` 联合入口，从 PCM 零帧开始把实际分析范围限制到 `min(frameCount, sampleRate * 600)`；起音只执行一次，BPM strength、候选和 Offset/offbeat 复用同一起音序列及帧边界。
+- 联合入口按真实转换依次报告 DetectingOnsets、ScanningIntervals、RefiningCandidates、SelectingBpm、CalculatingOffsets、FinalizingResults 六阶段，并返回分析帧数及未舍入的完整 `OffsetCandidate` 配对。
+- 增加三份联合候选独立黄金，逐位覆盖 BPM、检测/App Offset、fitness、顺序和 `-0.0`；覆盖三个独立入口结果一致性、六阶段、短/空 PCM、600 秒运行时前缀、最低采样率、最大乘法、参考整数边界、稳定错误及所有权。
+- 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、时序、SLK、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、高精度时序换算、SLK、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -91,6 +94,7 @@
 - `native/av_core/include/av_core/timing/bpm_detector.hpp`
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/timing/offset_detector.hpp`
+- `native/av_core/include/av_core/timing/sync_analyzer.hpp`
 - `native/av_core/include/av_core/waveform/waveform_tile.hpp`
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
@@ -99,9 +103,13 @@
 - `native/av_core/src/audio/pcm16_hash.cpp`
 - `native/av_core/src/timing/arrowvortex/`
 - `native/av_core/src/timing/bpm_detector.cpp`
+- `native/av_core/src/timing/bpm_detector_internal.hpp`
 - `native/av_core/src/timing/onset_detector.cpp`
+- `native/av_core/src/timing/onset_detector_internal.hpp`
 - `native/av_core/src/timing/offset_detector.cpp`
+- `native/av_core/src/timing/offset_detector_internal.hpp`
 - `native/av_core/src/timing/pcm_mix.hpp`
+- `native/av_core/src/timing/sync_analyzer.cpp`
 - `native/av_core/src/timing/tempo_constants.hpp`
 - `native/av_core/src/timing/tempo_gap.hpp`
 - `native/av_core/src/waveform/waveform_tile.cpp`
@@ -113,12 +121,14 @@
 - `native/av_core/tests/fixtures/ogg_vorbis/`
 - `native/av_core/tests/fixtures/onset/`
 - `native/av_core/tests/fixtures/offset/`
+- `native/av_core/tests/fixtures/sync/`
 - `native/av_core/tests/fixtures/waveform/`
 - `native/av_core/tests/mp3_decoder_test.cpp`
 - `native/av_core/tests/ogg_vorbis_decoder_test.cpp`
 - `native/av_core/tests/onset_detector_test.cpp`
 - `native/av_core/tests/offset_detector_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
+- `native/av_core/tests/sync_analyzer_test.cpp`
 - `native/av_core/tests/version_test.cpp`
 - `native/av_core/tests/waveform_tile_test.cpp`
 - `native/tools/avtool/CMakeLists.txt`
@@ -130,30 +140,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-offset-clean -DBUILD_TESTING=ON
-cmake --build build/native-offset-clean --parallel 2
-ctest --test-dir build/native-offset-clean --output-on-failure
+cmake -S native -B build/native-sync-clean -DBUILD_TESTING=ON
+cmake --build build/native-sync-clean --parallel 2
+ctest --test-dir build/native-sync-clean --output-on-failure
 
-cmake -S native -B build/native-offset-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-offset-asan --parallel 2
-ctest --test-dir build/native-offset-asan --output-on-failure
+cmake -S native -B build/native-sync-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-sync-asan --parallel 2
+ctest --test-dir build/native-sync-asan --output-on-failure
 
-cmake -S native -B build/native-offset-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-offset-asan-ubsan --parallel 2 --target av_core_offset_detector_test
-ctest --test-dir build/native-offset-asan-ubsan -R '^av_core.offset_detector$' --output-on-failure
+cmake -S native -B build/native-sync-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-sync-asan-ubsan --parallel 2 --target av_core_sync_analyzer_test
+ctest --test-dir build/native-sync-asan-ubsan -R '^av_core.sync_analyzer$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，17/17 测试通过；全新 AddressSanitizer 构建后 17/17 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.offset_detector` 1/1 通过。原始 PCM 的检测/App Offset 为 `+0.089977324263038547/-0.089977324263038547`，16 字节 SHA-256 为 `027eefae9b0552a2b96b01e94ce3a882b635f5ac2656ca4f8b9426e51fea5401`；三候选 Offset 的 48 字节 SHA-256 为 `283ab516f94d60e2ca8deaf04e8b282ef19faa845df501630a0cf4d65739a886`；真实 offbeat 夹具从基础 `0.0` 选择半拍 `+0.25/-0.25`，16 字节 SHA-256 为 `9171bfc33d967c3b318de9e4c07a46784631f53e15c11562ae16ff8be7ce3478`。既有解码、PCM 哈希、起音、BPM、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，18/18 测试通过；全新 AddressSanitizer 构建后 18/18 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.sync_analyzer` 1/1 通过。联合黄金依次固定原始 PCM 32 字节 SHA-256 `5e22187cb80f6f5fb7ad1085d87f06a1e090b079262ffdbea3f5f33b13957d8e`、三候选 96 字节 SHA-256 `f98dd123ee3d900d719995b35ee45d98050afa9eeac729880c5001216c3fda66` 和真实 offbeat 32 字节 SHA-256 `17b62bc43235674ef0e8fec0099af3ec5654a5f78cb3bd12f50ef031ddce8490`；最低支持采样率的运行时长 PCM 精确忽略 600 秒后的非零样本。既有解码、PCM 哈希、起音、BPM、Offset、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的 Offset 路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的联合分析路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-组合已验证的起音、BPM 和 Offset 为一次共享核心联合分析：显式限制从音频零开始最多 600 秒，只运行一次起音检测，返回六个真实阶段和未舍入候选；本切片不实现 CLI、C ABI 或 Flutter。
+实现第一块高精度时序换算核心：以权威 binary64 BPM/Offset 在秒、拍和 1/16 行之间双向转换，明确 BPM 为零的无网格结果、有限值/范围错误和不覆盖权威值的契约；本切片不实现网格集合、时间线范围、翻页、播放、CLI、C ABI 或 Flutter。

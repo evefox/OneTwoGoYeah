@@ -469,3 +469,54 @@ else()
 endif()
 
 add_test(NAME av_core.offset_detector COMMAND av_core_offset_detector_test)
+
+set(OTGY_SYNC_FIXTURE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sync"
+)
+
+function(otgy_assert_sync_fixture_sha256 file_name expected_sha256)
+  file(SHA256 "${OTGY_SYNC_FIXTURE_DIR}/${file_name}" actual_sha256)
+  if(NOT actual_sha256 STREQUAL expected_sha256)
+    message(FATAL_ERROR
+      "Unexpected SHA-256 for sync fixture ${file_name}: ${actual_sha256}"
+    )
+  endif()
+endfunction()
+
+otgy_assert_sync_fixture_sha256(
+  generated_stereo_11025.sync_candidates
+  5e22187cb80f6f5fb7ad1085d87f06a1e090b079262ffdbea3f5f33b13957d8e
+)
+otgy_assert_sync_fixture_sha256(
+  generated_repeated_stereo_11025.sync_candidates
+  f98dd123ee3d900d719995b35ee45d98050afa9eeac729880c5001216c3fda66
+)
+otgy_assert_sync_fixture_sha256(
+  generated_three_channel_16000.sync_candidates
+  17b62bc43235674ef0e8fec0099af3ec5654a5f78cb3bd12f50ef031ddce8490
+)
+
+add_executable(av_core_sync_analyzer_test
+  sync_analyzer_test.cpp
+)
+target_link_libraries(av_core_sync_analyzer_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_sync_analyzer_test PRIVATE
+  OTGY_MP3_FIXTURE_DIR="${OTGY_MP3_FIXTURE_DIR}"
+  OTGY_OGG_VORBIS_FIXTURE_DIR="${OTGY_OGG_VORBIS_FIXTURE_DIR}"
+  OTGY_ONSET_FIXTURE_DIR="${OTGY_ONSET_FIXTURE_DIR}"
+  OTGY_SYNC_FIXTURE_DIR="${OTGY_SYNC_FIXTURE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_sync_analyzer_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_sync_analyzer_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.sync_analyzer COMMAND av_core_sync_analyzer_test)

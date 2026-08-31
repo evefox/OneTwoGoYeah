@@ -19,6 +19,7 @@ native/third_party/**/COPYING text eol=lf
 *.onsets binary
 *.bpm_candidates binary
 *.offsets binary
+*.sync_candidates binary
 
 # SLK 的固定字节、CRLF 和乱码标题必须保持原样。
 *.slk binary
