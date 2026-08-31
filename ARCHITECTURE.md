@@ -664,6 +664,27 @@ backwardOne    = offset - secondsPerBeat
 
 App 权威 Offset 范围为 `-30.0..30.0` 秒。超出范围的直接输入会被拒绝；按拍移动限制在最近边界。BPM 为零时不能使用按拍 Offset 命令，时序网格也不生成小节、拍或细分引导线，但 `ChartDraft` 的抽象 1/16 行坐标、上下文点击命令和撤销历史仍然可用。BPM 为零时，画布仅为行布局和范围比较使用不可持久化的 `100.0` 投影 BPM；它不生成可见网格、不替换权威零值，也不参与保存或导出。
 
+当前高精度时序换算入口接收按值传入的 `TimingParameters { bpm,
+offset_seconds }` 快照，不持有或修改工作区权威值。App Offset 表示音乐开始相对第一
+拍的秒数，因此固定 BPM 下的连续坐标公式为：
+
+```text
+secondsPerBeat = 60 / bpm
+beat            = (seconds + offset) / secondsPerBeat
+seconds         = beat * secondsPerBeat - offset
+sixteenthRow    = beat * 4
+beat            = sixteenthRow / 4
+```
+
+所有运算按上述 binary64 顺序执行，不先使用三位小数显示值，也不在换算层吸附、
+取整或覆盖输入。连续拍和 1/16 行可以为负；具体编辑命中边界由后续命令层决定。
+`seconds_to_beat`、`beat_to_seconds`、`seconds_to_sixteenth_row` 和
+`sixteenth_row_to_seconds` 在 BPM 为零时返回稳定 `NoGrid`，不使用投影 BPM。
+纯谱面坐标 `beat_to_sixteenth_row` 与 `sixteenth_row_to_beat` 不依赖 BPM，因此零
+BPM 下仍可用。BPM 必须有限且位于 `0..100000`，Offset 必须有限且位于
+`-30..30`；位置输入和结果也必须有限，错误不返回部分数值。网格集合、时间线范围、
+翻页和播放位置继续消费这些换算入口，不得另写公式。
+
 正式草稿序列化必须精确往返其中每个有限 binary64 值。可以使用独立于区域设置的 17 位有效十进制数字，也可以显式保存十六进制/位表示。可以附带便于阅读的数值，但它们不是权威值。只含 `ChartDraft` 的异常恢复快照不保存 BPM 或 Offset。
 
 UI 格式与存储相互独立：

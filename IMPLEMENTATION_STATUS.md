@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3：ArrowVortex 兼容起音、BPM、Offset 与 600 秒联合分析已完成；下一切片进入高精度时序换算。
+阶段 3：ArrowVortex 兼容联合分析和高精度秒/拍/1/16 行换算已完成；下一切片生成时序校准网格。
 
 ## 本次范围
 
@@ -57,10 +57,12 @@
 - 增加同步 `analyze_sync(Pcm16)` 联合入口，从 PCM 零帧开始把实际分析范围限制到 `min(frameCount, sampleRate * 600)`；起音只执行一次，BPM strength、候选和 Offset/offbeat 复用同一起音序列及帧边界。
 - 联合入口按真实转换依次报告 DetectingOnsets、ScanningIntervals、RefiningCandidates、SelectingBpm、CalculatingOffsets、FinalizingResults 六阶段，并返回分析帧数及未舍入的完整 `OffsetCandidate` 配对。
 - 增加三份联合候选独立黄金，逐位覆盖 BPM、检测/App Offset、fitness、顺序和 `-0.0`；覆盖三个独立入口结果一致性、六阶段、短/空 PCM、600 秒运行时前缀、最低采样率、最大乘法、参考整数边界、稳定错误及所有权。
+- 增加 `TimingParameters` 及秒、连续拍、连续 1/16 行之间的六个纯换算入口；固定 `seconds = beat * (60 / bpm) - offset` 的 App Offset 符号与 binary64 运算顺序，不执行显示舍入、吸附或输入覆盖。
+- 高精度换算覆盖默认 `64 行 = 16 拍 = 9.6 秒`、真实未舍入检测值、正负/小数坐标、BPM 零无网格但抽象拍/行仍可用、BPM/Offset 包含式范围、非有限输入、有限溢出和稳定错误。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、高精度时序换算、SLK、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、时序网格集合、时间线范围、翻页、播放、SLK、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -95,6 +97,7 @@
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/timing/offset_detector.hpp`
 - `native/av_core/include/av_core/timing/sync_analyzer.hpp`
+- `native/av_core/include/av_core/timing/timing_conversion.hpp`
 - `native/av_core/include/av_core/waveform/waveform_tile.hpp`
 - `native/av_core/include/av_core/version.hpp`
 - `native/av_core/src/audio/mp3_decoder.cpp`
@@ -112,6 +115,7 @@
 - `native/av_core/src/timing/sync_analyzer.cpp`
 - `native/av_core/src/timing/tempo_constants.hpp`
 - `native/av_core/src/timing/tempo_gap.hpp`
+- `native/av_core/src/timing/timing_conversion.cpp`
 - `native/av_core/src/waveform/waveform_tile.cpp`
 - `native/av_core/src/version.cpp`
 - `native/av_core/tests/CMakeLists.txt`
@@ -129,6 +133,7 @@
 - `native/av_core/tests/offset_detector_test.cpp`
 - `native/av_core/tests/pcm16_test.cpp`
 - `native/av_core/tests/sync_analyzer_test.cpp`
+- `native/av_core/tests/timing_conversion_test.cpp`
 - `native/av_core/tests/version_test.cpp`
 - `native/av_core/tests/waveform_tile_test.cpp`
 - `native/tools/avtool/CMakeLists.txt`
@@ -140,30 +145,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-sync-clean -DBUILD_TESTING=ON
-cmake --build build/native-sync-clean --parallel 2
-ctest --test-dir build/native-sync-clean --output-on-failure
+cmake -S native -B build/native-timing-clean -DBUILD_TESTING=ON
+cmake --build build/native-timing-clean --parallel 2
+ctest --test-dir build/native-timing-clean --output-on-failure
 
-cmake -S native -B build/native-sync-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-sync-asan --parallel 2
-ctest --test-dir build/native-sync-asan --output-on-failure
+cmake -S native -B build/native-timing-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-timing-asan --parallel 2
+ctest --test-dir build/native-timing-asan --output-on-failure
 
-cmake -S native -B build/native-sync-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-sync-asan-ubsan --parallel 2 --target av_core_sync_analyzer_test
-ctest --test-dir build/native-sync-asan-ubsan -R '^av_core.sync_analyzer$' --output-on-failure
+cmake -S native -B build/native-timing-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-timing-asan-ubsan --parallel 2 --target av_core_timing_conversion_test
+ctest --test-dir build/native-timing-asan-ubsan -R '^av_core.timing_conversion$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，18/18 测试通过；全新 AddressSanitizer 构建后 18/18 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.sync_analyzer` 1/1 通过。联合黄金依次固定原始 PCM 32 字节 SHA-256 `5e22187cb80f6f5fb7ad1085d87f06a1e090b079262ffdbea3f5f33b13957d8e`、三候选 96 字节 SHA-256 `f98dd123ee3d900d719995b35ee45d98050afa9eeac729880c5001216c3fda66` 和真实 offbeat 32 字节 SHA-256 `17b62bc43235674ef0e8fec0099af3ec5654a5f78cb3bd12f50ef031ddce8490`；最低支持采样率的运行时长 PCM 精确忽略 600 秒后的非零样本。既有解码、PCM 哈希、起音、BPM、Offset、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，19/19 测试通过；全新 AddressSanitizer 构建后 19/19 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.timing_conversion` 1/1 通过。默认时序精确覆盖 `64 行 = 16 拍 = 9.6 秒`，真实联合候选的 App Offset 把 beat 0 映射回检测器正相位，三位小数投影未进入计算；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的联合分析路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的时序换算路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-实现第一块高精度时序换算核心：以权威 binary64 BPM/Offset 在秒、拍和 1/16 行之间双向转换，明确 BPM 为零的无网格结果、有限值/范围错误和不覆盖权威值的契约；本切片不实现网格集合、时间线范围、翻页、播放、CLI、C ABI 或 Flutter。
+实现时序校准网格核心：在显式连续秒范围内复用高精度换算，返回 4/4 下按行排序的小节、拍和其余 1/16 细分线及未舍入音频秒数；BPM 为零返回空网格。本切片不实现视图裁剪策略、时间线总范围、翻页、播放、CLI、C ABI 或 Flutter。

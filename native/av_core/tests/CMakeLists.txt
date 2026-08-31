@@ -520,3 +520,22 @@ else()
 endif()
 
 add_test(NAME av_core.sync_analyzer COMMAND av_core_sync_analyzer_test)
+
+add_executable(av_core_timing_conversion_test
+  timing_conversion_test.cpp
+)
+target_link_libraries(av_core_timing_conversion_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+
+if(MSVC)
+  target_compile_options(av_core_timing_conversion_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_timing_conversion_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.timing_conversion COMMAND av_core_timing_conversion_test)
