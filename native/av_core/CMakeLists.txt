@@ -5,6 +5,7 @@ add_library(av_core STATIC
   src/audio/ogg_vorbis_decoder.cpp
   src/audio/pcm16.cpp
   src/audio/pcm16_hash.cpp
+  src/playback/playback_position.cpp
   src/timing/bpm_detector.cpp
   src/timing/arrowvortex/Aubio.cpp
   src/timing/arrowvortex/FFT.cpp
