@@ -275,4 +275,66 @@ ChartNoteOrdinalResult chart_note_ordinal(const ChartDraft& draft,
   return {ChartNoteOrdinalError::None, ordinal};
 }
 
+ChartTimelineRangeResult::ChartTimelineRangeResult(
+    TimelineRange range) noexcept
+    : storage_(std::move(range)) {}
+
+ChartTimelineRangeResult::ChartTimelineRangeResult(
+    ChartTimelineRangeFailure failure) noexcept
+    : storage_(failure) {}
+
+ChartTimelineRangeResult::operator bool() const noexcept {
+  return std::holds_alternative<TimelineRange>(storage_);
+}
+
+const TimelineRange* ChartTimelineRangeResult::range() const noexcept {
+  return std::get_if<TimelineRange>(&storage_);
+}
+
+const ChartTimelineRangeFailure* ChartTimelineRangeResult::failure()
+    const noexcept {
+  return std::get_if<ChartTimelineRangeFailure>(&storage_);
+}
+
+ChartTimelineRangeResult calculate_chart_timeline_range(
+    const ChartDraft& draft, TimingParameters timing,
+    std::optional<double> audio_end_seconds) noexcept {
+  const auto marker_result = project_chart_markers(draft);
+  if (!marker_result) {
+    return ChartTimelineRangeResult{{
+        ChartTimelineRangeError::ChartProjectionFailed,
+        marker_result.error(), TimelineRangeError::None}};
+  }
+  const auto showtime_result = project_showtime_moves(draft);
+  if (!showtime_result) {
+    return ChartTimelineRangeResult{{
+        ChartTimelineRangeError::ChartProjectionFailed,
+        showtime_result.error(), TimelineRangeError::None}};
+  }
+  try {
+    std::vector<std::uint64_t> event_rows;
+    std::vector<std::uint64_t> show_range_end_rows;
+    event_rows.reserve(marker_result.markers()->size());
+    show_range_end_rows.reserve(showtime_result.moves()->size());
+    for (const auto& marker : *marker_result.markers()) {
+      event_rows.push_back(marker.row);
+    }
+    for (const auto& move : *showtime_result.moves()) {
+      show_range_end_rows.push_back(move.range_end);
+    }
+    const auto range_result = calculate_timeline_range(
+        timing, audio_end_seconds, event_rows, show_range_end_rows);
+    if (!range_result) {
+      return ChartTimelineRangeResult{{
+          ChartTimelineRangeError::TimelineRangeFailed,
+          ChartProjectionError::None, range_result.error()}};
+    }
+    return ChartTimelineRangeResult{*range_result.range()};
+  } catch (const std::bad_alloc&) {
+    return ChartTimelineRangeResult{{
+        ChartTimelineRangeError::AllocationFailure,
+        ChartProjectionError::None, TimelineRangeError::None}};
+  }
+}
+
 }  // namespace otgy::core

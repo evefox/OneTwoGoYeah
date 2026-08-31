@@ -1,0 +1,308 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "internal.hpp"
+
+using namespace otgy::c_api;
+
+namespace {
+
+otgy_status return_timing_result(
+    const otgy::core::TimingConversionResult& result, double* out_value,
+    otgy_error** out_error) noexcept {
+  if (!result) {
+    return core_error(
+        out_error, OTGY_ERROR_DOMAIN_TIMING_CONVERSION,
+        static_cast<std::uint32_t>(result.error()),
+        otgy::core::timing_conversion_error_message(result.error()));
+  }
+  *out_value = *result.value();
+  return OTGY_STATUS_OK;
+}
+
+otgy::core::PlaybackPosition to_core(otgy_playback_position value) noexcept {
+  return {static_cast<otgy::core::PlaybackPhase>(value.phase),
+          value.timeline_seconds, value.audio_duration_seconds};
+}
+
+otgy_playback_position from_core(
+    const otgy::core::PlaybackPosition& value) noexcept {
+  return {static_cast<std::uint32_t>(value.phase()), value.timeline_seconds(),
+          value.audio_duration_seconds()};
+}
+
+otgy_status return_playback_result(
+    const otgy::core::PlaybackPositionResult& result,
+    otgy_playback_position* out_position, otgy_error** out_error) noexcept {
+  if (!result) {
+    return core_error(
+        out_error, OTGY_ERROR_DOMAIN_PLAYBACK_POSITION,
+        static_cast<std::uint32_t>(result.error()),
+        otgy::core::playback_position_error_message(result.error()));
+  }
+  *out_position = from_core(*result.position());
+  return OTGY_STATUS_OK;
+}
+
+}  // namespace
+
+extern "C" {
+
+otgy_status otgy_seconds_to_beat(otgy_timing_parameters timing,
+                                 double seconds, double* out_value,
+                                 otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(
+        otgy::core::seconds_to_beat(otgy::c_api::to_core(timing), seconds),
+        out_value, out_error);
+  });
+}
+
+otgy_status otgy_beat_to_seconds(otgy_timing_parameters timing, double beat,
+                                 double* out_value, otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(
+        otgy::core::beat_to_seconds(otgy::c_api::to_core(timing), beat),
+        out_value, out_error);
+  });
+}
+
+otgy_status otgy_seconds_to_sixteenth_row(
+    otgy_timing_parameters timing, double seconds, double* out_value,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(
+        otgy::core::seconds_to_sixteenth_row(otgy::c_api::to_core(timing),
+                                             seconds),
+        out_value, out_error);
+  });
+}
+
+otgy_status otgy_sixteenth_row_to_seconds(
+    otgy_timing_parameters timing, double row, double* out_value,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(
+        otgy::core::sixteenth_row_to_seconds(otgy::c_api::to_core(timing),
+                                             row),
+        out_value, out_error);
+  });
+}
+
+otgy_status otgy_beat_to_sixteenth_row(double beat, double* out_value,
+                                       otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(otgy::core::beat_to_sixteenth_row(beat),
+                                out_value, out_error);
+  });
+}
+
+otgy_status otgy_sixteenth_row_to_beat(double row, double* out_value,
+                                       otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(otgy::core::sixteenth_row_to_beat(row),
+                                out_value, out_error);
+  });
+}
+
+otgy_status otgy_generate_timing_grid(
+    otgy_timing_parameters timing, double begin_seconds, double end_seconds,
+    otgy_timing_grid** out_grid, otgy_error** out_error) {
+  if (out_grid != nullptr) {
+    *out_grid = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_grid == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto result = otgy::core::generate_timing_grid(
+        otgy::c_api::to_core(timing), begin_seconds, end_seconds);
+    if (!result) {
+      return core_error(out_error, OTGY_ERROR_DOMAIN_TIMING_GRID,
+                        static_cast<std::uint32_t>(result.error()),
+                        otgy::core::timing_grid_error_message(result.error()));
+    }
+    std::vector<otgy_timing_grid_line> lines;
+    lines.reserve(result.grid()->lines().size());
+    for (const auto& line : result.grid()->lines()) {
+      lines.push_back({line.sixteenth_row, line.seconds,
+                       static_cast<std::uint32_t>(line.kind)});
+    }
+    return make_handle<otgy_timing_grid>(
+        otgy_timing_grid{std::move(lines)}, out_grid, out_error);
+  });
+}
+
+void otgy_timing_grid_destroy(otgy_timing_grid* grid) { delete grid; }
+
+const otgy_timing_grid_line* otgy_timing_grid_get_lines(
+    const otgy_timing_grid* grid) {
+  return grid == nullptr || grid->lines.empty() ? nullptr : grid->lines.data();
+}
+
+std::uint64_t otgy_timing_grid_get_line_count(const otgy_timing_grid* grid) {
+  return grid == nullptr ? 0U
+                         : static_cast<std::uint64_t>(grid->lines.size());
+}
+
+otgy_status otgy_chart_calculate_timeline_range(
+    const otgy_chart* chart, otgy_timing_parameters timing,
+    std::uint8_t has_audio_end, double audio_end_seconds,
+    otgy_timeline_range* out_range, otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (chart == nullptr || out_range == nullptr || has_audio_end > 1U) {
+      return invalid_argument(
+          out_error,
+          has_audio_end > 1U ? OTGY_ABI_ERROR_INVALID_BOOLEAN
+                             : OTGY_ABI_ERROR_NULL_ARGUMENT,
+          has_audio_end > 1U ? kInvalidBoolean : kNullArgument);
+    }
+    const std::optional<double> audio_end =
+        has_audio_end == 0U ? std::nullopt
+                            : std::optional<double>(audio_end_seconds);
+    const auto result = otgy::core::calculate_chart_timeline_range(
+        chart->value, otgy::c_api::to_core(timing), audio_end);
+    if (!result) {
+      std::string_view message = "chart timeline range failed";
+      switch (result.failure()->error) {
+        case otgy::core::ChartTimelineRangeError::None:
+          break;
+        case otgy::core::ChartTimelineRangeError::ChartProjectionFailed:
+          message = "chart projection failed while calculating timeline range";
+          break;
+        case otgy::core::ChartTimelineRangeError::TimelineRangeFailed:
+          message = "timing projection failed while calculating chart range";
+          break;
+        case otgy::core::ChartTimelineRangeError::AllocationFailure:
+          message = "unable to allocate chart timeline range state";
+          break;
+      }
+      return core_error(out_error, OTGY_ERROR_DOMAIN_CHART_TIMELINE_RANGE,
+                        static_cast<std::uint32_t>(result.failure()->error),
+                        message);
+    }
+    out_range->begin_seconds = result.range()->begin_seconds();
+    out_range->end_seconds = result.range()->end_seconds();
+    out_range->end_sixteenth_row = result.range()->end_sixteenth_row();
+    out_range->uses_zero_bpm_projection =
+        result.range()->uses_zero_bpm_projection() ? 1U : 0U;
+    return OTGY_STATUS_OK;
+  });
+}
+
+otgy_status otgy_calculate_timeline_navigation(
+    otgy_timeline_range range, double current_sixteenth_row,
+    double visible_beats, otgy_timeline_navigation* out_navigation,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_navigation == nullptr || range.uses_zero_bpm_projection > 1U) {
+      return invalid_argument(
+          out_error,
+          range.uses_zero_bpm_projection > 1U
+              ? OTGY_ABI_ERROR_INVALID_BOOLEAN
+              : OTGY_ABI_ERROR_NULL_ARGUMENT,
+          range.uses_zero_bpm_projection > 1U ? kInvalidBoolean
+                                              : kNullArgument);
+    }
+    const otgy::core::TimelineRange core_range(
+        range.begin_seconds, range.end_seconds, range.end_sixteenth_row,
+        range.uses_zero_bpm_projection != 0U);
+    const auto result = otgy::core::calculate_timeline_navigation(
+        core_range, current_sixteenth_row, visible_beats);
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_TIMELINE_NAVIGATION,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::timeline_navigation_error_message(result.error()));
+    }
+    const auto* value = result.navigation();
+    *out_navigation = {
+        value->to_begin_row(), value->page_up_row(), value->page_down_row(),
+        value->to_end_row(), static_cast<std::uint8_t>(value->can_to_begin()),
+        static_cast<std::uint8_t>(value->can_page_up()),
+        static_cast<std::uint8_t>(value->can_page_down()),
+        static_cast<std::uint8_t>(value->can_to_end())};
+    return OTGY_STATUS_OK;
+  });
+}
+
+otgy_status otgy_start_playback(
+    std::uint8_t has_audio, double audio_duration_seconds,
+    double cursor_timeline_seconds, otgy_playback_position* out_position,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_position == nullptr || has_audio > 1U) {
+      return invalid_argument(
+          out_error,
+          has_audio > 1U ? OTGY_ABI_ERROR_INVALID_BOOLEAN
+                         : OTGY_ABI_ERROR_NULL_ARGUMENT,
+          has_audio > 1U ? kInvalidBoolean : kNullArgument);
+    }
+    const std::optional<double> duration =
+        has_audio == 0U ? std::nullopt
+                        : std::optional<double>(audio_duration_seconds);
+    return return_playback_result(
+        otgy::core::start_playback(duration, cursor_timeline_seconds),
+        out_position, out_error);
+  });
+}
+
+otgy_status otgy_advance_playback(otgy_playback_position position,
+                                  double elapsed_seconds,
+                                  otgy_playback_position* out_position,
+                                  otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_position == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_playback_result(
+        otgy::core::advance_playback(to_core(position), elapsed_seconds),
+        out_position, out_error);
+  });
+}
+
+otgy_status otgy_pause_playback(otgy_playback_position position,
+                                otgy_playback_position* out_position,
+                                otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_position == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_playback_result(otgy::core::pause_playback(to_core(position)),
+                                  out_position, out_error);
+  });
+}
+
+otgy_status otgy_coordinate_application_operation(
+    std::uint32_t mode, std::uint32_t operation, std::uint32_t* out_result,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_result == nullptr) {
+      return invalid_argument(out_error);
+    }
+    *out_result = static_cast<std::uint32_t>(
+        otgy::core::coordinate_application_operation(
+            static_cast<otgy::core::ApplicationOperationMode>(mode),
+            static_cast<otgy::core::ApplicationOperationClass>(operation)));
+    return OTGY_STATUS_OK;
+  });
+}
+
+}  // extern "C"

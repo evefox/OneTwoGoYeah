@@ -13,4 +13,5 @@ include(CTest)
 
 add_subdirectory(third_party)
 add_subdirectory(av_core)
+add_subdirectory(av_c_api)
 add_subdirectory(tools/avtool)

@@ -17,6 +17,7 @@ using otgy::core::ChartProjectionError;
 using otgy::core::ChartRole;
 using otgy::core::ChartRoleEvent;
 using otgy::core::ChartRoleEventType;
+using otgy::core::ChartTimelineRangeError;
 
 [[nodiscard]] ChartRoleEvent role_event(std::uint64_t id, std::uint64_t row,
                                         ChartRole role,
@@ -141,6 +142,44 @@ void test_note_ordinals_ignore_other_roles_and_block_starts() {
   assert(!otgy::core::chart_note_ordinal(draft, {999U}));
 }
 
+void test_chart_timeline_range_scans_model_in_core() {
+  const auto draft = sample_draft();
+  const auto original = draft;
+  const auto result = otgy::core::calculate_chart_timeline_range(
+      draft, {100.0, 0.0}, std::nullopt);
+  assert(result);
+  assert(result.range()->end_sixteenth_row() == 96.0);
+  const auto expected_seconds =
+      otgy::core::sixteenth_row_to_seconds({100.0, 0.0}, 96.0);
+  assert(expected_seconds);
+  assert(result.range()->end_seconds() == *expected_seconds.value());
+  assert(otgy::core::chart_drafts_equal(draft, original));
+
+  const auto audio_wins = otgy::core::calculate_chart_timeline_range(
+      draft, {100.0, 0.0}, 20.000000000000004);
+  assert(audio_wins);
+  assert(audio_wins.range()->end_seconds() == 20.000000000000004);
+
+  const ChartDraft invalid_show_count{
+      {}, {}, {{{1U}, 0U, {1U}, {1U}, 0U}}, {}, {}, {}};
+  const auto invalid_projection =
+      otgy::core::calculate_chart_timeline_range(
+          invalid_show_count, {100.0, 0.0}, std::nullopt);
+  assert(!invalid_projection);
+  assert(invalid_projection.failure()->error ==
+         ChartTimelineRangeError::ChartProjectionFailed);
+  assert(invalid_projection.failure()->projection_error ==
+         ChartProjectionError::InvalidShowNCount);
+
+  const auto invalid_timing = otgy::core::calculate_chart_timeline_range(
+      draft, {std::numeric_limits<double>::quiet_NaN(), 0.0}, std::nullopt);
+  assert(!invalid_timing);
+  assert(invalid_timing.failure()->error ==
+         ChartTimelineRangeError::TimelineRangeFailed);
+  assert(invalid_timing.failure()->timeline_error ==
+         otgy::core::TimelineRangeError::InvalidTiming);
+}
+
 void test_error_messages() {
   for (unsigned int raw = 0U;
        raw <= static_cast<unsigned int>(ChartProjectionError::AllocationFailure);
@@ -164,6 +203,7 @@ int main() {
   test_global_projection_and_queries();
   test_showtime_ranges_and_sequence_roles();
   test_note_ordinals_ignore_other_roles_and_block_starts();
+  test_chart_timeline_range_scans_model_in_core();
   test_error_messages();
   return 0;
 }

@@ -3,8 +3,10 @@
 #pragma once
 
 #include "av_core/chart/chart_draft.hpp"
+#include "av_core/timing/timeline_range.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -137,5 +139,37 @@ struct ChartNoteOrdinalResult final {
 
 [[nodiscard]] ChartNoteOrdinalResult chart_note_ordinal(
     const ChartDraft& draft, ChartEventId event_id) noexcept;
+
+enum class ChartTimelineRangeError : std::uint8_t {
+  None = 0,
+  ChartProjectionFailed = 1,
+  TimelineRangeFailed = 2,
+  AllocationFailure = 3,
+};
+
+struct ChartTimelineRangeFailure final {
+  ChartTimelineRangeError error;
+  ChartProjectionError projection_error;
+  TimelineRangeError timeline_error;
+};
+
+class ChartTimelineRangeResult final {
+ public:
+  explicit ChartTimelineRangeResult(TimelineRange range) noexcept;
+  explicit ChartTimelineRangeResult(ChartTimelineRangeFailure failure) noexcept;
+
+  [[nodiscard]] explicit operator bool() const noexcept;
+  [[nodiscard]] const TimelineRange* range() const noexcept;
+  [[nodiscard]] const ChartTimelineRangeFailure* failure() const noexcept;
+
+ private:
+  std::variant<TimelineRange, ChartTimelineRangeFailure> storage_;
+};
+
+/// Scans every draft event and derived SHOW-D range inside av_core, then
+/// delegates the numeric maximum and time projection to calculate_timeline_range.
+[[nodiscard]] ChartTimelineRangeResult calculate_chart_timeline_range(
+    const ChartDraft& draft, TimingParameters timing,
+    std::optional<double> audio_end_seconds) noexcept;
 
 }  // namespace otgy::core

@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 6 已完成：PCM Offset 变换、文件名规范化、来源品质上限、确定性 Ogg Vorbis 编码、不可变快照、进度与协作取消、播放/导出操作白名单，以及 `avtool export-audio` 原子文件发布均已落地。下一阶段进入稳定 C ABI。
+阶段 7 已完成：稳定 C ABI v1、纯 C 公共头、动态库版本、统一状态与拥有型错误、不透明句柄、显式长度、异常边界、完整谱面语义快照，以及核心/ABI 一致性测试均已落地。下一阶段进入 Flutter 与四平台适配。
 
 ## 本次范围
 
@@ -113,14 +113,20 @@
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、平台草稿索引与平台文件发布、C ABI 或 Flutter。
+- 增加 `calculate_chart_timeline_range` 模型入口，在 `av_core` 内统一投影并扫描全部谱面事件与 `SHOW-D.rangeEnd`；C ABI 只传入 `ChartDraft` 句柄，不重复领域扫描。
+- 增加 `native/av_c_api` 动态库目标 `otgy_c_api`，ABI 与共享库主版本固定为 `1`；公共头只使用 C 类型，Windows 与其他平台均显式控制导出可见性。
+- C ABI 使用统一状态码、稳定领域/领域内错误、拥有型 `otgy_error`、显式 `uint64_t` 长度、不透明拥有句柄和匹配销毁函数；全部有状态入口封闭 C++ 异常，失败不发布部分拥有结果。
+- ABI 覆盖 PCM、MP3/Ogg 解码、哈希、Offset、文件名、品质、不可变 Ogg 导出、十六种波形、起音/BPM/Offset/联合分析、六个时序换算、网格、谱面模型时间线范围、导航、播放、操作门控、谱面编辑与历史、校验、项目负载、SLK 导入/导出和位置换算。
+- 增加拥有型扁平谱面语义快照，逐项保存显式角色事件、演练组、舞步演练、Showtime、`showNCount` 和引用切片；不从 SLK 行、列位置或简称重建语义。
+- 增加纯 C 头链接测试、音频一致性测试和谱面一致性测试；公共头预处理后的 152 个函数声明与动态库 152 个 `otgy_*` 导出符号完全一致，其中包含宏展开的 16 个波形入口。
+- 尚未实现波形过滤、CLI 波形命令、播放 PCM/设备输出、平台草稿索引与平台文件发布，以及 Flutter 四平台适配。
 
 ## 工具链
 
 - CMake：`3.27.7`
 - C/C++ 编译器：Apple Clang `17.0.0`，arm64 macOS
 - Ninja：未安装，阶段 0 使用 CMake 默认生成器
-- Flutter：未安装，原生阶段暂不需要
+- Flutter：未安装，阶段 8 构建与集成测试前需要提供
 - Git：已初始化，默认分支为 `main`
 
 ## 修改文件
@@ -133,6 +139,7 @@
 - `IMPLEMENTATION_PLAN.md`
 - `IMPLEMENTATION_STATUS.md`
 - `native/CMakeLists.txt`
+- `native/av_c_api/`
 - `native/third_party/CMakeLists.txt`
 - `native/third_party/README.md`
 - `native/third_party/libmad/`
@@ -266,30 +273,32 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-stage6-final -DBUILD_TESTING=ON
-cmake --build build/native-stage6-final --parallel 2
-ctest --test-dir build/native-stage6-final --output-on-failure
+cmake -S native -B build/native-stage7-final -DBUILD_TESTING=ON
+cmake --build build/native-stage7-final --parallel 2
+ctest --test-dir build/native-stage7-final --output-on-failure
 
-cmake -S native -B build/native-stage6-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-stage6-asan --parallel 2
-ctest --test-dir build/native-stage6-asan --output-on-failure
+cmake -S native -B build/native-stage7-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address' -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-stage7-asan --parallel 2
+ctest --test-dir build/native-stage7-asan --output-on-failure
 
-cmake -S native -B build/native-stage6-cxx-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-stage6-cxx-asan-ubsan --parallel 2 --target av_core_pcm_offset_test av_core_audio_export_name_test av_core_audio_export_quality_test av_core_audio_export_test av_core_operation_gate_test av_core_mp3_decoder_test av_core_ogg_vorbis_decoder_test av_core_ogg_vorbis_encoder_test avtool avtool_direct_export_probe
-UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir build/native-stage6-cxx-asan-ubsan -R '^av_core\.(pcm_offset|audio_export_name|audio_export_quality|audio_export|operation_gate|mp3_decoder|ogg_vorbis_decoder|ogg_vorbis_encoder)$|^avtool\.export_audio_' --output-on-failure
+cmake -S native -B build/native-stage7-cxx-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined' -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-stage7-cxx-asan-ubsan --parallel 2 --target av_core_chart_projection_test otgy_c_api_header_test otgy_c_api_audio_consistency_test otgy_c_api_chart_consistency_test
+UBSAN_OPTIONS=halt_on_error=1 ctest --test-dir build/native-stage7-cxx-asan-ubsan -R '^av_core\.chart_projection$|^av_c_api\.' --output-on-failure
+
+diff -u <(cc -E -P -x c native/av_c_api/include/otgy/av_c_api.h | rg -o 'otgy_[a-z0-9_]+[[:space:]]*\(' | sed -E 's/[[:space:]]*\($//' | sort -u) <(nm -gjU build/native-stage7-final/av_c_api/libotgy_c_api.dylib | sed 's/^_//' | rg '^otgy_' | sort -u)
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，45/45 测试通过；全新 AddressSanitizer 构建后 45/45 通过；阶段 6 自有 C++ 代码启用 AddressSanitizer/UndefinedBehaviorSanitizer、固定第三方 C 快照启用 AddressSanitizer 时，定向 12/12 通过并设置 `UBSAN_OPTIONS=halt_on_error=1`。Offset、文件名、来源品质、品质 `1/3/5` Ogg 黄金、不可变快照、取消、操作白名单和核心/CLI 逐字节一致性均通过；既有解码、十六份波形 Alpha、起音/BPM/Offset、时序/导航/播放位置、原生草稿和 SLK 黄金继续全部通过。
+结果：全新普通配置和构建成功，48/48 测试通过；全新 AddressSanitizer 构建后 48/48 通过；阶段 7 自有 C++ 代码启用 AddressSanitizer/UndefinedBehaviorSanitizer、固定第三方 C 快照启用 AddressSanitizer 时，定向 4/4 通过并设置 `UBSAN_OPTIONS=halt_on_error=1`。公共头的 152 个函数声明与动态库 152 个 `otgy_*` 导出逐项一致，动态库安装名为 `@rpath/libotgy_c_api.1.dylib`。C ABI 音频/波形/分析/时序/谱面/项目/SLK 一致性、所有权和错误均通过；既有解码、十六份波形 Alpha、起音/BPM/Offset、音频导出、原生草稿和 SLK 黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
-- Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 6 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 12/12。
+- Flutter 工具链尚未安装；进入阶段 8 的本机构建与集成测试前需要提供 Flutter 环境。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 
 ## 唯一下一步
 
-进入阶段 7：为已稳定的核心能力提供薄 C ABI，明确所有权、长度、错误码和异常边界；每项 ABI 必须与直接 C++ API 的值、字节、错误和所有权一致。此阶段不进入 Flutter 或平台 UI。
+进入阶段 8：搭建 Flutter 脚手架并连接已测试的 C ABI，逐步实现三列画布、平台文件与私有存储适配、手势、快捷键、无障碍、播放输出和响应式布局；Flutter 与平台层不得重复任何 `av_core` 领域行为。

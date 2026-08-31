@@ -1,0 +1,610 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "otgy/av_c_api.h"
+
+#include "av_core/audio/audio_export.hpp"
+#include "av_core/audio/audio_export_name.hpp"
+#include "av_core/audio/audio_export_quality.hpp"
+#include "av_core/audio/mp3_decoder.hpp"
+#include "av_core/audio/ogg_vorbis_decoder.hpp"
+#include "av_core/audio/pcm16_hash.hpp"
+#include "av_core/timing/bpm_detector.hpp"
+#include "av_core/timing/offset_detector.hpp"
+#include "av_core/timing/onset_detector.hpp"
+#include "av_core/timing/sync_analyzer.hpp"
+#include "av_core/version.hpp"
+#include "av_core/waveform/waveform_tile.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace {
+
+void expect(bool condition, std::string_view message) {
+  if (!condition) {
+    throw std::runtime_error(std::string(message));
+  }
+}
+
+std::vector<std::uint8_t> read_file(const char* path) {
+  std::ifstream stream(path, std::ios::binary);
+  expect(stream.good(), "unable to open fixture");
+  return {std::istreambuf_iterator<char>(stream),
+          std::istreambuf_iterator<char>()};
+}
+
+otgy_byte_view view(const std::vector<std::uint8_t>& bytes) {
+  return {bytes.empty() ? nullptr : bytes.data(),
+          static_cast<std::uint64_t>(bytes.size())};
+}
+
+otgy_string_view view(std::string_view value) {
+  return {value.data(), static_cast<std::uint64_t>(value.size())};
+}
+
+template <typename T, void (*Destroy)(T*)>
+using Handle = std::unique_ptr<T, decltype(Destroy)>;
+
+template <typename T, void (*Destroy)(T*)>
+Handle<T, Destroy> handle(T* value) {
+  return Handle<T, Destroy>(value, Destroy);
+}
+
+bool same_double(double left, double right) {
+  return std::memcmp(&left, &right, sizeof(double)) == 0;
+}
+
+void expect_error(const otgy_error* error, otgy_error_domain domain,
+                  std::uint32_t code, std::string_view message) {
+  expect(error != nullptr, "missing C ABI error");
+  expect(otgy_error_get_domain(error) == domain,
+         "C ABI error domain differs");
+  expect(otgy_error_get_code(error) == code, "C ABI error code differs");
+  const auto actual = otgy_error_get_message(error);
+  expect(std::string_view(actual.data, static_cast<std::size_t>(actual.length)) ==
+             message,
+         "C ABI error message differs");
+}
+
+void compare_pcm(const otgy::core::Pcm16& direct, const otgy_pcm* abi) {
+  expect(abi != nullptr, "missing C ABI PCM");
+  expect(otgy_pcm_get_sample_rate(abi) == direct.sample_rate(),
+         "PCM sample rate differs");
+  expect(otgy_pcm_get_frame_count(abi) == direct.frame_count(),
+         "PCM frame count differs");
+  const auto bytes = direct.frame_count() * sizeof(std::int16_t);
+  expect(std::memcmp(otgy_pcm_get_left(abi),
+                     direct.channel_data(otgy::core::PcmChannel::Left),
+                     bytes) == 0,
+         "left PCM bytes differ");
+  expect(std::memcmp(otgy_pcm_get_right(abi),
+                     direct.channel_data(otgy::core::PcmChannel::Right),
+                     bytes) == 0,
+         "right PCM bytes differ");
+}
+
+struct ExportProgress final {
+  std::vector<std::uint32_t> stages;
+};
+
+void export_progress(std::uint32_t stage, std::uint64_t, std::uint64_t,
+                     void* context) {
+  static_cast<ExportProgress*>(context)->stages.push_back(stage);
+}
+
+void direct_export_progress(otgy::core::AudioExportProgress progress,
+                            void* context) noexcept {
+  static_cast<ExportProgress*>(context)->stages.push_back(
+      static_cast<std::uint32_t>(progress.stage));
+}
+
+std::uint8_t never_cancel(void*) { return 0U; }
+
+struct SyncStages final {
+  std::vector<std::uint32_t> values;
+};
+
+void sync_stage(std::uint32_t stage, void* context) {
+  static_cast<SyncStages*>(context)->values.push_back(stage);
+}
+
+using DirectWaveform = otgy::core::WaveformTileResult (*)(
+    const otgy::core::Pcm16&, double, double, std::uint64_t) noexcept;
+using AbiWaveform = otgy_status (*)(const otgy_pcm*, double, double,
+                                    std::uint64_t, otgy_waveform_tile**,
+                                    otgy_error**);
+
+void test_pcm_decode_hash_and_errors(
+    const std::vector<std::uint8_t>& mp3,
+    const std::vector<std::uint8_t>& ogg,
+    otgy::core::Pcm16& direct_pcm,
+    Handle<otgy_pcm, otgy_pcm_destroy>& abi_pcm,
+    otgy::core::AudioSourceInfo& source_info) {
+  auto direct_mp3 = otgy::core::decode_mp3(mp3.data(), mp3.size());
+  expect(direct_mp3.has_value(), "direct MP3 decode failed");
+  otgy_pcm* raw_mp3 = nullptr;
+  otgy_error* raw_error = nullptr;
+  expect(otgy_decode_mp3(view(mp3), &raw_mp3, &raw_error) == OTGY_STATUS_OK,
+         "C ABI MP3 decode failed");
+  auto abi_mp3 = handle<otgy_pcm, otgy_pcm_destroy>(raw_mp3);
+  auto error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect(error == nullptr, "successful MP3 decode returned an error");
+  compare_pcm(*direct_mp3.pcm(), abi_mp3.get());
+  otgy_audio_source_info abi_source{};
+  expect(otgy_pcm_get_source_info(abi_mp3.get(), &abi_source) == 1U,
+         "decoded source info is absent");
+  expect(abi_source.codec ==
+             static_cast<std::uint32_t>(direct_mp3.source_info()->codec) &&
+             abi_source.measured_bitrate_bps ==
+                 direct_mp3.source_info()->measured_bitrate_bps &&
+             abi_source.nominal_bitrate_bps ==
+                 direct_mp3.source_info()->nominal_bitrate_bps,
+         "decoded source info differs");
+
+  auto direct_ogg = otgy::core::decode_ogg_vorbis(ogg.data(), ogg.size());
+  expect(direct_ogg.has_value(), "direct Ogg decode failed");
+  auto abi_ogg_input = ogg;
+  otgy_pcm* raw_ogg = nullptr;
+  expect(otgy_decode_ogg_vorbis(view(abi_ogg_input), &raw_ogg, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI Ogg decode failed");
+  abi_pcm.reset(raw_ogg);
+  std::fill(abi_ogg_input.begin(), abi_ogg_input.end(), 0U);
+  abi_ogg_input.clear();
+  compare_pcm(*direct_ogg.pcm(), abi_pcm.get());
+  source_info = *direct_ogg.source_info();
+  direct_pcm = std::move(direct_ogg).take_pcm();
+
+  const auto direct_hash = otgy::core::pcm16le_sha256_hex(direct_pcm);
+  otgy_bytes* raw_hash = nullptr;
+  expect(otgy_pcm_sha256(abi_pcm.get(), &raw_hash, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI PCM hash failed");
+  auto hash = handle<otgy_bytes, otgy_bytes_destroy>(raw_hash);
+  const auto hash_view = otgy_bytes_get_view(hash.get());
+  expect(hash_view.length == direct_hash.size() &&
+             std::memcmp(hash_view.data, direct_hash.data(),
+                         direct_hash.size()) == 0,
+         "PCM hash differs");
+
+  otgy_pcm* copied = nullptr;
+  expect(otgy_pcm_copy_from_channels(
+             direct_pcm.sample_rate(),
+             direct_pcm.channel_data(otgy::core::PcmChannel::Left),
+             direct_pcm.frame_count(),
+             direct_pcm.channel_data(otgy::core::PcmChannel::Right),
+             direct_pcm.frame_count(), &copied, &raw_error) == OTGY_STATUS_OK,
+         "C ABI PCM copy failed");
+  auto copied_pcm = handle<otgy_pcm, otgy_pcm_destroy>(copied);
+  compare_pcm(direct_pcm, copied_pcm.get());
+  expect(otgy_pcm_get_source_info(copied_pcm.get(), &abi_source) == 0U,
+         "caller PCM unexpectedly has source info");
+
+  auto direct_null = otgy::core::decode_mp3(nullptr, 1U);
+  expect(!direct_null, "direct null MP3 unexpectedly succeeded");
+  otgy_pcm* failed_pcm = reinterpret_cast<otgy_pcm*>(1);
+  expect(otgy_decode_mp3({nullptr, 1U}, &failed_pcm, &raw_error) ==
+             OTGY_STATUS_CORE_ERROR,
+         "C ABI null MP3 status differs");
+  error.reset(raw_error);
+  expect(failed_pcm == nullptr, "failed decode exposed partial PCM");
+  expect_error(error.get(), OTGY_ERROR_DOMAIN_MP3_DECODE,
+               static_cast<std::uint32_t>(direct_null.error()),
+               otgy::core::mp3_decode_error_message(direct_null.error()));
+
+  expect(otgy_pcm_sha256(nullptr, nullptr, &raw_error) ==
+             OTGY_STATUS_INVALID_ARGUMENT,
+         "null ABI output was not rejected");
+  error.reset(raw_error);
+  expect_error(error.get(), OTGY_ERROR_DOMAIN_ABI,
+               OTGY_ABI_ERROR_NULL_ARGUMENT,
+               "required C ABI argument is null");
+}
+
+void test_offset_names_quality_and_export(
+    const otgy::core::Pcm16& direct_pcm, const otgy_pcm* abi_pcm,
+    otgy::core::AudioSourceInfo source_info) {
+  otgy_error* raw_error = nullptr;
+  auto direct_plan = otgy::core::calculate_pcm_offset_plan(
+      direct_pcm.sample_rate(), direct_pcm.frame_count(),
+      0.5 / static_cast<double>(direct_pcm.sample_rate()));
+  expect(static_cast<bool>(direct_plan), "direct offset plan failed");
+  otgy_pcm_offset_plan abi_plan{};
+  expect(otgy_calculate_pcm_offset_plan(
+             direct_pcm.sample_rate(), direct_pcm.frame_count(),
+             0.5 / static_cast<double>(direct_pcm.sample_rate()), &abi_plan,
+             &raw_error) == OTGY_STATUS_OK,
+         "C ABI offset plan failed");
+  expect(abi_plan.signed_shift_frames ==
+                 direct_plan.plan()->signed_shift_frames &&
+             abi_plan.output_frame_count ==
+                 direct_plan.plan()->output_frame_count,
+         "offset plan differs");
+
+  auto direct_offset = otgy::core::apply_pcm_offset(direct_pcm, -0.25);
+  expect(static_cast<bool>(direct_offset), "direct PCM offset failed");
+  otgy_pcm* raw_offset = nullptr;
+  expect(otgy_apply_pcm_offset(abi_pcm, -0.25, &raw_offset, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI PCM offset failed");
+  auto abi_offset = handle<otgy_pcm, otgy_pcm_destroy>(raw_offset);
+  compare_pcm(*direct_offset.pcm(), abi_offset.get());
+
+  const std::string source_name = "  CON?.ogg. ";
+  auto direct_name =
+      otgy::core::default_audio_export_base_name(source_name);
+  otgy_bytes* raw_name = nullptr;
+  expect(otgy_default_audio_export_base_name(view(source_name), &raw_name,
+                                             &raw_error) == OTGY_STATUS_OK,
+         "C ABI default export name failed");
+  auto abi_name = handle<otgy_bytes, otgy_bytes_destroy>(raw_name);
+  auto name_view = otgy_bytes_get_view(abi_name.get());
+  expect(std::string_view(reinterpret_cast<const char*>(name_view.data),
+                          static_cast<std::size_t>(name_view.length)) ==
+             *direct_name.name(),
+         "default export name differs");
+
+  const std::string raw_base = "  A/B  ";
+  const auto direct_normalized =
+      otgy::core::normalize_audio_export_base_name(raw_base);
+  expect(otgy_normalize_audio_export_base_name(view(raw_base), &raw_name,
+                                               &raw_error) == OTGY_STATUS_OK,
+         "C ABI export name normalization failed");
+  abi_name.reset(raw_name);
+  name_view = otgy_bytes_get_view(abi_name.get());
+  expect(std::string_view(reinterpret_cast<const char*>(name_view.data),
+                          static_cast<std::size_t>(name_view.length)) ==
+             *direct_normalized.name(),
+         "export name normalization differs");
+
+  const otgy::core::AudioExportLocalTime direct_time{2026, 8, 31, 9, 7, 5};
+  auto direct_file = otgy::core::make_audio_export_file_name(
+      *direct_name.name(), direct_time, 3U);
+  expect(otgy_make_audio_export_file_name(
+             view(*direct_name.name()), {2026, 8, 31, 9, 7, 5}, 3U,
+             &raw_name, &raw_error) == OTGY_STATUS_OK,
+         "C ABI final export name failed");
+  abi_name.reset(raw_name);
+  name_view = otgy_bytes_get_view(abi_name.get());
+  expect(std::string_view(reinterpret_cast<const char*>(name_view.data),
+                          static_cast<std::size_t>(name_view.length)) ==
+             *direct_file.name(),
+         "final export name differs");
+
+  const auto direct_policy = otgy::core::calculate_audio_export_quality(
+      direct_pcm.sample_rate(), source_info);
+  expect(static_cast<bool>(direct_policy), "direct export quality failed");
+  otgy_audio_export_quality_policy abi_policy{};
+  const otgy_audio_source_info abi_source{
+      static_cast<std::uint32_t>(source_info.codec),
+      source_info.measured_bitrate_bps, source_info.nominal_bitrate_bps};
+  expect(otgy_calculate_audio_export_quality(direct_pcm.sample_rate(),
+                                             abi_source, &abi_policy,
+                                             &raw_error) == OTGY_STATUS_OK,
+         "C ABI export quality failed");
+  expect(abi_policy.source_bitrate_bps ==
+                 direct_policy.policy()->source_bitrate_bps &&
+             abi_policy.quality_ceiling ==
+                 direct_policy.policy()->quality_ceiling &&
+             abi_policy.default_quality ==
+                 direct_policy.policy()->default_quality,
+         "export quality policy differs");
+  for (std::size_t index = 0U; index < 5U; ++index) {
+    expect(abi_policy.nominal_bitrates_bps[index] ==
+               direct_policy.policy()->nominal_bitrates_bps[index],
+           "quality bitrate table differs");
+  }
+  expect(otgy_validate_audio_export_quality(
+             &abi_policy, direct_policy.policy()->default_quality,
+             &raw_error) == OTGY_STATUS_OK,
+         "C ABI valid quality rejected");
+  const auto direct_quality_error = otgy::core::validate_audio_export_quality(
+      *direct_policy.policy(), 0U);
+  expect(otgy_validate_audio_export_quality(&abi_policy, 0U, &raw_error) ==
+             OTGY_STATUS_CORE_ERROR,
+         "C ABI invalid quality status differs");
+  auto quality_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(quality_error.get(), OTGY_ERROR_DOMAIN_AUDIO_EXPORT_QUALITY,
+               static_cast<std::uint32_t>(direct_quality_error),
+               otgy::core::audio_export_quality_error_message(
+                   direct_quality_error));
+
+  const otgy::core::OggVorbisMetadata direct_metadata{"Title", "Artist",
+                                                       "Album"};
+  const auto quality = direct_policy.policy()->default_quality;
+  auto direct_snapshot = otgy::core::create_audio_export_snapshot(
+      direct_pcm, 77U, 0.0, quality, source_info, "abi-test",
+      direct_metadata);
+  expect(static_cast<bool>(direct_snapshot), "direct export snapshot failed");
+  otgy_audio_export_snapshot* raw_snapshot = nullptr;
+  const otgy_audio_export_metadata abi_metadata{
+      view("Title"), view("Artist"), view("Album")};
+  otgy_pcm* raw_snapshot_pcm = nullptr;
+  expect(otgy_pcm_copy_from_channels(
+             direct_pcm.sample_rate(),
+             direct_pcm.channel_data(otgy::core::PcmChannel::Left),
+             direct_pcm.frame_count(),
+             direct_pcm.channel_data(otgy::core::PcmChannel::Right),
+             direct_pcm.frame_count(), &raw_snapshot_pcm, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI snapshot PCM copy failed");
+  auto snapshot_pcm = handle<otgy_pcm, otgy_pcm_destroy>(raw_snapshot_pcm);
+  expect(otgy_audio_export_snapshot_create(
+             snapshot_pcm.get(), 77U, 0.0, quality, abi_source,
+             view("abi-test"),
+             abi_metadata, &raw_snapshot, &raw_error) == OTGY_STATUS_OK,
+         "C ABI export snapshot failed");
+  auto abi_snapshot =
+      handle<otgy_audio_export_snapshot, otgy_audio_export_snapshot_destroy>(
+          raw_snapshot);
+  snapshot_pcm.reset();
+  ExportProgress direct_progress;
+  const auto direct_output = otgy::core::encode_audio_export_snapshot(
+      *direct_snapshot.snapshot(), direct_export_progress, nullptr,
+      &direct_progress);
+  expect(static_cast<bool>(direct_output), "direct audio export failed");
+  ExportProgress progress;
+  otgy_audio_export_output* raw_output = nullptr;
+  expect(otgy_audio_export_snapshot_encode(
+             abi_snapshot.get(), export_progress, never_cancel, &progress,
+             &raw_output, &raw_error) == OTGY_STATUS_OK,
+         "C ABI audio export failed");
+  auto abi_output =
+      handle<otgy_audio_export_output, otgy_audio_export_output_destroy>(
+          raw_output);
+  const auto bytes = otgy_audio_export_output_get_bytes(abi_output.get());
+  expect(bytes.length == direct_output.output()->bytes.size() &&
+             std::memcmp(bytes.data, direct_output.output()->bytes.data(),
+                         direct_output.output()->bytes.size()) == 0,
+         "audio export bytes differ");
+  expect(otgy_audio_export_output_get_signed_shift_frames(abi_output.get()) ==
+                 direct_output.output()->signed_shift_frames &&
+             otgy_audio_export_output_get_frame_count(abi_output.get()) ==
+                 direct_output.output()->output_frame_count,
+         "audio export metadata differs");
+  expect(progress.stages == direct_progress.stages,
+         "audio export stages differ");
+
+  const auto direct_bad_snapshot = otgy::core::create_audio_export_snapshot(
+      direct_pcm, 77U, 31.0, quality, source_info, "abi-test",
+      direct_metadata);
+  otgy_audio_export_snapshot* failed_snapshot =
+      reinterpret_cast<otgy_audio_export_snapshot*>(1);
+  expect(otgy_audio_export_snapshot_create(
+             abi_pcm, 77U, 31.0, quality, abi_source, view("abi-test"),
+             abi_metadata, &failed_snapshot, &raw_error) ==
+             OTGY_STATUS_CORE_ERROR,
+         "C ABI invalid export snapshot status differs");
+  auto snapshot_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect(failed_snapshot == nullptr,
+         "failed export snapshot exposed partial ownership");
+  expect_error(snapshot_error.get(), OTGY_ERROR_DOMAIN_AUDIO_EXPORT_SNAPSHOT,
+               static_cast<std::uint32_t>(direct_bad_snapshot.error()),
+               otgy::core::audio_export_snapshot_error_message(
+                   direct_bad_snapshot.error()));
+
+  otgy_audio_export_snapshot_destroy(nullptr);
+  otgy_audio_export_output_destroy(nullptr);
+}
+
+void test_waveforms(const otgy::core::Pcm16& direct_pcm,
+                    const otgy_pcm* abi_pcm) {
+  const std::array<DirectWaveform, 16> direct_functions{
+      otgy::core::generate_signed_uniform_waveform_tile_1x,
+      otgy::core::generate_rectified_uniform_waveform_tile_1x,
+      otgy::core::generate_signed_amplitude_waveform_tile_1x,
+      otgy::core::generate_rectified_amplitude_waveform_tile_1x,
+      otgy::core::generate_signed_uniform_waveform_tile_2x,
+      otgy::core::generate_rectified_uniform_waveform_tile_2x,
+      otgy::core::generate_signed_amplitude_waveform_tile_2x,
+      otgy::core::generate_rectified_amplitude_waveform_tile_2x,
+      otgy::core::generate_signed_uniform_waveform_tile_3x,
+      otgy::core::generate_rectified_uniform_waveform_tile_3x,
+      otgy::core::generate_signed_amplitude_waveform_tile_3x,
+      otgy::core::generate_rectified_amplitude_waveform_tile_3x,
+      otgy::core::generate_signed_uniform_waveform_tile_4x,
+      otgy::core::generate_rectified_uniform_waveform_tile_4x,
+      otgy::core::generate_signed_amplitude_waveform_tile_4x,
+      otgy::core::generate_rectified_amplitude_waveform_tile_4x};
+  const std::array<AbiWaveform, 16> abi_functions{
+      otgy_generate_signed_uniform_1x_waveform_tile,
+      otgy_generate_rectified_uniform_1x_waveform_tile,
+      otgy_generate_signed_amplitude_1x_waveform_tile,
+      otgy_generate_rectified_amplitude_1x_waveform_tile,
+      otgy_generate_signed_uniform_2x_waveform_tile,
+      otgy_generate_rectified_uniform_2x_waveform_tile,
+      otgy_generate_signed_amplitude_2x_waveform_tile,
+      otgy_generate_rectified_amplitude_2x_waveform_tile,
+      otgy_generate_signed_uniform_3x_waveform_tile,
+      otgy_generate_rectified_uniform_3x_waveform_tile,
+      otgy_generate_signed_amplitude_3x_waveform_tile,
+      otgy_generate_rectified_amplitude_3x_waveform_tile,
+      otgy_generate_signed_uniform_4x_waveform_tile,
+      otgy_generate_rectified_uniform_4x_waveform_tile,
+      otgy_generate_signed_amplitude_4x_waveform_tile,
+      otgy_generate_rectified_amplitude_4x_waveform_tile};
+  for (std::size_t index = 0U; index < direct_functions.size(); ++index) {
+    const auto direct = direct_functions[index](direct_pcm, 11.0, 4.0, 1U);
+    expect(static_cast<bool>(direct), "direct waveform failed");
+    otgy_waveform_tile* raw_tile = nullptr;
+    otgy_error* raw_error = nullptr;
+    expect(abi_functions[index](abi_pcm, 11.0, 4.0, 1U, &raw_tile,
+                                &raw_error) == OTGY_STATUS_OK,
+           "C ABI waveform failed");
+    auto tile = handle<otgy_waveform_tile, otgy_waveform_tile_destroy>(raw_tile);
+    auto error = handle<otgy_error, otgy_error_destroy>(raw_error);
+    expect(error == nullptr, "waveform returned an error");
+    expect(otgy_waveform_tile_get_block_index(tile.get()) ==
+                   direct.tile()->block_index() &&
+               otgy_waveform_tile_get_pixels_per_second(tile.get()) ==
+                   direct.tile()->pixels_per_second() &&
+               otgy_waveform_tile_get_channel_width(tile.get()) ==
+                   direct.tile()->channel_width() &&
+               otgy_waveform_tile_get_channel_spacing(tile.get()) ==
+                   direct.tile()->channel_spacing(),
+           "waveform geometry differs");
+    const auto left = otgy_waveform_tile_get_left(tile.get());
+    const auto right = otgy_waveform_tile_get_right(tile.get());
+    expect(left.length == direct.tile()->channel_byte_size() &&
+               right.length == direct.tile()->channel_byte_size() &&
+               std::memcmp(
+                   left.data,
+                   direct.tile()->channel_alpha(otgy::core::PcmChannel::Left),
+                   static_cast<std::size_t>(left.length)) == 0 &&
+               std::memcmp(
+                   right.data,
+                   direct.tile()->channel_alpha(otgy::core::PcmChannel::Right),
+                   static_cast<std::size_t>(right.length)) == 0,
+           "waveform Alpha differs");
+  }
+
+  const auto direct_error = direct_functions[0](direct_pcm, 0.0, 4.0, 0U);
+  otgy_waveform_tile* raw_tile = nullptr;
+  otgy_error* raw_error = nullptr;
+  expect(abi_functions[0](abi_pcm, 0.0, 4.0, 0U, &raw_tile, &raw_error) ==
+             OTGY_STATUS_CORE_ERROR,
+         "waveform error status differs");
+  auto error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect(raw_tile == nullptr, "failed waveform exposed a tile");
+  expect_error(error.get(), OTGY_ERROR_DOMAIN_WAVEFORM,
+               static_cast<std::uint32_t>(direct_error.error()),
+               otgy::core::waveform_error_message(direct_error.error()));
+}
+
+void test_analysis(const otgy::core::Pcm16& direct_pcm,
+                   const otgy_pcm* abi_pcm) {
+  otgy_error* raw_error = nullptr;
+  const auto direct_onsets = otgy::core::detect_onsets(direct_pcm);
+  otgy_onsets* raw_onsets = nullptr;
+  expect(otgy_detect_onsets(abi_pcm, &raw_onsets, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI onset detection failed");
+  auto onsets = handle<otgy_onsets, otgy_onsets_destroy>(raw_onsets);
+  expect(otgy_onsets_get_count(onsets.get()) == direct_onsets.onsets()->size(),
+         "onset count differs");
+  const auto* abi_onsets = otgy_onsets_get_data(onsets.get());
+  for (std::size_t index = 0U; index < direct_onsets.onsets()->size(); ++index) {
+    expect(abi_onsets[index].frame_index ==
+                   direct_onsets.onsets()->at(index).frame_index &&
+               same_double(abi_onsets[index].strength,
+                           direct_onsets.onsets()->at(index).strength),
+           "onset value differs");
+  }
+
+  const auto direct_bpm = otgy::core::detect_bpm_candidates(direct_pcm);
+  otgy_bpm_candidates* raw_bpm = nullptr;
+  expect(otgy_detect_bpm_candidates(abi_pcm, &raw_bpm, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI BPM detection failed");
+  auto bpm = handle<otgy_bpm_candidates, otgy_bpm_candidates_destroy>(raw_bpm);
+  expect(otgy_bpm_candidates_get_count(bpm.get()) ==
+             direct_bpm.candidates()->size(),
+         "BPM count differs");
+  const auto* abi_bpm = otgy_bpm_candidates_get_data(bpm.get());
+  for (std::size_t index = 0U; index < direct_bpm.candidates()->size(); ++index) {
+    expect(same_double(abi_bpm[index].bpm,
+                       direct_bpm.candidates()->at(index).bpm) &&
+               same_double(abi_bpm[index].fitness,
+                           direct_bpm.candidates()->at(index).fitness),
+           "BPM candidate differs");
+  }
+
+  const auto direct_offsets =
+      otgy::core::detect_offsets(direct_pcm, *direct_bpm.candidates());
+  otgy_offset_candidates* raw_offsets = nullptr;
+  expect(otgy_detect_offsets(abi_pcm, abi_bpm,
+                             otgy_bpm_candidates_get_count(bpm.get()),
+                             &raw_offsets, &raw_error) == OTGY_STATUS_OK,
+         "C ABI Offset detection failed");
+  auto offsets =
+      handle<otgy_offset_candidates, otgy_offset_candidates_destroy>(
+          raw_offsets);
+  const auto* abi_offsets = otgy_offset_candidates_get_data(offsets.get());
+  expect(otgy_offset_candidates_get_count(offsets.get()) ==
+             direct_offsets.candidates()->size(),
+         "Offset count differs");
+  for (std::size_t index = 0U;
+       index < direct_offsets.candidates()->size(); ++index) {
+    const auto& direct = direct_offsets.candidates()->at(index);
+    expect(same_double(abi_offsets[index].bpm, direct.bpm) &&
+               same_double(abi_offsets[index].detector_offset_seconds,
+                           direct.detector_offset_seconds) &&
+               same_double(abi_offsets[index].app_offset_seconds,
+                           direct.app_offset_seconds) &&
+               same_double(abi_offsets[index].fitness, direct.fitness),
+           "Offset candidate differs");
+  }
+
+  const auto direct_sync = otgy::core::analyze_sync(direct_pcm);
+  SyncStages stages;
+  otgy_sync_analysis* raw_sync = nullptr;
+  expect(otgy_analyze_sync(abi_pcm, sync_stage, &stages, &raw_sync,
+                           &raw_error) == OTGY_STATUS_OK,
+         "C ABI sync analysis failed");
+  auto sync =
+      handle<otgy_sync_analysis, otgy_sync_analysis_destroy>(raw_sync);
+  expect(otgy_sync_analysis_get_analyzed_frame_count(sync.get()) ==
+             direct_sync.analysis()->analyzed_frame_count(),
+         "sync frame count differs");
+  expect(stages.values ==
+             std::vector<std::uint32_t>({0U, 1U, 2U, 3U, 4U, 5U}),
+         "sync stage order differs");
+  const auto* abi_sync = otgy_sync_analysis_get_candidates(sync.get());
+  expect(otgy_sync_analysis_get_candidate_count(sync.get()) ==
+             direct_sync.analysis()->candidates().size(),
+         "sync candidate count differs");
+  for (std::size_t index = 0U;
+       index < direct_sync.analysis()->candidates().size(); ++index) {
+    expect(same_double(abi_sync[index].app_offset_seconds,
+                       direct_sync.analysis()
+                           ->candidates()[index]
+                           .app_offset_seconds),
+           "sync candidate differs");
+  }
+
+  otgy_onsets_destroy(nullptr);
+  otgy_bpm_candidates_destroy(nullptr);
+  otgy_offset_candidates_destroy(nullptr);
+  otgy_sync_analysis_destroy(nullptr);
+}
+
+}  // namespace
+
+int main() {
+  try {
+    expect(otgy_c_api_version() == OTGY_C_API_VERSION,
+           "C ABI version differs");
+    const auto core_version = otgy_core_version();
+    expect(std::string_view(core_version.data,
+                            static_cast<std::size_t>(core_version.length)) ==
+               otgy::core::version_string(),
+           "core version differs");
+    const auto mp3 = read_file(OTGY_C_API_MP3_FIXTURE);
+    const auto ogg = read_file(OTGY_C_API_OGG_FIXTURE);
+    auto initial_pcm = otgy::core::Pcm16::allocate(1U, 0U);
+    expect(static_cast<bool>(initial_pcm), "unable to make initial PCM");
+    auto direct_pcm = std::move(initial_pcm).take_pcm();
+    auto abi_pcm = handle<otgy_pcm, otgy_pcm_destroy>(nullptr);
+    otgy::core::AudioSourceInfo source_info{
+        otgy::core::AudioSourceCodec::OggVorbis, 0U, 0U};
+    test_pcm_decode_hash_and_errors(mp3, ogg, direct_pcm, abi_pcm,
+                                    source_info);
+    test_offset_names_quality_and_export(direct_pcm, abi_pcm.get(),
+                                         source_info);
+    test_waveforms(direct_pcm, abi_pcm.get());
+    test_analysis(direct_pcm, abi_pcm.get());
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << error.what() << '\n';
+    return 1;
+  }
+}
