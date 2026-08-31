@@ -715,6 +715,22 @@ BPM 数据，单次结果最多 `1,000,000` 条；超出数量、超过 binary64
 行为；后续模型入口必须在 `av_core` 内调用它，不能把扫描下放给 C ABI 或 Flutter。
 翻页和播放位置继续消费同一范围结果。
 
+当前共享导航入口为 `calculate_timeline_navigation(range, currentRow,
+visibleBeats)`。它直接消费 `TimelineRange` 的连续 1/16 行边界，一次返回到开头、
+上翻页、下翻页、到末尾四个目标及各自可用状态。翻页距离固定为：
+
+```text
+pageRows = (visibleBeats - 1) * 4
+pageUp   = max(rangeBegin, currentRow - pageRows)
+pageDown = min(rangeEnd,   currentRow + pageRows)
+```
+
+`visibleBeats` 可以带小数但必须有限且至少为 `1`；恰好为 `1` 时两个翻页目标等于
+当前位置并稳定禁用。当前位置必须是范围内的有限连续行。计算保留小数行，不吸附到
+拍、小节或 1/16 整数行；只有目标越过边界时才限制。某个目标与当前位置相同时对应
+操作禁用，因此既覆盖位于首尾边界，也覆盖浮点精度下已经无法继续移动的情况。
+Flutter 只能消费这些目标和状态，不能自行重算页距或只按音频长度决定末尾。
+
 正式草稿序列化必须精确往返其中每个有限 binary64 值。可以使用独立于区域设置的 17 位有效十进制数字，也可以显式保存十六进制/位表示。可以附带便于阅读的数值，但它们不是权威值。只含 `ChartDraft` 的异常恢复快照不保存 BPM 或 Offset。
 
 UI 格式与存储相互独立：
