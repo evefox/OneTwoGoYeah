@@ -10,6 +10,7 @@ add_library(av_core STATIC
   src/audio/pcm16.cpp
   src/audio/pcm16_hash.cpp
   src/playback/playback_position.cpp
+  src/project/project_serialization.cpp
   src/slk/slk_dance_move_drill_analyzer.cpp
   src/slk/slk_chart_draft_projection.cpp
   src/slk/slk_drill_group_analyzer.cpp

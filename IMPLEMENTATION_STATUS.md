@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 5 进行中：阶段 4 的严格 SLK 管线保持完成；三列统一投影、派生查询以及 NPC/玩家/Showtime 全部上下文点击、自动生成、关系清理和原子撤销/重做已经落地。当前剩余工作是版本化正式草稿与单一恢复快照核心编码。
+阶段 5 已完成：三列统一投影与派生查询、NPC/玩家/Showtime 全部上下文编辑、一次性自动生成、关系清理、原子撤销/重做，以及正式草稿/恢复快照 version 1 核心编码均已落地。下一阶段进入音频 Offset 变换、确定性 Ogg 编码与播放协调。
 
 ## 本次范围
 
@@ -93,12 +93,15 @@
 - 增加 `ChartEditor`，统一执行三列单行占用、NPC-C/N/S 放置转换删除、玩家相对间隔自动生成、Showtime 来源收集/位置/排布/范围冲突和所有失效事件引用清理。
 - 每次成功上下文点击、整批生成、整段删除或清空只提交一份完整 `ChartDraft` 历史；失败不修改草稿或历史，撤销/重做逐值恢复全部事件与关系，新编辑清空重做分支。
 - 玩家与 Showtime 自动生成结果在提交后脱离来源同步；NPC 后续修改只更新当前原生舞步的 N 总数，既有玩家位置/类型和 `SHOW-D.showNCount` 均保持生成时快照。
+- 增加 `encode_formal_draft`/`decode_formal_draft`，用内部 `OTGYPRJ\0` version 1 小端信封、显式类型/长度和 CRC32 保存完整 `ChartDraft` 及 BPM/Offset 原始 binary64 位模式。
+- 增加 `encode_recovery_snapshot`/`decode_recovery_snapshot`，复用相同容器安全与完整性校验但只保存 `ChartDraft`；不完整草稿无需通过成品校验即可精确往返，历史、音频和视图状态不进入负载。
+- 原生负载测试固定空正式/恢复负载的规范头、长度和 CRC 字节，并覆盖两份真实 SLK 完整关系、不完整编辑草稿、隐藏精度、类型错配、版本/长度/CRC、非法枚举、超大计数、截断和尾随数据。
 - 导出器从显式角色和三层关系唯一生成 NPC 后玩家的 `c/n/s`、Showtime `c0/d`、直接及 `segmentNCount * 100 + moveNCount` 拆分值，并通过共享位置换算写六列；最终边界固定为 `max(1920, lastShowD.rangeEnd)`。
 - 导出测试覆盖规范文件导入、投影、校验再导出的 30340 字节逐字节相同，兼容文件使用规范外壳后的完整原生语义往返，直接/拆分 `c` 值、超长边界、CRLF/BOM/结尾，以及工作表末行 `161/162/313/314/>314` 时两个格式锚点和 `B`/`NN` 范围字段。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、`ChartDraft` 编辑与持久化、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、平台草稿索引与原子文件发布、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -140,7 +143,10 @@
 - `native/av_core/include/av_core/slk/slk_export.hpp`
 - `native/av_core/include/av_core/slk/slk_chart_draft_projection.hpp`
 - `native/av_core/include/av_core/chart/chart_draft.hpp`
+- `native/av_core/include/av_core/chart/chart_editor.hpp`
+- `native/av_core/include/av_core/chart/chart_projection.hpp`
 - `native/av_core/include/av_core/chart/chart_validator.hpp`
+- `native/av_core/include/av_core/project/project_serialization.hpp`
 - `native/av_core/include/av_core/timing/onset_detector.hpp`
 - `native/av_core/include/av_core/timing/offset_detector.hpp`
 - `native/av_core/include/av_core/timing/sync_analyzer.hpp`
@@ -164,7 +170,10 @@
 - `native/av_core/src/slk/slk_export.cpp`
 - `native/av_core/src/slk/slk_chart_draft_projection.cpp`
 - `native/av_core/src/chart/chart_draft.cpp`
+- `native/av_core/src/chart/chart_editor.cpp`
+- `native/av_core/src/chart/chart_projection.cpp`
 - `native/av_core/src/chart/chart_validator.cpp`
+- `native/av_core/src/project/project_serialization.cpp`
 - `native/av_core/src/timing/arrowvortex/`
 - `native/av_core/src/timing/bpm_detector.cpp`
 - `native/av_core/src/timing/bpm_detector_internal.hpp`
@@ -206,6 +215,9 @@
 - `native/av_core/tests/slk_export_test.cpp`
 - `native/av_core/tests/slk_chart_draft_projection_test.cpp`
 - `native/av_core/tests/chart_validator_test.cpp`
+- `native/av_core/tests/chart_projection_test.cpp`
+- `native/av_core/tests/chart_editor_test.cpp`
+- `native/av_core/tests/project_serialization_test.cpp`
 - `native/av_core/tests/sync_analyzer_test.cpp`
 - `native/av_core/tests/timing_conversion_test.cpp`
 - `native/av_core/tests/timing_grid_test.cpp`
@@ -222,30 +234,30 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-slk-export -DBUILD_TESTING=ON
-cmake --build build/native-slk-export --parallel 2
-ctest --test-dir build/native-slk-export --output-on-failure
+cmake -S native -B build/native-stage5 -DBUILD_TESTING=ON
+cmake --build build/native-stage5 --parallel 2
+ctest --test-dir build/native-stage5 --output-on-failure
 
-cmake -S native -B build/native-slk-export-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-slk-export-asan --parallel 2
-ctest --test-dir build/native-slk-export-asan --output-on-failure
+cmake -S native -B build/native-stage5-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-stage5-asan --parallel 2
+ctest --test-dir build/native-stage5-asan --output-on-failure
 
-cmake -S native -B build/native-slk-export-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-slk-export-asan-ubsan --parallel 2 --target av_core_chart_validator_test av_core_slk_export_test
-ctest --test-dir build/native-slk-export-asan-ubsan -R '^av_core\.(chart_validator|slk_export)$' --output-on-failure
+cmake -S native -B build/native-stage5-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-stage5-asan-ubsan --parallel 2 --target av_core_chart_projection_test av_core_chart_editor_test av_core_project_serialization_test
+ctest --test-dir build/native-stage5-asan-ubsan -R '^av_core\.(chart_projection|chart_editor|project_serialization)$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，32/32 测试通过；全新 AddressSanitizer 构建后 32/32 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下定向运行 `av_core.chart_validator` 与 `av_core.slk_export` 2/2 通过。规范 SLK 未修改往返逐字节相同，兼容 SLK 重导入语义相同，四组锚点边界与超长 `r` 均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、严格 SLK 导入、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，35/35 测试通过；全新 AddressSanitizer 构建后 35/35 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下定向运行阶段 5 的统一投影、上下文编辑和项目编码 3/3 通过。三列点击规则、自动生成脱钩、完整快照撤销/重做、不完整草稿与 binary64 精度往返均通过；既有解码、十六份波形 Alpha、起音/BPM/Offset、时序/导航/播放位置和 SLK 逐字节黄金继续全部通过。
 
 ## 已知问题
 
 - 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Flutter 工具链尚未安装，不阻塞当前原生核心阶段。
-- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本切片未修改第三方兼容代码，也未用测试过滤这些诊断；新增的成品校验路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
+- 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在现有解码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断；普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果。本阶段未修改第三方兼容代码，也未用测试过滤这些诊断；新增的阶段 5 投影、编辑和持久化路径已单独通过 AddressSanitizer/UndefinedBehaviorSanitizer。
 
 ## 唯一下一步
 
-实现阶段 5 的版本化原生项目编码：正式草稿负载精确保存完整 `ChartDraft`、BPM 和 Offset binary64 位模式；恢复负载只保存 `ChartDraft`。两者共享严格长度、版本和完整性校验，允许不完整草稿无损往返且不包含历史、音频或视图状态。
+进入阶段 6 的第一个纯核心切片：实现规范 PCM 的 Offset 帧变换，按 `roundHalfAwayFromZero(offsetSeconds * sampleRate)` 生成正 Offset 前置双声道静音、负 Offset 开头裁剪和零 Offset 深复制；覆盖正负半帧舍入、删除全部帧拒绝、尺寸溢出、输入不变和稳定所有权。此切片不引入 Ogg 编码器、取消协调、C ABI 或 Flutter。
