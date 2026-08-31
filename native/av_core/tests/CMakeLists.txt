@@ -29,6 +29,21 @@ endif()
 
 add_test(NAME av_core.pcm16 COMMAND av_core_pcm16_test)
 
+add_executable(av_core_pcm_offset_test
+  pcm_offset_test.cpp
+)
+target_link_libraries(av_core_pcm_offset_test PRIVATE OneTwoGoYeah::av_core)
+
+if(MSVC)
+  target_compile_options(av_core_pcm_offset_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(av_core_pcm_offset_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.pcm_offset COMMAND av_core_pcm_offset_test)
+
 set(OTGY_MP3_FIXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/mp3")
 
 function(otgy_assert_fixture_sha256 file_name expected_sha256)
