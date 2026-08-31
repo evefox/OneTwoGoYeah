@@ -12,6 +12,7 @@ add_library(av_core STATIC
   src/slk/slk_chart_draft_projection.cpp
   src/slk/slk_drill_group_analyzer.cpp
   src/slk/slk_import.cpp
+  src/slk/slk_export.cpp
   src/slk/slk_showtime_analyzer.cpp
   src/slk/slk_position.cpp
   src/slk/slk_parser.cpp

@@ -3,6 +3,7 @@
 #include "av_core/chart/chart_validator.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <new>
 #include <utility>
 
@@ -181,6 +182,77 @@ void diagnose_duplicate_ids(const Collection& values, Id id_of,
   return count;
 }
 
+[[nodiscard]] std::size_t start_event_occurrences(const ChartDraft& draft,
+                                                  std::uint64_t id) noexcept {
+  return static_cast<std::size_t>(std::count_if(
+      draft.showtimes().begin(), draft.showtimes().end(),
+      [id](const ChartShowtime& showtime) {
+        return showtime.start_event_id.value == id;
+      }));
+}
+
+[[nodiscard]] std::size_t move_event_occurrences(const ChartDraft& draft,
+                                                 std::uint64_t id) noexcept {
+  std::size_t count = 0U;
+  for (const auto& showtime : draft.showtimes()) {
+    count += static_cast<std::size_t>(std::count_if(
+        showtime.show_move_event_ids.begin(),
+        showtime.show_move_event_ids.end(),
+        [id](ChartEventId value) { return value.value == id; }));
+  }
+  return count;
+}
+
+template <typename Event>
+void diagnose_ordered_event(const Event* event, bool& has_previous,
+                            EventKey& previous,
+                            std::vector<ChartDiagnostic>& diagnostics) {
+  if (event == nullptr) {
+    return;
+  }
+  if (has_previous && previous.row >= event->row) {
+    add_diagnostic(diagnostics, ChartDiagnosticCode::InvalidEventRelation,
+                   event->id.value, previous.id, event->row);
+  }
+  previous = {event->id.value, event->row};
+  has_previous = true;
+}
+
+void diagnose_finished_event_order(
+    const ChartDraft& draft, std::vector<ChartDiagnostic>& diagnostics) {
+  bool has_previous = false;
+  EventKey previous{0U, 0U};
+  for (const auto& showtime : draft.showtimes()) {
+    for (const auto drill_id : showtime.dance_move_drill_ids) {
+      const auto* drill = find_drill(draft, drill_id.value);
+      if (drill == nullptr) {
+        continue;
+      }
+      for (const auto group_id : drill->drill_group_ids) {
+        const auto* group = find_group(draft, group_id.value);
+        if (group == nullptr) {
+          continue;
+        }
+        for (const auto event_id : group->npc_event_ids) {
+          diagnose_ordered_event(find_role_event(draft, event_id.value),
+                                 has_previous, previous, diagnostics);
+        }
+        for (const auto event_id : group->player_event_ids) {
+          diagnose_ordered_event(find_role_event(draft, event_id.value),
+                                 has_previous, previous, diagnostics);
+        }
+      }
+    }
+    diagnose_ordered_event(
+        find_start_event(draft, showtime.start_event_id.value), has_previous,
+        previous, diagnostics);
+    for (const auto event_id : showtime.show_move_event_ids) {
+      diagnose_ordered_event(find_move_event(draft, event_id.value),
+                             has_previous, previous, diagnostics);
+    }
+  }
+}
+
 }  // namespace
 
 FinishedChart::FinishedChart(ChartDraft draft) noexcept
@@ -347,6 +419,15 @@ ChartValidationResult validate_finished_chart(
             event->show_n_count != drill->move_n_count) {
           valid = false;
         }
+        if (event->show_n_count >= 1U && event->show_n_count <= 11U) {
+          const auto range_start = event->row - event->row % 16U;
+          const std::uint64_t duration =
+              event->show_n_count <= 6U ? 16U : 32U;
+          if (range_start >
+              std::numeric_limits<std::uint64_t>::max() - duration) {
+            valid = false;
+          }
+        }
       }
       if (!valid) {
         add_diagnostic(diagnostics, ChartDiagnosticCode::InvalidShowtime,
@@ -356,6 +437,18 @@ ChartValidationResult validate_finished_chart(
 
     for (const auto& event : draft.role_events()) {
       if (role_event_occurrences(draft, event.id.value) != 1U) {
+        add_diagnostic(diagnostics, ChartDiagnosticCode::OrphanEvent,
+                       event.id.value, 0U, event.row);
+      }
+    }
+    for (const auto& event : draft.showtime_start_events()) {
+      if (start_event_occurrences(draft, event.id.value) != 1U) {
+        add_diagnostic(diagnostics, ChartDiagnosticCode::OrphanEvent,
+                       event.id.value, 0U, event.row);
+      }
+    }
+    for (const auto& event : draft.showtime_move_events()) {
+      if (move_event_occurrences(draft, event.id.value) != 1U) {
         add_diagnostic(diagnostics, ChartDiagnosticCode::OrphanEvent,
                        event.id.value, 0U, event.row);
       }
@@ -389,6 +482,8 @@ ChartValidationResult validate_finished_chart(
                        drill.id.value);
       }
     }
+
+    diagnose_finished_event_order(draft, diagnostics);
 
     if (!diagnostics.empty()) {
       return ChartValidationResult{std::move(diagnostics)};

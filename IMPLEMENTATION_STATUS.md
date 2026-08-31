@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段 3 已完成；阶段 4 已完成严格 SLK 导入、显式角色 `ChartDraft` 和纯成品校验器，下一切片进入规范字节导出。
+阶段 4 已完成：严格 SLK 导入、显式角色 `ChartDraft`、纯成品校验器和基于唯一规范模板的逐字节 SLK 导出均已落地。下一阶段进入谱面编辑命令与原生持久化。
 
 ## 本次范围
 
@@ -86,10 +86,14 @@
 - 规范/兼容投影分别得到 `408/384` 个角色事件，且各有 `2` 个 Showtime 起点、`17` 个 `SHOW-D`、`34` 个演练组、`17` 个舞步演练和 `2` 个 Showtime；全部引用、顺序、唯一 ID、所有权及无 `r` 事件均通过。
 - 增加 `validate_finished_chart(draft)`，只读校验事件唯一性、角色块、三层关系、完整数量和 `showNCount`；零诊断才深复制生成 `FinishedChart`，不修改或修复草稿。
 - 校验测试覆盖两份真实导入草稿，以及空草稿、重复 ID/时间行、孤立内容、块不匹配、舞步数量和 Showtime 值错误，验证诊断、快照所有权与输入不变。
+- 收紧 `FinishedChart` 边界：调用方不能直接构造快照，校验器进一步要求 `SHOW-C/SHOW-D` 恰好被关系拥有、按 Showtime/舞步演练/演练组/NPC/玩家/Showtime 展平后的事件位置严格递增，并拒绝展示范围整数溢出。
+- 增加 `export_finished_chart_to_slk(FinishedChart)`，在 `av_core` 内编译固定 `z3116_lv5.slk` 的 2686 字节规范头，不在运行时读取 `example/`，只替换 `B`/`NN` 行数范围并按原始字节保留乱码标题、格式记录、列宽、筛选、CRLF 和结尾。
+- 导出器从显式角色和三层关系唯一生成 NPC 后玩家的 `c/n/s`、Showtime `c0/d`、直接及 `segmentNCount * 100 + moveNCount` 拆分值，并通过共享位置换算写六列；最终边界固定为 `max(1920, lastShowD.rangeEnd)`。
+- 导出测试覆盖规范文件导入、投影、校验再导出的 30340 字节逐字节相同，兼容文件使用规范外壳后的完整原生语义往返，直接/拆分 `c` 值、超长边界、CRLF/BOM/结尾，以及工作表末行 `161/162/313/314/>314` 时两个格式锚点和 `B`/`NN` 范围字段。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
-- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、SLK 导出、`ChartDraft` 编辑与持久化、C ABI 或 Flutter。
+- 暂不实现波形过滤、CLI 波形命令、播放 PCM/设备输出、`ChartDraft` 编辑与持久化、C ABI 或 Flutter。
 
 ## 工具链
 
@@ -128,6 +132,7 @@
 - `native/av_core/include/av_core/slk/slk_dance_move_drill_analyzer.hpp`
 - `native/av_core/include/av_core/slk/slk_showtime_analyzer.hpp`
 - `native/av_core/include/av_core/slk/slk_import.hpp`
+- `native/av_core/include/av_core/slk/slk_export.hpp`
 - `native/av_core/include/av_core/slk/slk_chart_draft_projection.hpp`
 - `native/av_core/include/av_core/chart/chart_draft.hpp`
 - `native/av_core/include/av_core/chart/chart_validator.hpp`
@@ -151,6 +156,7 @@
 - `native/av_core/src/slk/slk_dance_move_drill_analyzer.cpp`
 - `native/av_core/src/slk/slk_showtime_analyzer.cpp`
 - `native/av_core/src/slk/slk_import.cpp`
+- `native/av_core/src/slk/slk_export.cpp`
 - `native/av_core/src/slk/slk_chart_draft_projection.cpp`
 - `native/av_core/src/chart/chart_draft.cpp`
 - `native/av_core/src/chart/chart_validator.cpp`
@@ -192,6 +198,7 @@
 - `native/av_core/tests/slk_dance_move_drill_analyzer_test.cpp`
 - `native/av_core/tests/slk_showtime_analyzer_test.cpp`
 - `native/av_core/tests/slk_import_test.cpp`
+- `native/av_core/tests/slk_export_test.cpp`
 - `native/av_core/tests/slk_chart_draft_projection_test.cpp`
 - `native/av_core/tests/chart_validator_test.cpp`
 - `native/av_core/tests/sync_analyzer_test.cpp`
@@ -210,22 +217,22 @@
 2026-08-31 在 arm64 macOS 上依次运行：
 
 ```text
-cmake -S native -B build/native-chart-validator-clean -DBUILD_TESTING=ON
-cmake --build build/native-chart-validator-clean --parallel 2
-ctest --test-dir build/native-chart-validator-clean --output-on-failure
+cmake -S native -B build/native-slk-export -DBUILD_TESTING=ON
+cmake --build build/native-slk-export --parallel 2
+ctest --test-dir build/native-slk-export --output-on-failure
 
-cmake -S native -B build/native-chart-validator-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
-cmake --build build/native-chart-validator-asan --parallel 2
-ctest --test-dir build/native-chart-validator-asan --output-on-failure
+cmake -S native -B build/native-slk-export-asan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address'
+cmake --build build/native-slk-export-asan --parallel 2
+ctest --test-dir build/native-slk-export-asan --output-on-failure
 
-cmake -S native -B build/native-chart-validator-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
-cmake --build build/native-chart-validator-asan-ubsan --parallel 2 --target av_core_chart_validator_test
-ctest --test-dir build/native-chart-validator-asan-ubsan -R '^av_core.chart_validator$' --output-on-failure
+cmake -S native -B build/native-slk-export-asan-ubsan -DBUILD_TESTING=ON -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+cmake --build build/native-slk-export-asan-ubsan --parallel 2 --target av_core_chart_validator_test av_core_slk_export_test
+ctest --test-dir build/native-slk-export-asan-ubsan -R '^av_core\.(chart_validator|slk_export)$' --output-on-failure
 
 git diff --check
 ```
 
-结果：全新普通配置和构建成功，31/31 测试通过；全新 AddressSanitizer 构建后 31/31 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下单独运行 `av_core.chart_validator` 1/1 通过。两份导入草稿生成独立 `FinishedChart`，结构错误返回确定性诊断且输入不变；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、SLK 严格导入、十六份波形 Alpha 和 CLI 黄金继续全部通过。
+结果：全新普通配置和构建成功，32/32 测试通过；全新 AddressSanitizer 构建后 32/32 通过；AddressSanitizer/UndefinedBehaviorSanitizer 组合下定向运行 `av_core.chart_validator` 与 `av_core.slk_export` 2/2 通过。规范 SLK 未修改往返逐字节相同，兼容 SLK 重导入语义相同，四组锚点边界与超长 `r` 均通过；既有解码、PCM 哈希、起音、BPM、Offset、联合分析、阶段 3 时序/导航/播放位置、严格 SLK 导入、十六份波形 Alpha 和 CLI 黄金继续全部通过。
 
 ## 已知问题
 
@@ -236,4 +243,4 @@ git diff --check
 
 ## 唯一下一步
 
-实现规范 SLK 字节导出的模板外壳与行编码：只接受 `FinishedChart`，以 `example/z3116_lv5.slk` 为唯一固定模板，按角色和关系生成有序 `c/n/s/c0/d/r` 行，计算范围字段和两个格式锚点，并返回二进制字节。本切片先覆盖导入未修改规范文件的逐字节往返，不实现 CLI、C ABI 或 Flutter。
+进入阶段 5 的第一个只读核心切片：为 `ChartDraft` 实现三列统一的全局事件投影，以及“上一个标记”“上一个本列标记”“下一个标记”确定性查询，覆盖当前位置排除、跨列/本列过滤、空结果、乱序底层容器和稳定所有权。此切片不实现点击修改、撤销/重做、持久化、C ABI 或 Flutter。

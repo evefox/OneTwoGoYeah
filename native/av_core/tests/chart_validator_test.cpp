@@ -3,10 +3,12 @@
 #include "av_core/chart/chart_validator.hpp"
 #include "av_core/slk/slk_chart_draft_projection.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -117,6 +119,19 @@ void test_empty_duplicate_and_orphan_diagnostics() {
               valid.dance_move_drills(), valid.showtimes());
   assert(has_diagnostic(otgy::core::validate_finished_chart(orphan_draft),
                         ChartDiagnosticCode::OrphanEvent));
+
+  auto move_events = valid.showtime_move_events();
+  auto orphan_move = move_events.front();
+  orphan_move.id.value = 60'001U;
+  orphan_move.row = 60'001U;
+  move_events.push_back(orphan_move);
+  const auto orphan_move_draft =
+      rebuild(valid, valid.role_events(), valid.showtime_start_events(),
+              std::move(move_events), valid.drill_groups(),
+              valid.dance_move_drills(), valid.showtimes());
+  assert(has_diagnostic(
+      otgy::core::validate_finished_chart(orphan_move_draft),
+      ChartDiagnosticCode::OrphanEvent));
 }
 
 void test_block_dance_and_showtime_diagnostics_without_mutation() {
@@ -168,6 +183,47 @@ void test_block_dance_and_showtime_diagnostics_without_mutation() {
   assert(valid.role_events().front().row == original_first_row);
 }
 
+void test_finished_snapshot_requires_owned_and_ordered_showtime_events() {
+  const auto valid =
+      draft_from_file(std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+
+  auto start_events = valid.showtime_start_events();
+  auto orphan_start = start_events.front();
+  orphan_start.id.value = 60'000U;
+  orphan_start.row = 60'000U;
+  start_events.push_back(orphan_start);
+  const auto orphan_draft =
+      rebuild(valid, valid.role_events(), std::move(start_events),
+              valid.showtime_move_events(), valid.drill_groups(),
+              valid.dance_move_drills(), valid.showtimes());
+  assert(has_diagnostic(otgy::core::validate_finished_chart(orphan_draft),
+                        ChartDiagnosticCode::OrphanEvent));
+
+  auto showtimes = valid.showtimes();
+  assert(showtimes.front().dance_move_drill_ids.size() > 1U);
+  std::reverse(showtimes.front().dance_move_drill_ids.begin(),
+               showtimes.front().dance_move_drill_ids.end());
+  std::reverse(showtimes.front().show_move_event_ids.begin(),
+               showtimes.front().show_move_event_ids.end());
+  const auto out_of_order =
+      rebuild(valid, valid.role_events(), valid.showtime_start_events(),
+              valid.showtime_move_events(), valid.drill_groups(),
+              valid.dance_move_drills(), std::move(showtimes));
+  assert(has_diagnostic(otgy::core::validate_finished_chart(out_of_order),
+                        ChartDiagnosticCode::InvalidEventRelation));
+
+  auto overflowing_move_events = valid.showtime_move_events();
+  overflowing_move_events.back().row =
+      std::numeric_limits<std::uint64_t>::max();
+  const auto overflowing_range =
+      rebuild(valid, valid.role_events(), valid.showtime_start_events(),
+              std::move(overflowing_move_events), valid.drill_groups(),
+              valid.dance_move_drills(), valid.showtimes());
+  assert(has_diagnostic(
+      otgy::core::validate_finished_chart(overflowing_range),
+      ChartDiagnosticCode::InvalidShowtime));
+}
+
 void test_diagnostic_messages() {
   for (unsigned int raw = 0U;
        raw <=
@@ -188,6 +244,7 @@ int main() {
   test_imported_drafts_validate_and_snapshot_ownership();
   test_empty_duplicate_and_orphan_diagnostics();
   test_block_dance_and_showtime_diagnostics_without_mutation();
+  test_finished_snapshot_requires_owned_and_ordered_showtime_events();
   test_diagnostic_messages();
   return 0;
 }

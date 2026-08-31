@@ -11,15 +11,26 @@
 
 namespace otgy::core {
 
+class ChartValidationResult;
+class FinishedChart;
+
+/// Validates without modifying or repairing the supplied draft. FinishedChart
+/// snapshots can only be created by this boundary.
+[[nodiscard]] ChartValidationResult validate_finished_chart(
+    const ChartDraft& draft) noexcept;
+
 class FinishedChart final {
  public:
-  explicit FinishedChart(ChartDraft draft) noexcept;
-
   [[nodiscard]] const ChartDraft& draft() const noexcept {
     return draft_;
   }
 
  private:
+  explicit FinishedChart(ChartDraft draft) noexcept;
+
+  friend ChartValidationResult validate_finished_chart(
+      const ChartDraft& draft) noexcept;
+
   ChartDraft draft_;
 };
 
@@ -110,9 +121,5 @@ class ChartValidationResult final {
                ChartValidationError>
       storage_;
 };
-
-/// Validates without modifying or repairing the supplied draft.
-[[nodiscard]] ChartValidationResult validate_finished_chart(
-    const ChartDraft& draft) noexcept;
 
 }  // namespace otgy::core
