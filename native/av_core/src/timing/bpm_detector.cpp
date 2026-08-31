@@ -4,6 +4,8 @@
 
 #include "av_core/timing/onset_detector.hpp"
 #include "pcm_mix.hpp"
+#include "tempo_constants.hpp"
+#include "tempo_gap.hpp"
 
 #include <Core/Polyfit.h>
 
@@ -20,44 +22,16 @@ namespace {
 
 using Real = double;
 
-constexpr Real kMinimumBpm = 89.0;
-constexpr Real kMaximumBpm = 205.0;
 constexpr int kIntervalDelta = 10;
 constexpr int kIntervalDownsample = 3;
-constexpr int kFineWindowSize = 2'048;
 constexpr int kDefaultBpm = 120;
-
-struct GapData final {
-  GapData(int buffer_size, int downsample,
-          const std::vector<Onset>& onsets)
-      : onsets(onsets),
-        wrapped_positions(onsets.size()),
-        wrapped_onsets(static_cast<std::size_t>(buffer_size)),
-        window(static_cast<std::size_t>(kFineWindowSize >> downsample)),
-        window_size(kFineWindowSize >> downsample),
-        downsample(downsample) {
-    const Real step = 6.2831853071795864 /
-                      static_cast<Real>(window_size - 1);
-    for (int index = 0; index < window_size; ++index) {
-      window[static_cast<std::size_t>(index)] =
-          0.54 - 0.46 * std::cos(static_cast<Real>(index) * step);
-    }
-  }
-
-  const std::vector<Onset>& onsets;
-  std::vector<int> wrapped_positions;
-  std::vector<Real> wrapped_onsets;
-  std::vector<Real> window;
-  int window_size;
-  int downsample;
-};
 
 struct IntervalTester final {
   explicit IntervalTester(int sample_rate)
-      : min_interval(static_cast<int>(sample_rate * 60.0 / kMaximumBpm +
-                                      0.5)),
-        max_interval(static_cast<int>(sample_rate * 60.0 / kMinimumBpm +
-                                      0.5)),
+      : min_interval(static_cast<int>(
+            sample_rate * 60.0 / detail::kMaximumDetectedBpm + 0.5)),
+        max_interval(static_cast<int>(
+            sample_rate * 60.0 / detail::kMinimumDetectedBpm + 0.5)),
         num_intervals(max_interval - min_interval),
         sample_rate(sample_rate),
         fitness(static_cast<std::size_t>(num_intervals)) {}
@@ -79,41 +53,7 @@ void normalize_fitness(Real& fitness, const Real* coefficients,
              coefficients[3] * interval_cubed;
 }
 
-[[nodiscard]] Real gap_confidence(const GapData& data, int gap_position,
-                                  int interval) noexcept {
-  const int half_window_size = data.window_size / 2;
-  Real area = 0.0;
-  int begin_onset = gap_position - half_window_size;
-  int end_onset = gap_position + half_window_size;
-
-  if (begin_onset < 0) {
-    const int wrapped_begin = begin_onset + interval;
-    for (int index = wrapped_begin; index < interval; ++index) {
-      const int window_index = index - wrapped_begin;
-      area += data.wrapped_onsets[static_cast<std::size_t>(index)] *
-              data.window[static_cast<std::size_t>(window_index)];
-    }
-    begin_onset = 0;
-  }
-  if (end_onset > interval) {
-    const int wrapped_end = end_onset - interval;
-    const int index_offset = data.window_size - wrapped_end;
-    for (int index = 0; index < wrapped_end; ++index) {
-      const int window_index = index + index_offset;
-      area += data.wrapped_onsets[static_cast<std::size_t>(index)] *
-              data.window[static_cast<std::size_t>(window_index)];
-    }
-    end_onset = interval;
-  }
-  for (int index = begin_onset; index < end_onset; ++index) {
-    const int window_index = index - begin_onset;
-    area += data.wrapped_onsets[static_cast<std::size_t>(index)] *
-            data.window[static_cast<std::size_t>(window_index)];
-  }
-  return area;
-}
-
-[[nodiscard]] Real confidence_for_interval(GapData& data,
+[[nodiscard]] Real confidence_for_interval(detail::TempoGapData& data,
                                            int interval) noexcept {
   std::fill(data.wrapped_onsets.begin(), data.wrapped_onsets.end(), 0.0);
   const int reduced_interval = interval >> data.downsample;
@@ -129,11 +69,14 @@ void normalize_fitness(Real& fitness, const Real* coefficients,
   Real highest_confidence = 0.0;
   for (std::size_t index = 0U; index < data.onsets.size(); ++index) {
     const int position = data.wrapped_positions[index];
-    Real confidence = gap_confidence(data, position, reduced_interval);
+    Real confidence =
+        detail::tempo_gap_confidence(data, position, reduced_interval);
     const int offbeat_position =
         (position + reduced_interval / 2) % reduced_interval;
     confidence +=
-        gap_confidence(data, offbeat_position, reduced_interval) * 0.5;
+        detail::tempo_gap_confidence(data, offbeat_position,
+                                     reduced_interval) *
+        0.5;
     if (confidence > highest_confidence) {
       highest_confidence = confidence;
     }
@@ -141,7 +84,7 @@ void normalize_fitness(Real& fitness, const Real* coefficients,
   return highest_confidence;
 }
 
-[[nodiscard]] Real confidence_for_bpm(GapData& data,
+[[nodiscard]] Real confidence_for_bpm(detail::TempoGapData& data,
                                       IntervalTester& tester,
                                       Real bpm) noexcept {
   std::fill(data.wrapped_onsets.begin(), data.wrapped_onsets.end(), 0.0);
@@ -158,9 +101,10 @@ void normalize_fitness(Real& fitness, const Real* coefficients,
   Real highest_confidence = 0.0;
   for (std::size_t index = 0U; index < data.onsets.size(); ++index) {
     const int position = data.wrapped_positions[index];
-    Real confidence = gap_confidence(data, position, interval);
+    Real confidence = detail::tempo_gap_confidence(data, position, interval);
     const int offbeat_position = (position + interval / 2) % interval;
-    confidence += gap_confidence(data, offbeat_position, interval) * 0.5;
+    confidence +=
+        detail::tempo_gap_confidence(data, offbeat_position, interval) * 0.5;
     if (confidence > highest_confidence) {
       highest_confidence = confidence;
     }
@@ -169,7 +113,8 @@ void normalize_fitness(Real& fitness, const Real* coefficients,
   return highest_confidence;
 }
 
-void fill_coarse_intervals(IntervalTester& tester, GapData& data) noexcept {
+void fill_coarse_intervals(IntervalTester& tester,
+                           detail::TempoGapData& data) noexcept {
   const int count =
       (tester.num_intervals + kIntervalDelta - 1) / kIntervalDelta;
   for (int item = 0; item < count; ++item) {
@@ -186,7 +131,8 @@ struct IntervalRange final {
 };
 
 [[nodiscard]] IntervalRange fill_interval_range(IntervalTester& tester,
-                                                GapData& data, int begin,
+                                                detail::TempoGapData& data,
+                                                int begin,
                                                 int end) noexcept {
   begin = std::max(begin, 0);
   end = std::min(end, tester.num_intervals);
@@ -239,7 +185,7 @@ void remove_duplicates(std::vector<BpmCandidate>& candidates) {
   }
 }
 
-void round_bpm_values(IntervalTester& tester, GapData& data,
+void round_bpm_values(IntervalTester& tester, detail::TempoGapData& data,
                       std::vector<BpmCandidate>& candidates) noexcept {
   for (auto& candidate : candidates) {
     const Real rounded_bpm = std::round(candidate.bpm);
@@ -275,7 +221,8 @@ struct CandidateFitnessDescending final {
   }
 
   IntervalTester tester(sample_rate);
-  GapData coarse_data(tester.max_interval, kIntervalDownsample, onsets);
+  detail::TempoGapData coarse_data(tester.max_interval,
+                                   kIntervalDownsample, onsets);
   std::fill(tester.fitness.begin(), tester.fitness.end(), 0.0);
   fill_coarse_intervals(tester, coarse_data);
   const int coarse_count =
@@ -307,7 +254,7 @@ struct CandidateFitnessDescending final {
     }
   }
 
-  GapData fine_data(tester.max_interval, 0, onsets);
+  detail::TempoGapData fine_data(tester.max_interval, 0, onsets);
   std::stable_sort(candidates.begin(), candidates.end(),
                    CandidateFitnessDescending{});
   remove_duplicates(candidates);
@@ -375,10 +322,11 @@ std::vector<BpmCandidate> BpmDetectionResult::take_candidates() && {
 }
 
 BpmDetectionResult detect_bpm_candidates(const Pcm16& pcm) noexcept {
-  constexpr int kMinimumSupportedInterval = kFineWindowSize / 2;
   const int minimum_interval = static_cast<int>(
-      static_cast<double>(pcm.sample_rate()) * 60.0 / kMaximumBpm + 0.5);
-  if (minimum_interval < kMinimumSupportedInterval) {
+      static_cast<double>(pcm.sample_rate()) * 60.0 /
+          detail::kMaximumDetectedBpm +
+      0.5);
+  if (minimum_interval < detail::kMinimumSupportedTempoInterval) {
     return BpmDetectionResult{BpmDetectionError::UnsupportedSampleRate};
   }
 

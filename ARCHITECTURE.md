@@ -597,6 +597,26 @@ UI Zoom 或 Scale 非有限或超出上述范围时分别返回稳定
 候选。成功数组由结果拥有，复制为深复制、移动转移所有权。Offset、600 秒应用层
 范围、六阶段进度、任务取消/缓存、CLI、C ABI 和 Flutter 继续属于后续切片。
 
+当前 Offset 权威入口为同步 `detect_offsets(pcm, bpmCandidates)`。它只接受零至三个
+有限、位于 `89..205` 的 `BpmCandidate`，并保持输入顺序、未舍入 BPM 与 fitness
+不变。入口调用唯一的起音实现取得位置；Offset 的基础相位直方图按参考对每个起音
+固定累加 `1.0`，不使用 BPM 阶段临时重算的 strength。BPM 与 Offset 共用同一份
+2048 点 Hamming gap 窗和环形置信度实现。
+
+对每个候选，基础检测相位是最强 gap 位置除以采样率。随后按参考以
+`sampleRate / 20` 帧为单边窗口生成单声道平均幅值上升斜率，把基础相位和半拍
+offbeat 在整个 PCM 上的斜率支持相加；基础支持大于或等于 offbeat 时保留基础值，
+否则选择 offbeat。这个结果以非负 `detector_offset_seconds` 返回。ArrowVortex
+`DialogAdjustSync` 在应用候选前执行一元取负，因此同一结果还显式返回
+`app_offset_seconds = -detector_offset_seconds`。转换不经过显示舍入；检测值为
+`+0.0` 时 App 值按 IEEE-754 保留为 `-0.0`。
+
+`OffsetCandidate` 同时返回 BPM、检测相位、App 权威 Offset 和 fitness，避免适配层
+按数组位置自行重新配对。空 BPM 候选成功返回空数组；超过三名、非有限、越过
+兼容 BPM 范围或 fitness 非有限时返回 `InvalidBpmCandidates`。采样率、参考整数和
+分配边界与 BPM 入口一致，失败不暴露部分候选。600 秒范围、联合单次起音执行、
+六阶段进度、任务取消/缓存、CLI、C ABI 和 Flutter 仍留给后续组合切片。
+
 ## 精度模型
 
 每个值只有一份权威高精度表示。显示形式和导出投影都由它派生，不能成为独立可编辑副本。

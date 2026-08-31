@@ -10,6 +10,7 @@ add_library(av_core STATIC
   src/timing/arrowvortex/FFT.cpp
   src/timing/arrowvortex/FindOnsets.cpp
   src/timing/onset_detector.cpp
+  src/timing/offset_detector.cpp
   src/waveform/waveform_tile.cpp
   src/version.cpp
 )

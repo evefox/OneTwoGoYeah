@@ -418,3 +418,54 @@ else()
 endif()
 
 add_test(NAME av_core.bpm_detector COMMAND av_core_bpm_detector_test)
+
+set(OTGY_OFFSET_FIXTURE_DIR
+  "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/offset"
+)
+
+function(otgy_assert_offset_fixture_sha256 file_name expected_sha256)
+  file(SHA256 "${OTGY_OFFSET_FIXTURE_DIR}/${file_name}" actual_sha256)
+  if(NOT actual_sha256 STREQUAL expected_sha256)
+    message(FATAL_ERROR
+      "Unexpected SHA-256 for Offset fixture ${file_name}: ${actual_sha256}"
+    )
+  endif()
+endfunction()
+
+otgy_assert_offset_fixture_sha256(
+  generated_stereo_11025.offsets
+  027eefae9b0552a2b96b01e94ce3a882b635f5ac2656ca4f8b9426e51fea5401
+)
+otgy_assert_offset_fixture_sha256(
+  generated_repeated_stereo_11025.offsets
+  283ab516f94d60e2ca8deaf04e8b282ef19faa845df501630a0cf4d65739a886
+)
+otgy_assert_offset_fixture_sha256(
+  generated_three_channel_16000.offsets
+  9171bfc33d967c3b318de9e4c07a46784631f53e15c11562ae16ff8be7ce3478
+)
+
+add_executable(av_core_offset_detector_test
+  offset_detector_test.cpp
+)
+target_link_libraries(av_core_offset_detector_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+target_compile_definitions(av_core_offset_detector_test PRIVATE
+  OTGY_MP3_FIXTURE_DIR="${OTGY_MP3_FIXTURE_DIR}"
+  OTGY_OGG_VORBIS_FIXTURE_DIR="${OTGY_OGG_VORBIS_FIXTURE_DIR}"
+  OTGY_ONSET_FIXTURE_DIR="${OTGY_ONSET_FIXTURE_DIR}"
+  OTGY_OFFSET_FIXTURE_DIR="${OTGY_OFFSET_FIXTURE_DIR}"
+)
+
+if(MSVC)
+  target_compile_options(av_core_offset_detector_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_offset_detector_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.offset_detector COMMAND av_core_offset_detector_test)

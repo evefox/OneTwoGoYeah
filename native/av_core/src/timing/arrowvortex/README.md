@@ -17,5 +17,6 @@ the public adapter always requests one thread.
 `Polyfit.h` supplies the original specialized third-order fit used by BPM
 fitness normalization. Its reference hash and the independently compiled
 `FindTempo.cpp` hashes are recorded with the BPM fixtures. The production BPM
-adapter ports only the `CalculateBPM` path and does not compile the reference
-UI/background-thread, global music, Offset, or progress wrapper.
+and Offset adapters port the `CalculateBPM` and `CalculateOffset` paths while
+sharing their gap-confidence implementation; they do not compile the reference
+UI/background-thread, global music, or progress wrapper.
