@@ -15,6 +15,7 @@ import 'package:one_two_go_yeah/src/infrastructure/local_project_store.dart';
 import 'package:one_two_go_yeah/src/infrastructure/playback_output.dart';
 import 'package:one_two_go_yeah/src/ui/editor_canvas.dart';
 import 'package:one_two_go_yeah/src/ui/editor_screen.dart';
+import 'package:one_two_go_yeah/src/ui/editor_theme.dart';
 import 'package:otgy_native/otgy_native.dart';
 
 void main() {
@@ -87,6 +88,44 @@ void main() {
     expect(find.bySemanticsLabel('NPC'), findsOneWidget);
     expect(find.bySemanticsLabel('玩家'), findsOneWidget);
     expect(find.bySemanticsLabel('Showtime'), findsOneWidget);
+  });
+
+  testWidgets('keeps bottom info notices legible on their backgrounds', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    controller.showNotice('普通提示');
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      tester.widget<SnackBar>(find.byType(SnackBar)).backgroundColor,
+      EditorColors.surfaceRaised,
+    );
+    expect(
+      tester.widget<Text>(find.text('普通提示')).style?.color,
+      EditorColors.text,
+    );
+  });
+
+  testWidgets('keeps bottom error notices legible on their backgrounds', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    controller.showNotice('错误提示', error: true);
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      tester.widget<SnackBar>(find.byType(SnackBar)).backgroundColor,
+      EditorColors.danger,
+    );
+    expect(
+      tester.widget<Text>(find.text('错误提示')).style?.color,
+      EditorColors.canvas,
+    );
   });
 
   testWidgets(

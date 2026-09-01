@@ -876,7 +876,14 @@ class _EditorScreenState extends State<EditorScreen>
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(notice.message),
+            content: Text(
+              notice.message,
+              style: TextStyle(
+                color: notice.kind == EditorNoticeKind.error
+                    ? EditorColors.canvas
+                    : EditorColors.text,
+              ),
+            ),
             backgroundColor: notice.kind == EditorNoticeKind.error
                 ? EditorColors.danger
                 : EditorColors.surfaceRaised,
