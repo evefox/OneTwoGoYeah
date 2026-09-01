@@ -3,6 +3,56 @@ import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/ui/editor_canvas.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'automatic edit zoom keeps the initial sixteenth-row spacing usable',
+    () {
+      final controller = EditorController();
+      addTearDown(controller.dispose);
+
+      expect(controller.zoom, 9.5);
+      controller.setBpm(127.882);
+
+      expect(controller.zoom, 10);
+      expect(controller.rowSpacing, closeTo(targetEditorRowSpacing, 0.2));
+      expect(controller.zoom * 4, (controller.zoom * 4).roundToDouble());
+    },
+  );
+
+  test('manual edit zoom wins over later BPM changes', () async {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+
+    await controller.setZoom(8.25);
+    controller.setBpm(180);
+
+    expect(controller.zoom, 8.25);
+  });
+
+  test(
+    'playback visual density gives five seconds a stable maximum length',
+    () async {
+      final controller = EditorController();
+      addTearDown(controller.dispose);
+      controller.setBpm(127.882);
+
+      final rowsInFiveSeconds = 127.882 / 3;
+      expect(controller.playbackVisualPixelsPerSecond, 170);
+      expect(
+        controller.playbackRowSpacing * rowsInFiveSeconds,
+        closeTo(850, 1e-9),
+      );
+
+      await controller.setZoom(7);
+      expect(
+        controller.playbackVisualPixelsPerSecond,
+        controller.pixelsPerSecond,
+      );
+      expect(controller.playbackRowSpacing, controller.rowSpacing);
+    },
+  );
+
   test('row midpoint belongs to the later row', () {
     expect(
       projectEditorRow(

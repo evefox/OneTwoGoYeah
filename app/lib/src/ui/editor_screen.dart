@@ -723,10 +723,7 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
-  Future<void> _showAudioExportError(
-    Object error,
-    StackTrace stackTrace,
-  ) {
+  Future<void> _showAudioExportError(Object error, StackTrace stackTrace) {
     final diagnostic = _formatAudioExportDiagnostic(error, stackTrace);
     return showDialog<void>(
       context: context,
@@ -740,16 +737,17 @@ class _EditorScreenState extends State<EditorScreen>
       'exceptionType: ${error.runtimeType}',
       'exception: $error',
     ];
-    if (error case PlatformException(:final code, :final message, :final details)) {
+    if (error case PlatformException(
+      :final code,
+      :final message,
+      :final details,
+    )) {
       lines
         ..add('platformCode: $code')
         ..add('platformMessage: ${message ?? ''}')
         ..add('platformDetails: ${details ?? ''}');
     }
-    if (error case FileSystemException(
-      :final osError,
-      :final path,
-    )) {
+    if (error case FileSystemException(:final osError, :final path)) {
       lines
         ..add('fileSystemPath: ${path ?? ''}')
         ..add('fileSystemError: ${osError ?? ''}');
@@ -1116,7 +1114,9 @@ class _StatusBar extends StatelessWidget {
           ),
           const Spacer(),
           Text(
-            'Zoom ${controller.zoom.toStringAsFixed(2)}',
+            controller.isPlaying
+                ? '播放视图 ${controller.playbackVisualPixelsPerSecond.toStringAsFixed(0)} px/s'
+                : 'Zoom ${controller.zoom.toStringAsFixed(2)}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(width: 14),

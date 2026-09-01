@@ -113,6 +113,23 @@ void main() {
     expect(find.byTooltip(name), findsOneWidget);
   });
 
+  testWidgets('successful audio replacement restores automatic edit zoom', (
+    tester,
+  ) async {
+    await controller.setZoom(8.25);
+    controller.setBpm(180);
+    expect(controller.zoom, 8.25);
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+
+    expect(controller.bpm, 100);
+    expect(controller.zoom, 9.5);
+    expect(controller.rowSpacing, closeTo(targetEditorRowSpacing, 2));
+  });
+
   testWidgets('reports audio picker platform failures', (tester) async {
     const channel = MethodChannel('plugins.flutter.io/file_selector');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -138,8 +155,8 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(SystemChannels.platform, (call) async {
           if (call.method == 'Clipboard.setData') {
-            copiedText = (call.arguments as Map<Object?, Object?>)['text']
-                as String;
+            copiedText =
+                (call.arguments as Map<Object?, Object?>)['text'] as String;
           }
           return null;
         });
@@ -155,9 +172,7 @@ void main() {
 
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: AudioExportErrorDialog(diagnostic: diagnostic),
-        ),
+        home: Scaffold(body: AudioExportErrorDialog(diagnostic: diagnostic)),
       ),
     );
     expect(find.text('音频导出失败'), findsOneWidget);
@@ -588,6 +603,7 @@ void main() {
         final paintFinder = find.byKey(const ValueKey('editor-canvas-paint'));
         final beforePainter = tester.widget<CustomPaint>(paintFinder).painter!;
         final beforeSpacing = (beforePainter as dynamic).rowSpacing as double;
+        final zoomBefore = controller.zoom;
         final scaleBefore = controller.scale;
 
         final pinch = await tester.createGesture(
@@ -597,7 +613,7 @@ void main() {
         await pinch.panZoomUpdate(canvas.center, scale: 1.5);
         await tester.pump();
 
-        expect(controller.zoom, 10);
+        expect(controller.zoom, zoomBefore);
         expect(controller.scale, scaleBefore);
         final previewPainter = tester.widget<CustomPaint>(paintFinder).painter!;
         final previewSpacing = (previewPainter as dynamic).rowSpacing as double;
@@ -605,7 +621,9 @@ void main() {
 
         await pinch.panZoomEnd();
         await tester.pump();
-        expect(controller.zoom, 11.25);
+        final expectedZoom =
+            ((zoomBefore + math.log(1.5) / math.ln2 * 2) * 4).round() / 4;
+        expect(controller.zoom, expectedZoom);
         expect(controller.zoom * 4, (controller.zoom * 4).roundToDouble());
         expect(controller.scale, scaleBefore);
         expect(controller.currentRow, 0);
@@ -619,18 +637,19 @@ void main() {
     debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
     try {
       await pumpEditor(tester);
+      final initialZoom = controller.zoom;
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.equal);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
       await tester.pump();
-      expect(controller.zoom, 10.25);
+      expect(controller.zoom, initialZoom + 0.25);
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.minus);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
       await tester.pump();
-      expect(controller.zoom, 10);
+      expect(controller.zoom, initialZoom);
 
       await controller.setZoom(12);
       await tester.pump();
@@ -792,6 +811,24 @@ void main() {
       await tester.pump();
       final confirmedStart = controller.currentRow;
       expect(paintedRow(), confirmedStart);
+      expect(
+        controller.canvasWaveformBlocks.first.pixelsPerSecond,
+        controller.playbackVisualPixelsPerSecond,
+      );
+      expect(
+        controller.canvasWaveformBlocks.first.pixelsPerSecond,
+        lessThan(controller.waveformBlocks.first.pixelsPerSecond),
+      );
+      final playingPainter = tester
+          .widget<CustomPaint>(
+            find.byKey(const ValueKey('editor-canvas-paint')),
+          )
+          .painter!;
+      expect(
+        (playingPainter as dynamic).rowSpacing as double,
+        controller.playbackRowSpacing,
+      );
+      expect(find.text('播放视图 170 px/s'), findsOneWidget);
 
       await tester.pump(const Duration(milliseconds: 16));
       expect(controller.currentRow, confirmedStart);
@@ -815,6 +852,23 @@ void main() {
       await tester.pump();
       expect(controller.isPlaying, isFalse);
       expect(paintedRow(), controller.currentRow);
+      expect(
+        controller.canvasWaveformBlocks.first.pixelsPerSecond,
+        controller.waveformBlocks.first.pixelsPerSecond,
+      );
+      final pausedPainter = tester
+          .widget<CustomPaint>(
+            find.byKey(const ValueKey('editor-canvas-paint')),
+          )
+          .painter!;
+      expect(
+        (pausedPainter as dynamic).rowSpacing as double,
+        controller.rowSpacing,
+      );
+      expect(
+        find.text('Zoom ${controller.zoom.toStringAsFixed(2)}'),
+        findsOneWidget,
+      );
 
       final pausedRow = paintedRow();
       await tester.pump(const Duration(milliseconds: 100));

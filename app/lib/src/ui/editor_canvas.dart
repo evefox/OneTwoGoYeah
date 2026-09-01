@@ -143,7 +143,8 @@ class _EditorCanvasState extends State<EditorCanvas>
     _confirmedPlaybackRow = controller.currentRow;
     _visualAnchorRow = controller.currentRow;
     _playbackRowsPerSecond =
-        controller.pixelsPerSecond / math.max(0.001, controller.rowSpacing);
+        controller.playbackVisualPixelsPerSecond /
+        math.max(0.001, controller.playbackRowSpacing);
     final audioEndSeconds = controller.audioDurationSeconds;
     _playbackEndRow = audioEndSeconds == null
         ? controller.currentRow
@@ -362,9 +363,13 @@ class _EditorCanvasState extends State<EditorCanvas>
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final baseSpacing = widget.controller.isPlaying
+            ? widget.controller.playbackRowSpacing
+            : widget.controller.rowSpacing;
         final spacing = math.max(
           0.001,
-          widget.controller.rowSpacing * _gesturePreviewScale,
+          baseSpacing *
+              (widget.controller.isPlaying ? 1 : _gesturePreviewScale),
         );
         final visibleBeats = math
             .max(1, constraints.maxHeight / spacing / 4)
@@ -834,7 +839,7 @@ class _EditorCanvasPainter extends CustomPainter {
     double spacing,
     double paintCurrentRow,
   ) {
-    final blocks = controller.waveformBlocks;
+    final blocks = controller.canvasWaveformBlocks;
     final first = blocks.first;
     final nativeTotal = first.channelWidth * 2 + first.channelSpacing;
     final fit = math.min(1.0, chart.width / math.max(1, nativeTotal));

@@ -14,6 +14,9 @@ enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
 
 bool mobileChartEditingEnabled(double rowSpacing) => rowSpacing >= 40;
 
+const double targetEditorRowSpacing = 46;
+const double playbackVisualZoom = 8;
+
 typedef AudioExportSaveCallback = Future<void> Function(
   AudioExportResult result,
   bool Function() isCancelled,
@@ -123,6 +126,7 @@ class EditorController extends ChangeNotifier {
   EditorController({NativeChartEditor? editor, PlaybackOutput? playbackOutput})
     : _editor = editor ?? NativeChartEditor.createEmpty(),
       _playbackOutput = playbackOutput ?? const MethodChannelPlaybackOutput() {
+    _zoom = _automaticEditZoomForBpm(_bpm);
     _refreshProjection();
     _refreshViewMetrics();
     _savedPayload = _editor.encodeFormal(bpm: _bpm, offset: _offset);
@@ -136,6 +140,7 @@ class EditorController extends ChangeNotifier {
   List<ChartMarker> _markers = const [];
   List<ShowtimeMove> _showtimeMoves = const [];
   List<WaveformBlock> _waveformBlocks = const [];
+  List<WaveformBlock> _playbackWaveformBlocks = const [];
   EditorNotice? _notice;
   bool _isBusy = false;
   bool _isExportingAudio = false;
@@ -154,6 +159,7 @@ class EditorController extends ChangeNotifier {
   Future<List<AudioAnalysisCandidate>>? _analysisFuture;
   SyncAnalysisStage? _analysisStage;
   int _audioVersion = 0;
+  final Map<double, int> _zoomPixelsPerSecond = {};
   WorkspaceSourceKind _sourceKind = WorkspaceSourceKind.untitled;
   String? _sourceName;
   String? _draftId;
@@ -165,6 +171,7 @@ class EditorController extends ChangeNotifier {
   double _scale = 4;
   double _currentRow = 0;
   int _pixelsPerSecond = 0;
+  bool _editZoomAutomatic = true;
   Timer? _playbackTimer;
   PlaybackPosition? _playbackStart;
   int _playbackSampleRate = 0;
@@ -181,6 +188,15 @@ class EditorController extends ChangeNotifier {
   List<ChartMarker> get markers => _markers;
   List<ShowtimeMove> get showtimeMoves => _showtimeMoves;
   List<WaveformBlock> get waveformBlocks => _waveformBlocks;
+  List<WaveformBlock> get canvasWaveformBlocks {
+    if (_isPlaying &&
+        playbackVisualPixelsPerSecond < _pixelsPerSecond &&
+        _playbackWaveformBlocks.isNotEmpty) {
+      return _playbackWaveformBlocks;
+    }
+    return _waveformBlocks;
+  }
+
   EditorNotice? get notice => _notice;
   bool get isBusy => _isBusy;
   bool get isExportingAudio => _isExportingAudio;
@@ -221,9 +237,19 @@ class EditorController extends ChangeNotifier {
   double get currentRow => _currentRow;
   int get pixelsPerSecond => _pixelsPerSecond;
   double? get audioDurationSeconds => _audio?.durationSeconds;
+  double get playbackVisualPixelsPerSecond => math
+      .min(
+        _pixelsPerSecond.toDouble(),
+        _pixelsPerSecondForZoom(playbackVisualZoom).toDouble(),
+      )
+      .toDouble();
 
   double get projectedBpm => _bpm == 0 ? 100 : _bpm;
-  double get rowSpacing {
+  double get rowSpacing => _rowSpacingForPixelsPerSecond(_pixelsPerSecond);
+  double get playbackRowSpacing =>
+      _rowSpacingForPixelsPerSecond(playbackVisualPixelsPerSecond);
+
+  double _rowSpacingForPixelsPerSecond(num pixelsPerSecond) {
     final first = OtgyNative.sixteenthRowToSeconds(
       bpm: projectedBpm,
       offset: _offset,
@@ -234,7 +260,7 @@ class EditorController extends ChangeNotifier {
       offset: _offset,
       row: 1,
     );
-    return _pixelsPerSecond * (second - first);
+    return pixelsPerSecond * (second - first);
   }
 
   TimelineRange get timelineRange => _editor.timelineRange(
@@ -260,28 +286,14 @@ class EditorController extends ChangeNotifier {
     _setBusy(true);
     NativeAudio? pending;
     try {
+      final pendingZoom = _automaticEditZoomForBpm(100);
       final dot = fileName.lastIndexOf('.');
       final extension = dot < 0 ? '' : fileName.substring(dot);
       pending = OtgyNative.decodeAudio(bytes, extension);
-      final first = pending.generateWaveform(
-        zoom: _zoom,
-        scale: _effectiveScale,
-        blockIndex: 0,
-      );
-      final blockCount = math.max(
-        1,
-        (pending.durationSeconds * first.pixelsPerSecond / 128).ceil(),
-      );
-      final blocks = <WaveformBlock>[first];
-      for (var index = 1; index < blockCount; index++) {
-        blocks.add(
-          pending.generateWaveform(
-            zoom: _zoom,
-            scale: _effectiveScale,
-            blockIndex: index,
-          ),
-        );
-      }
+      final editWaveform = _generateWaveformProjection(pending, pendingZoom);
+      final playbackWaveform = pendingZoom == playbackVisualZoom
+          ? editWaveform
+          : _generateWaveformProjection(pending, playbackVisualZoom);
 
       _audio?.dispose();
       _audio = pending;
@@ -294,8 +306,11 @@ class EditorController extends ChangeNotifier {
       _analysisFuture = null;
       _analysisStage = null;
       _audioVersion++;
-      _waveformBlocks = List.unmodifiable(blocks);
-      _pixelsPerSecond = first.pixelsPerSecond;
+      _waveformBlocks = editWaveform.blocks;
+      _playbackWaveformBlocks = playbackWaveform.blocks;
+      _pixelsPerSecond = editWaveform.pixelsPerSecond;
+      _zoom = pendingZoom;
+      _editZoomAutomatic = true;
       _bpm = 100;
       _offset = 0;
       _currentRow = 0;
@@ -323,6 +338,7 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _bpm = value;
+    _synchronizeAutomaticEditZoom();
     _updateDirty();
   }
 
@@ -462,6 +478,7 @@ class EditorController extends ChangeNotifier {
     }
     _bpm = candidate.bpm;
     _offset = candidate.appOffsetSeconds;
+    _synchronizeAutomaticEditZoom();
     _updateDirty();
   }
 
@@ -624,6 +641,7 @@ class EditorController extends ChangeNotifier {
     _isDirty = false;
     _projectRevision++;
     _currentRow = 0;
+    _synchronizeAutomaticEditZoom();
     notifyListeners();
   }
 
@@ -902,6 +920,7 @@ class EditorController extends ChangeNotifier {
     if (clamped == _zoom || _isBusy || !generalActionsEnabled) {
       return;
     }
+    _editZoomAutomatic = false;
     _zoom = clamped;
     await _regenerateWaveform();
   }
@@ -913,7 +932,7 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _scale = clamped;
-    await _regenerateWaveform();
+    await _regenerateWaveform(includePlayback: true);
   }
 
   void dismissNotice() {
@@ -938,34 +957,24 @@ class EditorController extends ChangeNotifier {
     return mobile ? 4 : _scale;
   }
 
-  Future<void> _regenerateWaveform() async {
+  Future<void> _regenerateWaveform({bool includePlayback = false}) async {
     _setBusy(true);
     try {
       final audio = _audio;
       if (audio == null) {
         _refreshViewMetrics();
       } else {
-        final first = audio.generateWaveform(
-          zoom: _zoom,
-          scale: _effectiveScale,
-          blockIndex: 0,
-        );
-        final count = math.max(
-          1,
-          (audio.durationSeconds * first.pixelsPerSecond / 128).ceil(),
-        );
-        final blocks = <WaveformBlock>[first];
-        for (var index = 1; index < count; index++) {
-          blocks.add(
-            audio.generateWaveform(
-              zoom: _zoom,
-              scale: _effectiveScale,
-              blockIndex: index,
-            ),
-          );
+        final editWaveform = _generateWaveformProjection(audio, _zoom);
+        final playbackWaveform = includePlayback
+            ? _zoom == playbackVisualZoom
+                  ? editWaveform
+                  : _generateWaveformProjection(audio, playbackVisualZoom)
+            : null;
+        _waveformBlocks = editWaveform.blocks;
+        _pixelsPerSecond = editWaveform.pixelsPerSecond;
+        if (playbackWaveform != null) {
+          _playbackWaveformBlocks = playbackWaveform.blocks;
         }
-        _waveformBlocks = List.unmodifiable(blocks);
-        _pixelsPerSecond = first.pixelsPerSecond;
       }
       notifyListeners();
     } finally {
@@ -974,10 +983,74 @@ class EditorController extends ChangeNotifier {
   }
 
   void _refreshViewMetrics() {
-    _pixelsPerSecond = OtgyNative.waveformPixelsPerSecond(
-      _zoom,
-      _effectiveScale,
+    _pixelsPerSecond = _pixelsPerSecondForZoom(_zoom);
+  }
+
+  ({List<WaveformBlock> blocks, int pixelsPerSecond})
+  _generateWaveformProjection(NativeAudio audio, double zoom) {
+    final first = audio.generateWaveform(
+      zoom: zoom,
+      scale: _effectiveScale,
+      blockIndex: 0,
     );
+    final count = math.max(
+      1,
+      (audio.durationSeconds * first.pixelsPerSecond / 128).ceil(),
+    );
+    final blocks = <WaveformBlock>[first];
+    for (var index = 1; index < count; index++) {
+      blocks.add(
+        audio.generateWaveform(
+          zoom: zoom,
+          scale: _effectiveScale,
+          blockIndex: index,
+        ),
+      );
+    }
+    return (
+      blocks: List.unmodifiable(blocks),
+      pixelsPerSecond: first.pixelsPerSecond,
+    );
+  }
+
+  int _pixelsPerSecondForZoom(double zoom) => _zoomPixelsPerSecond.putIfAbsent(
+    zoom,
+    () => OtgyNative.waveformPixelsPerSecond(zoom, _effectiveScale),
+  );
+
+  double _automaticEditZoomForBpm(double bpm) {
+    if (!bpm.isFinite || bpm <= 0) {
+      return _zoom;
+    }
+    var bestZoom = 1.0;
+    var bestDistance = double.infinity;
+    for (var quarterStep = 4; quarterStep <= 76; quarterStep++) {
+      final zoom = quarterStep / 4;
+      final pixelsPerSecond = _pixelsPerSecondForZoom(zoom);
+      final rowSpacing = pixelsPerSecond * 15 / bpm;
+      final distance = (rowSpacing - targetEditorRowSpacing).abs();
+      if (distance < bestDistance) {
+        bestZoom = zoom;
+        bestDistance = distance;
+      }
+    }
+    return bestZoom;
+  }
+
+  void _synchronizeAutomaticEditZoom() {
+    if (!_editZoomAutomatic || _bpm <= 0) {
+      return;
+    }
+    final next = _automaticEditZoomForBpm(_bpm);
+    if (next == _zoom) {
+      return;
+    }
+    _zoom = next;
+    if (_audio == null) {
+      _refreshViewMetrics();
+    } else {
+      unawaited(_regenerateWaveform());
+    }
   }
 
   void _refreshProjection() {
