@@ -110,6 +110,10 @@ void main() {
       final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
       final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
       final export = tester.getRect(find.byKey(const ValueKey('export-audio')));
+      final bpmLabel = tester.getRect(find.text('BPM'));
+      final bpmValue = tester.getRect(find.text('100.000'));
+      final offsetLabel = tester.getRect(find.text('Offset'));
+      final offsetValue = tester.getRect(find.text('0.000'));
 
       expect(audio.width, greaterThan(300));
       expect(bpm.top, greaterThan(audio.bottom));
@@ -117,6 +121,14 @@ void main() {
       expect(export.center.dy, closeTo(bpm.center.dy, 1));
       expect(bpm.width, greaterThan(120));
       expect(offset.width, greaterThan(120));
+      expect(bpmLabel.center.dy, closeTo(bpmValue.center.dy, 1));
+      expect(offsetLabel.center.dy, closeTo(offsetValue.center.dy, 1));
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
+            .tooltip,
+        '保存',
+      );
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('save-chart')),
