@@ -61,8 +61,6 @@ class EditorToolbars extends StatelessWidget {
               const Divider(height: 1),
               _ChartToolbar(
                 controller: controller,
-                compact: compact,
-                mobile: mobile,
                 onImportSlk: onImportSlk,
                 onOpenDrafts: onOpenDrafts,
                 onSave: onSave,
@@ -111,22 +109,20 @@ class _AudioToolbarState extends State<_AudioToolbar> {
     final onAnalyze = widget.onAnalyze;
     final onExportAudio = widget.onExportAudio;
     final enabled = controller.generalActionsEnabled && !controller.isBusy;
-    final file = Expanded(
-      child: Semantics(
-        button: true,
-        label: controller.audioFileName == null
-            ? '导入音频'
-            : '更换音频，当前为 ${controller.audioFileName}',
-        child: Tooltip(
-          message: controller.audioFileName ?? '导入 MP3 或 Ogg 音频',
-          child: OutlinedButton.icon(
-            key: const ValueKey('audio-picker'),
-            onPressed: enabled ? onChooseAudio : null,
-            icon: const Icon(Icons.audio_file_outlined, size: 18),
-            label: Align(
-              alignment: Alignment.centerLeft,
-              child: _AudioFileName(fileName: controller.audioFileName),
-            ),
+    final file = Semantics(
+      button: true,
+      label: controller.audioFileName == null
+          ? '导入音频'
+          : '更换音频，当前为 ${controller.audioFileName}',
+      child: Tooltip(
+        message: controller.audioFileName ?? '导入 MP3 或 Ogg 音频',
+        child: OutlinedButton.icon(
+          key: const ValueKey('audio-picker'),
+          onPressed: enabled ? onChooseAudio : null,
+          icon: const Icon(Icons.audio_file_outlined, size: 18),
+          label: Align(
+            alignment: Alignment.centerLeft,
+            child: _AudioFileName(fileName: controller.audioFileName),
           ),
         ),
       ),
@@ -210,7 +206,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                 // makes the current timing values easier to scan and tap.
                 Row(
                   children: [
-                    file,
+                    Expanded(child: file),
                     const SizedBox(width: 4),
                     analyze,
                     timingToggle,
@@ -232,7 +228,13 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           : compact
           ? Column(
               children: [
-                Row(children: [file, analyze, export]),
+                Row(
+                  children: [
+                    Expanded(child: file),
+                    analyze,
+                    export,
+                  ],
+                ),
                 const SizedBox(height: 4),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -240,15 +242,27 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                 ),
               ],
             )
-          : Row(
-              children: [
-                file,
-                const SizedBox(width: 6),
-                analyze,
-                bpm,
-                offset,
-                export,
-              ],
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final targetFileWidth = (constraints.maxWidth * 0.38)
+                    .clamp(240.0, 420.0)
+                    .toDouble();
+                final availableFileWidth = constraints.maxWidth - 454;
+                final fileWidth = targetFileWidth > availableFileWidth
+                    ? availableFileWidth
+                    : targetFileWidth;
+                return Row(
+                  children: [
+                    SizedBox(width: fileWidth, child: file),
+                    const SizedBox(width: 6),
+                    analyze,
+                    const Spacer(),
+                    SizedBox(width: 176, child: bpm),
+                    SizedBox(width: 176, child: offset),
+                    export,
+                  ],
+                );
+              },
             ),
     );
   }
@@ -288,8 +302,6 @@ class _AudioFileName extends StatelessWidget {
 class _ChartToolbar extends StatelessWidget {
   const _ChartToolbar({
     required this.controller,
-    required this.compact,
-    required this.mobile,
     required this.onImportSlk,
     required this.onOpenDrafts,
     required this.onSave,
@@ -299,8 +311,6 @@ class _ChartToolbar extends StatelessWidget {
   });
 
   final EditorController controller;
-  final bool compact;
-  final bool mobile;
   final VoidCallback onImportSlk;
   final VoidCallback onOpenDrafts;
   final VoidCallback onSave;
@@ -312,102 +322,44 @@ class _ChartToolbar extends StatelessWidget {
   Widget build(BuildContext context) {
     final enabled = controller.generalActionsEnabled && !controller.isBusy;
     final savedDraft = controller.sourceKind == WorkspaceSourceKind.savedDraft;
-    final saveControl = mobile
-        ? savedDraft
-              ? Row(
-                  children: [
-                    SizedBox(
-                      width: 48,
-                      child: IconButton(
-                        key: const ValueKey('save-chart'),
-                        onPressed: enabled ? onSave : null,
-                        tooltip: '保存',
-                        icon: const Icon(Icons.save_outlined, size: 20),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 48,
-                      child: MenuAnchor(
-                        menuChildren: [
-                          MenuItemButton(
-                            onPressed: onSaveAs,
-                            child: const Text('另存为'),
-                          ),
-                        ],
-                        builder: (context, menu, child) => IconButton(
-                          onPressed: enabled
-                              ? () => menu.isOpen ? menu.close() : menu.open()
-                              : null,
-                          tooltip: '保存选项',
-                          icon: const Icon(Icons.arrow_drop_down, size: 20),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : IconButton(
+    final saveControl = savedDraft
+        ? Row(
+            children: [
+              SizedBox(
+                width: 48,
+                child: IconButton(
                   key: const ValueKey('save-chart'),
                   onPressed: enabled ? onSave : null,
                   tooltip: '保存',
                   icon: const Icon(Icons.save_outlined, size: 20),
-                )
-        : savedDraft
-        ? Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  key: const ValueKey('save-chart'),
-                  onPressed: enabled ? onSave : null,
-                  style: OutlinedButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.horizontal(
-                        left: Radius.circular(6),
-                      ),
-                    ),
-                  ),
-                  child: Semantics(
-                    label: '保存',
-                    button: true,
-                    child: compact
-                        ? const Icon(Icons.save_outlined, size: 20)
-                        : const Text('保存'),
-                  ),
                 ),
               ),
-              MenuAnchor(
-                menuChildren: [
-                  MenuItemButton(onPressed: onSaveAs, child: const Text('另存为')),
-                ],
-                builder: (context, menu, child) => SizedBox(
-                  width: 38,
-                  child: OutlinedButton(
+              SizedBox(
+                width: 48,
+                child: MenuAnchor(
+                  menuChildren: [
+                    MenuItemButton(
+                      onPressed: onSaveAs,
+                      child: const Text('另存为'),
+                    ),
+                  ],
+                  builder: (context, menu, child) => IconButton(
+                    key: const ValueKey('save-options'),
                     onPressed: enabled
                         ? () => menu.isOpen ? menu.close() : menu.open()
                         : null,
-                    style: OutlinedButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.horizontal(
-                          right: Radius.circular(6),
-                        ),
-                      ),
-                    ),
-                    child: Semantics(
-                      label: '保存选项',
-                      button: true,
-                      child: const Icon(Icons.arrow_drop_down, size: 20),
-                    ),
+                    tooltip: '保存选项',
+                    icon: const Icon(Icons.arrow_drop_down, size: 20),
                   ),
                 ),
               ),
             ],
           )
-        : OutlinedButton.icon(
+        : IconButton(
             key: const ValueKey('save-chart'),
             onPressed: enabled ? onSave : null,
-            icon: const Icon(Icons.save_outlined, size: 18),
-            label: const Text('保存'),
+            tooltip: '保存',
+            icon: const Icon(Icons.save_outlined, size: 20),
           );
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 5, 8, 6),
@@ -445,16 +397,7 @@ class _ChartToolbar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          SizedBox(
-            width: mobile
-                ? savedDraft
-                      ? 96
-                      : 48
-                : compact
-                ? 74
-                : 118,
-            child: saveControl,
-          ),
+          SizedBox(width: savedDraft ? 96 : 48, child: saveControl),
           IconButton(
             key: const ValueKey('clear-chart'),
             onPressed: enabled ? onClear : null,
@@ -752,39 +695,19 @@ class _ValueMenuState extends State<_ValueMenu> {
           minimumSize: const Size(84, 40),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
-        child: widget.compact
-            ? Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    widget.label,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    widget.value.toStringAsFixed(3),
-                    style: const TextStyle(
-                      fontFeatures: [FontFeature.tabularFigures()],
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.label,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Text(
-                    widget.value.toStringAsFixed(3),
-                    style: const TextStyle(
-                      fontFeatures: [FontFeature.tabularFigures()],
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(widget.label, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              widget.value.toStringAsFixed(3),
+              style: const TextStyle(
+                fontFeatures: [FontFeature.tabularFigures()],
+                fontWeight: FontWeight.w600,
               ),
+            ),
+          ],
+        ),
       ),
     );
   }

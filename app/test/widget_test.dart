@@ -163,8 +163,14 @@ void main() {
     try {
       await pumpEditor(tester, size: const Size(390, 844));
 
+      final audio = tester.getRect(find.byKey(const ValueKey('audio-picker')));
       final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
-      expect(bpm.width, lessThan(120));
+      final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
+      final bpmLabel = tester.getRect(find.text('BPM'));
+      final bpmValue = tester.getRect(find.text('100.000'));
+      expect(bpm.top, greaterThan(audio.bottom));
+      expect(offset.center.dy, closeTo(bpm.center.dy, 1));
+      expect(bpmLabel.center.dy, closeTo(bpmValue.center.dy, 1));
     } finally {
       debugDefaultTargetPlatformOverride = previousPlatform;
     }
@@ -174,11 +180,76 @@ void main() {
     await pumpEditor(tester, size: const Size(1000, 700));
 
     final audio = tester.getRect(find.byKey(const ValueKey('audio-picker')));
+    final analyze = tester.getRect(find.byKey(const ValueKey('analyze-audio')));
     final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
     final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
+    final bpmLabel = tester.getRect(find.text('BPM'));
+    final bpmValue = tester.getRect(find.text('100.000'));
+    final offsetLabel = tester.getRect(find.text('Offset'));
+    final offsetValue = tester.getRect(find.text('0.000'));
 
+    expect(audio.width, lessThan(400));
     expect(bpm.top, closeTo(audio.top, 1));
     expect(offset.top, closeTo(audio.top, 1));
+    expect(bpm.width, 176);
+    expect(offset.width, 176);
+    expect(bpm.left, greaterThan(analyze.right));
+    expect(bpmLabel.center.dy, closeTo(bpmValue.center.dy, 1));
+    expect(offsetLabel.center.dy, closeTo(offsetValue.center.dy, 1));
+  });
+
+  testWidgets('uses flat icon save controls on desktop', (tester) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
+    await pumpEditor(tester, size: const Size(1000, 700));
+
+    final initialSave = tester.widget<IconButton>(
+      find.byKey(const ValueKey('save-chart')),
+    );
+    final initialClearRect = tester.getRect(
+      find.byKey(const ValueKey('clear-chart')),
+    );
+    final initialExportRect = tester.getRect(
+      find.byKey(const ValueKey('export-slk')),
+    );
+    expect(initialSave.tooltip, '保存');
+    expect(tester.getSize(find.byKey(const ValueKey('save-chart'))).width, 48);
+
+    final payload = controller.encodeFormalDraft();
+    controller.markSaved(
+      draftId: 'desktop-style',
+      draftName: 'desktop-style',
+      payload: payload,
+    );
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
+          .tooltip,
+      '保存',
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('save-options')))
+          .tooltip,
+      '保存选项',
+    );
+    expect(tester.getSize(find.byKey(const ValueKey('save-chart'))).width, 48);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('save-options'))).width,
+      48,
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('clear-chart'))).left,
+      closeTo(initialClearRect.left, 0.01),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('export-slk'))).left,
+      closeTo(initialExportRect.left, 0.01),
+    );
+    debugDefaultTargetPlatformOverride = previousPlatform;
   });
 
   testWidgets('keeps the audio extension visible in a compact toolbar', (
