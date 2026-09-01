@@ -360,11 +360,20 @@ void main() {
       await pumpEditor(tester, size: const Size(390, 844));
 
       final audio = tester.getRect(find.byKey(const ValueKey('audio-picker')));
+      final analyze = tester.getRect(
+        find.byKey(const ValueKey('analyze-audio')),
+      );
       final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
       final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
       final export = tester.getRect(find.byKey(const ValueKey('export-audio')));
       final toggle = tester.getRect(
         find.byKey(const ValueKey('toggle-timing-controls')),
+      );
+      final chart = tester.getRect(find.byKey(const ValueKey('chart-menu')));
+      final save = tester.getRect(find.byKey(const ValueKey('save-chart')));
+      final clear = tester.getRect(find.byKey(const ValueKey('clear-chart')));
+      final exportSlk = tester.getRect(
+        find.byKey(const ValueKey('export-slk')),
       );
       final bpmLabel = tester.getRect(find.text('BPM'));
       final bpmValue = tester.getRect(find.text('100.000'));
@@ -380,6 +389,10 @@ void main() {
       expect(offset.width, greaterThan(120));
       expect(bpmLabel.center.dy, closeTo(bpmValue.center.dy, 1));
       expect(offsetLabel.center.dy, closeTo(offsetValue.center.dy, 1));
+      expect(audio.right, closeTo(chart.right, 0.01));
+      expect(analyze.center.dx, closeTo(save.center.dx, 0.01));
+      expect(toggle.center.dx, closeTo(clear.center.dx, 0.01));
+      expect(export.center.dx, closeTo(exportSlk.center.dx, 0.01));
       expect(
         tester
             .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
@@ -536,7 +549,7 @@ void main() {
         final initialExportRect = tester.getRect(
           find.byKey(const ValueKey('export-slk')),
         );
-        expect(initialSaveRect.width, 48);
+        expect(initialSaveRect.width, 40);
         expect(find.text('点击导入音频'), findsOneWidget);
         expect(find.text('点击导入slk'), findsOneWidget);
         expect(
@@ -624,8 +637,8 @@ void main() {
         final savedExportRect = tester.getRect(
           find.byKey(const ValueKey('export-slk')),
         );
-        expect(savedSaveRect.width, 48);
-        expect(saveOptionsRect.width, 48);
+        expect(savedSaveRect.width, 40);
+        expect(saveOptionsRect.width, 40);
         expect(saveOptionsRect.left, closeTo(savedSaveRect.right, 0.01));
         expect(savedClearRect.left, closeTo(initialClearRect.left, 0.01));
         expect(savedExportRect.left, closeTo(initialExportRect.left, 0.01));

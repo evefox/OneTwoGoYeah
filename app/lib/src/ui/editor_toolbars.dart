@@ -76,6 +76,7 @@ class EditorToolbars extends StatelessWidget {
               const Divider(height: 1),
               _ChartToolbar(
                 controller: controller,
+                mobile: mobile,
                 onImportSlk: onImportSlk,
                 onOpenDrafts: onOpenDrafts,
                 onSave: onSave,
@@ -326,6 +327,7 @@ class _AudioFileName extends StatelessWidget {
 class _ChartToolbar extends StatelessWidget {
   const _ChartToolbar({
     required this.controller,
+    required this.mobile,
     required this.onImportSlk,
     required this.onOpenDrafts,
     required this.onSave,
@@ -335,6 +337,7 @@ class _ChartToolbar extends StatelessWidget {
   });
 
   final EditorController controller;
+  final bool mobile;
   final VoidCallback onImportSlk;
   final VoidCallback onOpenDrafts;
   final VoidCallback onSave;
@@ -348,6 +351,7 @@ class _ChartToolbar extends StatelessWidget {
     final hasMarkers = controller.markers.isNotEmpty;
     final chartContentActionsEnabled = enabled && hasMarkers;
     final savedDraft = controller.sourceKind == WorkspaceSourceKind.savedDraft;
+    final saveSegmentWidth = mobile ? 40.0 : 48.0;
     final chartLabel =
         !hasMarkers && controller.sourceKind == WorkspaceSourceKind.untitled
         ? '点击导入slk'
@@ -356,7 +360,7 @@ class _ChartToolbar extends StatelessWidget {
         ? Row(
             children: [
               SizedBox(
-                width: 48,
+                width: saveSegmentWidth,
                 child: IconButton(
                   key: const ValueKey('save-chart'),
                   onPressed: chartContentActionsEnabled ? onSave : null,
@@ -366,7 +370,7 @@ class _ChartToolbar extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                width: 48,
+                width: saveSegmentWidth,
                 child: MenuAnchor(
                   menuChildren: [
                     MenuItemButton(
@@ -437,8 +441,11 @@ class _ChartToolbar extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          SizedBox(width: savedDraft ? 96 : 48, child: saveControl),
+          SizedBox(width: mobile ? 4 : 6),
+          SizedBox(
+            width: savedDraft ? saveSegmentWidth * 2 : saveSegmentWidth,
+            child: saveControl,
+          ),
           IconButton(
             key: const ValueKey('clear-chart'),
             onPressed: chartContentActionsEnabled ? onClear : null,
@@ -446,7 +453,7 @@ class _ChartToolbar extends StatelessWidget {
             style: _toolbarIconButtonStyle,
             icon: const Icon(Icons.delete_sweep_outlined, size: 20),
           ),
-          const SizedBox(width: 2),
+          SizedBox(width: mobile ? 0 : 2),
           IconButton(
             key: const ValueKey('export-slk'),
             onPressed: enabled ? onExportSlk : null,
