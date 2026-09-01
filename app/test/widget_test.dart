@@ -110,15 +110,19 @@ void main() {
       final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
       final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
       final export = tester.getRect(find.byKey(const ValueKey('export-audio')));
+      final toggle = tester.getRect(
+        find.byKey(const ValueKey('toggle-timing-controls')),
+      );
       final bpmLabel = tester.getRect(find.text('BPM'));
       final bpmValue = tester.getRect(find.text('100.000'));
       final offsetLabel = tester.getRect(find.text('Offset'));
       final offsetValue = tester.getRect(find.text('0.000'));
 
-      expect(audio.width, greaterThan(300));
+      expect(audio.width, greaterThan(180));
       expect(bpm.top, greaterThan(audio.bottom));
       expect(offset.center.dy, closeTo(bpm.center.dy, 1));
-      expect(export.center.dy, closeTo(bpm.center.dy, 1));
+      expect(export.center.dy, closeTo(toggle.center.dy, 1));
+      expect(export.left, greaterThan(toggle.right - 1));
       expect(bpm.width, greaterThan(120));
       expect(offset.width, greaterThan(120));
       expect(bpmLabel.center.dy, closeTo(bpmValue.center.dy, 1));
@@ -136,6 +140,16 @@ void main() {
         ),
         findsNothing,
       );
+
+      await tester.tap(find.byKey(const ValueKey('toggle-timing-controls')));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('bpm-menu')), findsNothing);
+      expect(find.byTooltip('展开 BPM 与 Offset'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('toggle-timing-controls')));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('bpm-menu')), findsOneWidget);
+      expect(find.byTooltip('收起 BPM 与 Offset'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = previousPlatform;
     }

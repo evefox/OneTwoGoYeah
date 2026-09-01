@@ -78,7 +78,7 @@ class EditorToolbars extends StatelessWidget {
   }
 }
 
-class _AudioToolbar extends StatelessWidget {
+class _AudioToolbar extends StatefulWidget {
   const _AudioToolbar({
     required this.controller,
     required this.compact,
@@ -96,7 +96,20 @@ class _AudioToolbar extends StatelessWidget {
   final VoidCallback onExportAudio;
 
   @override
+  State<_AudioToolbar> createState() => _AudioToolbarState();
+}
+
+class _AudioToolbarState extends State<_AudioToolbar> {
+  bool _timingExpanded = true;
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final compact = widget.compact;
+    final mobile = widget.mobile;
+    final onChooseAudio = widget.onChooseAudio;
+    final onAnalyze = widget.onAnalyze;
+    final onExportAudio = widget.onExportAudio;
     final enabled = controller.generalActionsEnabled && !controller.isBusy;
     final file = Expanded(
       child: Semantics(
@@ -176,6 +189,17 @@ class _AudioToolbar extends StatelessWidget {
       tooltip: '导出 Ogg 音频',
       icon: const Icon(Icons.ios_share_outlined, size: 20),
     );
+    final timingToggle = IconButton(
+      key: const ValueKey('toggle-timing-controls'),
+      onPressed: enabled
+          ? () => setState(() => _timingExpanded = !_timingExpanded)
+          : null,
+      tooltip: _timingExpanded ? '收起 BPM 与 Offset' : '展开 BPM 与 Offset',
+      icon: Icon(
+        _timingExpanded ? Icons.expand_less : Icons.expand_more,
+        size: 20,
+      ),
+    );
     return Padding(
       padding: EdgeInsets.fromLTRB(8, compact ? 6 : 7, 8, compact ? 4 : 7),
       child: mobile
@@ -184,17 +208,25 @@ class _AudioToolbar extends StatelessWidget {
                 // Keep the audio source and its analysis entry point together.
                 // The value controls then get the full width on a phone, which
                 // makes the current timing values easier to scan and tap.
-                Row(children: [file, const SizedBox(width: 4), analyze]),
-                const SizedBox(height: 4),
                 Row(
                   children: [
-                    Expanded(child: bpm),
+                    file,
                     const SizedBox(width: 4),
-                    Expanded(child: offset),
-                    const SizedBox(width: 2),
+                    analyze,
+                    timingToggle,
                     export,
                   ],
                 ),
+                if (_timingExpanded) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(child: bpm),
+                      const SizedBox(width: 4),
+                      Expanded(child: offset),
+                    ],
+                  ),
+                ],
               ],
             )
           : compact
