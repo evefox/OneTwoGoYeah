@@ -127,7 +127,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
     final file = Semantics(
       button: true,
       label: controller.audioFileName == null
-          ? '导入音频'
+          ? '点击导入音频'
           : '更换音频，当前为 ${controller.audioFileName}',
       child: Tooltip(
         message: controller.audioFileName ?? '导入 MP3 或 Ogg 音频',
@@ -301,7 +301,7 @@ class _AudioFileName extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = fileName;
     if (value == null) {
-      return const Text('导入音频');
+      return const Text('点击导入音频');
     }
     final dot = value.lastIndexOf('.');
     if (dot <= 0 || dot == value.length - 1) {
@@ -345,7 +345,13 @@ class _ChartToolbar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = controller.generalActionsEnabled && !controller.isBusy;
+    final hasMarkers = controller.markers.isNotEmpty;
+    final chartContentActionsEnabled = enabled && hasMarkers;
     final savedDraft = controller.sourceKind == WorkspaceSourceKind.savedDraft;
+    final chartLabel =
+        !hasMarkers && controller.sourceKind == WorkspaceSourceKind.untitled
+        ? '点击导入slk'
+        : controller.chartName;
     final saveControl = savedDraft
         ? Row(
             children: [
@@ -353,7 +359,7 @@ class _ChartToolbar extends StatelessWidget {
                 width: 48,
                 child: IconButton(
                   key: const ValueKey('save-chart'),
-                  onPressed: enabled ? onSave : null,
+                  onPressed: chartContentActionsEnabled ? onSave : null,
                   tooltip: '保存',
                   style: _toolbarIconButtonStyle,
                   icon: const Icon(Icons.save_outlined, size: 20),
@@ -364,13 +370,13 @@ class _ChartToolbar extends StatelessWidget {
                 child: MenuAnchor(
                   menuChildren: [
                     MenuItemButton(
-                      onPressed: onSaveAs,
+                      onPressed: chartContentActionsEnabled ? onSaveAs : null,
                       child: const Text('另存为'),
                     ),
                   ],
                   builder: (context, menu, child) => IconButton(
                     key: const ValueKey('save-options'),
-                    onPressed: enabled
+                    onPressed: chartContentActionsEnabled
                         ? () => menu.isOpen ? menu.close() : menu.open()
                         : null,
                     tooltip: '保存选项',
@@ -383,7 +389,7 @@ class _ChartToolbar extends StatelessWidget {
           )
         : IconButton(
             key: const ValueKey('save-chart'),
-            onPressed: enabled ? onSave : null,
+            onPressed: chartContentActionsEnabled ? onSave : null,
             tooltip: '保存',
             style: _toolbarIconButtonStyle,
             icon: const Icon(Icons.save_outlined, size: 20),
@@ -420,14 +426,12 @@ class _ChartToolbar extends StatelessWidget {
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          '${controller.chartName}${controller.isDirty ? '  • 未保存' : ''}',
+                          '$chartLabel${controller.isDirty ? '  • 未保存' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.arrow_drop_down, size: 18),
                   ],
                 ),
               ),
@@ -437,7 +441,7 @@ class _ChartToolbar extends StatelessWidget {
           SizedBox(width: savedDraft ? 96 : 48, child: saveControl),
           IconButton(
             key: const ValueKey('clear-chart'),
-            onPressed: enabled ? onClear : null,
+            onPressed: chartContentActionsEnabled ? onClear : null,
             tooltip: '清空谱面',
             style: _toolbarIconButtonStyle,
             icon: const Icon(Icons.delete_sweep_outlined, size: 20),

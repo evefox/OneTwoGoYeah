@@ -332,7 +332,7 @@ void main() {
           of: find.byKey(const ValueKey('chart-menu')),
           matching: find.byIcon(Icons.arrow_drop_down),
         ),
-        findsOneWidget,
+        findsNothing,
       );
       expect(
         tester.getRect(find.byKey(const ValueKey('editor-canvas'))).top,
@@ -513,82 +513,143 @@ void main() {
   });
 
   testWidgets(
-    'saves an empty chart without audio and rejects blank names safely',
+    'gates empty chart actions and rejects blank draft names safely',
     (tester) async {
       final previousPlatform = debugDefaultTargetPlatformOverride;
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
-      await pumpEditor(tester, size: const Size(390, 844));
-      final initialSaveRect = tester.getRect(
-        find.byKey(const ValueKey('save-chart')),
-      );
-      final initialClearRect = tester.getRect(
-        find.byKey(const ValueKey('clear-chart')),
-      );
-      final initialExportRect = tester.getRect(
-        find.byKey(const ValueKey('export-slk')),
-      );
-      expect(initialSaveRect.width, 48);
-      for (var attempt = 0; attempt < 10; attempt++) {
-        final save = tester.widget<IconButton>(
+      try {
+        await pumpEditor(tester, size: const Size(390, 844));
+        final initialSaveRect = tester.getRect(
           find.byKey(const ValueKey('save-chart')),
         );
-        expect(save.onPressed, isNotNull);
-        save.onPressed!();
+        final initialClearRect = tester.getRect(
+          find.byKey(const ValueKey('clear-chart')),
+        );
+        final initialExportRect = tester.getRect(
+          find.byKey(const ValueKey('export-slk')),
+        );
+        expect(initialSaveRect.width, 48);
+        expect(find.text('点击导入音频'), findsOneWidget);
+        expect(find.text('点击导入slk'), findsOneWidget);
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(const ValueKey('clear-chart')))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<TextButton>(find.byKey(const ValueKey('chart-menu')))
+              .onPressed,
+          isNotNull,
+        );
+
+        final canvas = tester.getRect(
+          find.byKey(const ValueKey('editor-canvas')),
+        );
+        await tester.tapAt(
+          Offset(
+            canvas.left + canvas.width / 6,
+            canvas.top + editorCursorY(canvas.size),
+          ),
+        );
+        await tester.pump();
+        expect(controller.markers, hasLength(1));
+        expect(find.textContaining('未命名草稿'), findsOneWidget);
+
+        for (var attempt = 0; attempt < 10; attempt++) {
+          final save = tester.widget<IconButton>(
+            find.byKey(const ValueKey('save-chart')),
+          );
+          expect(save.onPressed, isNotNull);
+          save.onPressed!();
+          await tester.pumpAndSettle();
+          if (find.text('保存草稿').evaluate().isNotEmpty) {
+            break;
+          }
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+        expect(find.text('保存草稿'), findsOneWidget);
+
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
         await tester.pumpAndSettle();
-        if (find.text('保存草稿').evaluate().isNotEmpty) {
-          break;
-        }
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('草稿名不能为空'), findsOneWidget);
+
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
+            .onPressed!();
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextFormField), 'chart-with-marker');
+        await tester.tap(find.widgetWithText(FilledButton, '保存'));
         await tester.pump();
-      }
-      expect(find.text('保存草稿'), findsOneWidget);
-
-      await tester.tap(find.widgetWithText(FilledButton, '保存'));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.text('草稿名不能为空'), findsOneWidget);
-
-      tester
-          .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
-          .onPressed!();
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextFormField), 'empty-chart');
-      await tester.tap(find.widgetWithText(FilledButton, '保存'));
-      await tester.pump();
-      for (var attempt = 0; attempt < 50; attempt++) {
-        if (controller.sourceKind == WorkspaceSourceKind.savedDraft) {
-          break;
+        for (var attempt = 0; attempt < 50; attempt++) {
+          if (controller.sourceKind == WorkspaceSourceKind.savedDraft) {
+            break;
+          }
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
         }
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        expect(controller.hasAudio, isFalse);
+        expect(controller.chartName, 'chart-with-marker');
+        expect(controller.sourceKind, WorkspaceSourceKind.savedDraft);
+        await tester.pumpAndSettle();
+        final savedSaveRect = tester.getRect(
+          find.byKey(const ValueKey('save-chart')),
         );
-        await tester.pump();
+        final saveOptionsRect = tester.getRect(find.byTooltip('保存选项'));
+        final savedClearRect = tester.getRect(
+          find.byKey(const ValueKey('clear-chart')),
+        );
+        final savedExportRect = tester.getRect(
+          find.byKey(const ValueKey('export-slk')),
+        );
+        expect(savedSaveRect.width, 48);
+        expect(saveOptionsRect.width, 48);
+        expect(saveOptionsRect.left, closeTo(savedSaveRect.right, 0.01));
+        expect(savedClearRect.left, closeTo(initialClearRect.left, 0.01));
+        expect(savedExportRect.left, closeTo(initialExportRect.left, 0.01));
+
+        await tester.tap(find.byKey(const ValueKey('clear-chart')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '清空'));
+        await tester.pumpAndSettle();
+        expect(controller.markers, isEmpty);
+        expect(find.textContaining('chart-with-marker'), findsOneWidget);
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(const ValueKey('clear-chart')))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<IconButton>(find.byKey(const ValueKey('save-options')))
+              .onPressed,
+          isNull,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
       }
-      expect(controller.hasAudio, isFalse);
-      expect(controller.chartName, 'empty-chart');
-      expect(controller.sourceKind, WorkspaceSourceKind.savedDraft);
-      await tester.pumpAndSettle();
-      final savedSaveRect = tester.getRect(
-        find.byKey(const ValueKey('save-chart')),
-      );
-      final saveOptionsRect = tester.getRect(find.byTooltip('保存选项'));
-      final savedClearRect = tester.getRect(
-        find.byKey(const ValueKey('clear-chart')),
-      );
-      final savedExportRect = tester.getRect(
-        find.byKey(const ValueKey('export-slk')),
-      );
-      expect(savedSaveRect.width, 48);
-      expect(saveOptionsRect.width, 48);
-      expect(saveOptionsRect.left, closeTo(savedSaveRect.right, 0.01));
-      expect(savedClearRect.left, closeTo(initialClearRect.left, 0.01));
-      expect(savedExportRect.left, closeTo(initialExportRect.left, 0.01));
-      expect(tester.takeException(), isNull);
-      debugDefaultTargetPlatformOverride = previousPlatform;
     },
   );
 
