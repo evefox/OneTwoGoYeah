@@ -37,6 +37,104 @@ double editorMarkerSize({
   return math.min(mobile ? 28 : 22, rowSpacing * 0.70).toDouble();
 }
 
+int projectEditorColumn({
+  required double x,
+  required Rect chart,
+  required List<WaveformBlock> waveformBlocks,
+}) => _CanvasColumnLayout.from(chart, waveformBlocks).columnAt(x);
+
+const _visualChartColumns = <int>[
+  OTGY_CHART_COLUMN_NPC,
+  OTGY_CHART_COLUMN_SHOWTIME,
+  OTGY_CHART_COLUMN_PLAYER,
+];
+const _visualChartColumnLabels = <String>['NPC', 'Showtime', '玩家'];
+
+final class _CanvasColumnLayout {
+  const _CanvasColumnLayout._({
+    required this.chart,
+    required this.centers,
+    required this.boundaries,
+    required this.waveformFit,
+    required this.leftWaveformOrigin,
+    required this.rightWaveformOrigin,
+  });
+
+  factory _CanvasColumnLayout.from(
+    Rect chart,
+    List<WaveformBlock> waveformBlocks,
+  ) {
+    var waveformFit = 1.0;
+    var leftWaveformOrigin = chart.left;
+    var rightWaveformOrigin = chart.right;
+    var npcCenter = chart.left + chart.width / 6;
+    var showtimeCenter = chart.center.dx;
+    var playerCenter = chart.left + chart.width * 5 / 6;
+
+    if (waveformBlocks.isNotEmpty) {
+      final first = waveformBlocks.first;
+      final nativeTotal = first.channelWidth * 2 + first.channelSpacing;
+      waveformFit = math.min(1.0, chart.width / math.max(1, nativeTotal));
+      leftWaveformOrigin = chart.center.dx - nativeTotal * waveformFit / 2;
+      rightWaveformOrigin =
+          leftWaveformOrigin +
+          (first.channelWidth + first.channelSpacing) * waveformFit;
+      npcCenter = leftWaveformOrigin + first.channelWidth * waveformFit / 2;
+      playerCenter = rightWaveformOrigin + first.channelWidth * waveformFit / 2;
+    }
+
+    final centers = <double>[npcCenter, showtimeCenter, playerCenter];
+    return _CanvasColumnLayout._(
+      chart: chart,
+      centers: centers,
+      boundaries: <double>[
+        chart.left,
+        (npcCenter + showtimeCenter) / 2,
+        (showtimeCenter + playerCenter) / 2,
+        chart.right,
+      ],
+      waveformFit: waveformFit,
+      leftWaveformOrigin: leftWaveformOrigin,
+      rightWaveformOrigin: rightWaveformOrigin,
+    );
+  }
+
+  final Rect chart;
+  final List<double> centers;
+  final List<double> boundaries;
+  final double waveformFit;
+  final double leftWaveformOrigin;
+  final double rightWaveformOrigin;
+
+  int columnAt(double x) {
+    final visualIndex = x < boundaries[1]
+        ? 0
+        : x < boundaries[2]
+        ? 1
+        : 2;
+    return _visualChartColumns[visualIndex];
+  }
+
+  int visualIndexForColumn(int column) => switch (column) {
+    OTGY_CHART_COLUMN_NPC => 0,
+    OTGY_CHART_COLUMN_SHOWTIME => 1,
+    OTGY_CHART_COLUMN_PLAYER => 2,
+    _ => throw ArgumentError.value(column, 'column'),
+  };
+
+  double centerForColumn(int column) => centers[visualIndexForColumn(column)];
+
+  Rect laneAtVisualIndex(int visualIndex) => Rect.fromLTRB(
+    boundaries[visualIndex],
+    chart.top,
+    boundaries[visualIndex + 1],
+    chart.bottom,
+  );
+
+  Rect laneForColumn(int column) =>
+      laneAtVisualIndex(visualIndexForColumn(column));
+}
+
 class EditorCanvas extends StatefulWidget {
   const EditorCanvas({super.key, required this.controller});
 
@@ -214,8 +312,11 @@ class _EditorCanvasState extends State<EditorCanvas>
     if (!rect.contains(point)) {
       return null;
     }
-    final width = rect.width / 3;
-    return ((point.dx - rect.left) / width).floor().clamp(0, 2);
+    return projectEditorColumn(
+      x: point.dx,
+      chart: rect,
+      waveformBlocks: widget.controller.canvasWaveformBlocks,
+    );
   }
 
   int _rowAt(double y, Size size) {
@@ -376,7 +477,10 @@ class _EditorCanvasState extends State<EditorCanvas>
         final navigation = widget.controller.navigation(visibleBeats);
         final markerSemantics = <Widget>[];
         final rect = _chartRect(size);
-        final columnWidth = rect.width / 3;
+        final columnLayout = _CanvasColumnLayout.from(
+          rect,
+          widget.controller.canvasWaveformBlocks,
+        );
         for (final marker in widget.controller.markers) {
           final y =
               _cursorY(size) +
@@ -384,11 +488,12 @@ class _EditorCanvasState extends State<EditorCanvas>
           if (y < rect.top - spacing || y > rect.bottom + spacing) {
             continue;
           }
+          final lane = columnLayout.laneForColumn(marker.column);
           markerSemantics.add(
             Positioned(
-              left: rect.left + marker.column * columnWidth,
+              left: lane.left,
               top: y - spacing / 2,
-              width: columnWidth,
+              width: lane.width,
               height: spacing,
               child: Semantics(
                 button: true,
@@ -470,7 +575,7 @@ class _EditorCanvasState extends State<EditorCanvas>
                     onScaleUpdate: _handleScaleUpdate,
                     onScaleEnd: _handleScaleEnd,
                     child: Semantics(
-                      label: '谱面编辑画布，NPC、玩家、Showtime 三列',
+                      label: '谱面编辑画布，NPC、Showtime、玩家三列',
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -487,15 +592,24 @@ class _EditorCanvasState extends State<EditorCanvas>
                             ),
                           ),
                           ...markerSemantics,
-                          for (var column = 0; column < 3; column++)
+                          for (
+                            var visualIndex = 0;
+                            visualIndex < 3;
+                            visualIndex++
+                          )
                             Positioned(
-                              left: rect.left + column * columnWidth,
+                              key: ValueKey(
+                                'column-header-${_visualChartColumnLabels[visualIndex]}',
+                              ),
+                              left: (columnLayout.centers[visualIndex] - 44)
+                                  .clamp(rect.left, rect.right - 88)
+                                  .toDouble(),
                               top: 0,
-                              width: columnWidth,
+                              width: 88,
                               height: rect.top,
                               child: Semantics(
                                 header: true,
-                                label: const ['NPC', '玩家', 'Showtime'][column],
+                                label: _visualChartColumnLabels[visualIndex],
                                 child: const SizedBox.expand(),
                               ),
                             ),
@@ -796,51 +910,54 @@ class _EditorCanvasPainter extends CustomPainter {
     final chart = Rect.fromLTRB(0, 28, size.width, size.height);
     final cursorY = editorCursorY(size);
     final spacing = rowSpacing;
-    final columnWidth = chart.width / 3;
     final paintCurrentRow = currentRow.value;
+    final columnLayout = _CanvasColumnLayout.from(
+      chart,
+      controller.canvasWaveformBlocks,
+    );
 
-    _drawColumnBackgrounds(canvas, chart, columnWidth);
+    _drawColumnBackgrounds(canvas, columnLayout);
     if (controller.waveformVisible && controller.waveformBlocks.isNotEmpty) {
-      _drawWaveform(canvas, chart, cursorY, spacing, paintCurrentRow);
+      _drawWaveform(
+        canvas,
+        chart,
+        columnLayout,
+        cursorY,
+        spacing,
+        paintCurrentRow,
+      );
     }
     _drawShowtimeRanges(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawGrid(canvas, chart, cursorY, spacing, paintCurrentRow);
-    _drawMarkers(canvas, chart, cursorY, spacing, columnWidth, paintCurrentRow);
+    _drawMarkers(
+      canvas,
+      chart,
+      columnLayout,
+      cursorY,
+      spacing,
+      paintCurrentRow,
+    );
     _drawCursor(canvas, chart, cursorY);
-    _drawHeaders(canvas, chart, columnWidth);
+    _drawHeaders(canvas, chart, columnLayout);
   }
 
-  void _drawColumnBackgrounds(Canvas canvas, Rect chart, double columnWidth) {
-    for (var column = 0; column < 3; column++) {
-      if (column.isOdd) {
-        canvas.drawRect(
-          Rect.fromLTWH(
-            chart.left + column * columnWidth,
-            chart.top,
-            columnWidth,
-            chart.height,
-          ),
-          Paint()..color = EditorColors.text.withValues(alpha: 0.018),
-        );
-      }
-    }
+  void _drawColumnBackgrounds(Canvas canvas, _CanvasColumnLayout columnLayout) {
+    canvas.drawRect(
+      columnLayout.laneAtVisualIndex(1),
+      Paint()..color = EditorColors.text.withValues(alpha: 0.018),
+    );
   }
 
   void _drawWaveform(
     Canvas canvas,
     Rect chart,
+    _CanvasColumnLayout columnLayout,
     double cursorY,
     double spacing,
     double paintCurrentRow,
   ) {
     final blocks = controller.canvasWaveformBlocks;
     final first = blocks.first;
-    final nativeTotal = first.channelWidth * 2 + first.channelSpacing;
-    final fit = math.min(1.0, chart.width / math.max(1, nativeTotal));
-    final origin = chart.center.dx - nativeTotal * fit / 2;
-    final leftOrigin = origin;
-    final rightOrigin =
-        origin + (first.channelWidth + first.channelSpacing) * fit;
     final waveformPaint = Paint()..color = EditorColors.waveform;
 
     for (
@@ -869,9 +986,9 @@ class _EditorCanvasPainter extends CustomPainter {
         block.leftAlpha,
         sourceY,
         block.channelWidth,
-        leftOrigin,
+        columnLayout.leftWaveformOrigin,
         screenY.toDouble(),
-        fit,
+        columnLayout.waveformFit,
         waveformPaint,
       );
       _drawAlphaRow(
@@ -879,9 +996,9 @@ class _EditorCanvasPainter extends CustomPainter {
         block.rightAlpha,
         sourceY,
         block.channelWidth,
-        rightOrigin,
+        columnLayout.rightWaveformOrigin,
         screenY.toDouble(),
-        fit,
+        columnLayout.waveformFit,
         waveformPaint,
       );
     }
@@ -1039,9 +1156,9 @@ class _EditorCanvasPainter extends CustomPainter {
   void _drawMarkers(
     Canvas canvas,
     Rect chart,
+    _CanvasColumnLayout columnLayout,
     double cursorY,
     double spacing,
-    double columnWidth,
     double paintCurrentRow,
   ) {
     final circleSize = editorMarkerSize(
@@ -1056,7 +1173,7 @@ class _EditorCanvasPainter extends CustomPainter {
     );
     for (final marker in controller.markers) {
       final center = Offset(
-        chart.left + (marker.column + 0.5) * columnWidth,
+        columnLayout.centerForColumn(marker.column),
         cursorY + (marker.row - paintCurrentRow) * spacing,
       );
       if (center.dy < chart.top - diamondSize ||
@@ -1177,17 +1294,20 @@ class _EditorCanvasPainter extends CustomPainter {
     );
   }
 
-  void _drawHeaders(Canvas canvas, Rect chart, double columnWidth) {
+  void _drawHeaders(
+    Canvas canvas,
+    Rect chart,
+    _CanvasColumnLayout columnLayout,
+  ) {
     canvas.drawRect(
       Rect.fromLTRB(chart.left, 0, chart.right, chart.top),
       Paint()..color = EditorColors.surfaceRaised,
     );
-    const labels = ['NPC', '玩家', 'Showtime'];
-    for (var index = 0; index < labels.length; index++) {
+    for (var index = 0; index < _visualChartColumnLabels.length; index++) {
       _paintText(
         canvas,
-        labels[index],
-        Offset(chart.left + (index + 0.5) * columnWidth, 14),
+        _visualChartColumnLabels[index],
+        Offset(columnLayout.centers[index], 14),
         const TextStyle(
           color: EditorColors.textMuted,
           fontSize: 11,

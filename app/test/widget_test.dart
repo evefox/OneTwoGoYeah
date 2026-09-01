@@ -47,6 +47,19 @@ void main() {
     await tester.pump();
   }
 
+  test('projects fallback columns as NPC, Showtime, and player', () {
+    const chart = Rect.fromLTWH(0, 28, 900, 600);
+    int columnAt(double x) =>
+        projectEditorColumn(x: x, chart: chart, waveformBlocks: const []);
+
+    expect(columnAt(0), OTGY_CHART_COLUMN_NPC);
+    expect(columnAt(299.99), OTGY_CHART_COLUMN_NPC);
+    expect(columnAt(300), OTGY_CHART_COLUMN_SHOWTIME);
+    expect(columnAt(599.99), OTGY_CHART_COLUMN_SHOWTIME);
+    expect(columnAt(600), OTGY_CHART_COLUMN_PLAYER);
+    expect(columnAt(900), OTGY_CHART_COLUMN_PLAYER);
+  });
+
   testWidgets('shows the three editor regions and precise timing summaries', (
     tester,
   ) async {
@@ -61,6 +74,96 @@ void main() {
     expect(find.bySemanticsLabel('玩家'), findsOneWidget);
     expect(find.bySemanticsLabel('Showtime'), findsOneWidget);
   });
+
+  testWidgets(
+    'aligns chart columns to waveform channels without stretching on wide windows',
+    (tester) async {
+      final audio = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).readAsBytesSync();
+      await controller.loadAudioBytes(audio, 'fixture.mp3');
+      await pumpEditor(tester);
+
+      Rect headerRect(String label) =>
+          tester.getRect(find.byKey(ValueKey('column-header-$label')));
+
+      final block = controller.canvasWaveformBlocks.first;
+      final nativeWaveformWidth = block.channelWidth * 2 + block.channelSpacing;
+      final canvas = tester.getRect(
+        find.byKey(const ValueKey('editor-canvas')),
+      );
+      expect(nativeWaveformWidth, lessThan(canvas.width));
+
+      final npc = headerRect('NPC');
+      final showtime = headerRect('Showtime');
+      final player = headerRect('玩家');
+      final expectedNpcCenter =
+          canvas.center.dx - nativeWaveformWidth / 2 + block.channelWidth / 2;
+      final expectedPlayerCenter =
+          canvas.center.dx + nativeWaveformWidth / 2 - block.channelWidth / 2;
+
+      expect(npc.center.dx, closeTo(expectedNpcCenter, 0.01));
+      expect(showtime.center.dx, closeTo(canvas.center.dx, 0.01));
+      expect(player.center.dx, closeTo(expectedPlayerCenter, 0.01));
+      expect(npc.center.dx, lessThan(showtime.center.dx));
+      expect(showtime.center.dx, lessThan(player.center.dx));
+
+      final localChart = Rect.fromLTRB(0, 28, canvas.width, canvas.height);
+      final localNpcCenter = expectedNpcCenter - canvas.left;
+      final localShowtimeCenter = localChart.center.dx;
+      final localPlayerCenter = expectedPlayerCenter - canvas.left;
+      final npcShowtimeBoundary = (localNpcCenter + localShowtimeCenter) / 2;
+      final showtimePlayerBoundary =
+          (localShowtimeCenter + localPlayerCenter) / 2;
+      int columnAt(double x) => projectEditorColumn(
+        x: x,
+        chart: localChart,
+        waveformBlocks: controller.canvasWaveformBlocks,
+      );
+
+      expect(columnAt(localChart.left), OTGY_CHART_COLUMN_NPC);
+      expect(columnAt(npcShowtimeBoundary - 0.01), OTGY_CHART_COLUMN_NPC);
+      expect(columnAt(npcShowtimeBoundary), OTGY_CHART_COLUMN_SHOWTIME);
+      expect(
+        columnAt(showtimePlayerBoundary - 0.01),
+        OTGY_CHART_COLUMN_SHOWTIME,
+      );
+      expect(columnAt(showtimePlayerBoundary), OTGY_CHART_COLUMN_PLAYER);
+      expect(columnAt(localChart.right), OTGY_CHART_COLUMN_PLAYER);
+
+      final npcOffset = npc.center.dx - canvas.center.dx;
+      final playerOffset = player.center.dx - canvas.center.dx;
+      final roleAxisDistance = player.center.dx - npc.center.dx;
+
+      controller.toggleWaveform();
+      await tester.pump();
+      expect(headerRect('NPC').center.dx, closeTo(npc.center.dx, 0.01));
+      expect(headerRect('玩家').center.dx, closeTo(player.center.dx, 0.01));
+
+      await tester.binding.setSurfaceSize(const Size(1400, 700));
+      await tester.pumpAndSettle();
+      final wideCanvas = tester.getRect(
+        find.byKey(const ValueKey('editor-canvas')),
+      );
+      final wideNpc = headerRect('NPC');
+      final wideShowtime = headerRect('Showtime');
+      final widePlayer = headerRect('玩家');
+
+      expect(
+        wideNpc.center.dx - wideCanvas.center.dx,
+        closeTo(npcOffset, 0.01),
+      );
+      expect(
+        widePlayer.center.dx - wideCanvas.center.dx,
+        closeTo(playerOffset, 0.01),
+      );
+      expect(wideShowtime.center.dx, closeTo(wideCanvas.center.dx, 0.01));
+      expect(
+        widePlayer.center.dx - wideNpc.center.dx,
+        closeTo(roleAxisDistance, 0.01),
+      );
+    },
+  );
 
   testWidgets('edits through the native chart command and supports history', (
     tester,
@@ -95,7 +198,7 @@ void main() {
     expect(find.byKey(const ValueKey('export-audio')), findsOneWidget);
     expect(find.byKey(const ValueKey('save-chart')), findsOneWidget);
     expect(find.byKey(const ValueKey('export-slk')), findsOneWidget);
-    expect(find.bySemanticsLabel('谱面编辑画布，NPC、玩家、Showtime 三列'), findsOneWidget);
+    expect(find.bySemanticsLabel('谱面编辑画布，NPC、Showtime、玩家三列'), findsOneWidget);
   });
 
   testWidgets('gives mobile timing controls a clear, tappable second row', (
