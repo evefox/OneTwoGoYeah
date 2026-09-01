@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:otgy_native/otgy_native.dart';
@@ -14,6 +15,10 @@ import 'editor_theme.dart';
 import 'editor_toolbars.dart';
 
 typedef ProjectStoreFactory = Future<LocalProjectStore> Function();
+
+@visibleForTesting
+bool hasSlkFileExtension(String fileName) =>
+    fileName.toLowerCase().endsWith('.slk');
 
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, this.controller, this.storeFactory});
@@ -371,13 +376,33 @@ class _EditorScreenState extends State<EditorScreen>
     if (!await _confirmWorkspaceReplacement()) {
       return;
     }
-    const type = XTypeGroup(
+    final type = XTypeGroup(
       label: 'SLK 谱面',
-      extensions: ['slk'],
-      mimeTypes: ['application/octet-stream'],
+      extensions: const ['slk'],
+      mimeTypes: const ['application/octet-stream'],
+      uniformTypeIdentifiers: defaultTargetPlatform == TargetPlatform.iOS
+          ? const ['public.data']
+          : null,
     );
-    final file = await openFile(acceptedTypeGroups: const [type]);
+    XFile? file;
+    try {
+      file = await openFile(acceptedTypeGroups: [type]);
+    } on Object catch (error, stackTrace) {
+      if (mounted) {
+        await _showOperationError(
+          title: 'SLK 导入失败',
+          operation: 'slk-import-file-picker',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      return;
+    }
     if (file == null) {
+      return;
+    }
+    if (!hasSlkFileExtension(file.name)) {
+      _controller.showNotice('SLK 导入失败：请选择 .slk 文件。', error: true);
       return;
     }
     try {
@@ -722,16 +747,42 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _showAudioExportError(Object error, StackTrace stackTrace) {
-    final diagnostic = _formatAudioExportDiagnostic(error, stackTrace);
+    final diagnostic = _formatOperationDiagnostic(
+      'audio-export',
+      error,
+      stackTrace,
+    );
     return showDialog<void>(
       context: context,
       builder: (context) => AudioExportErrorDialog(diagnostic: diagnostic),
     );
   }
 
-  String _formatAudioExportDiagnostic(Object error, StackTrace stackTrace) {
+  Future<void> _showOperationError({
+    required String title,
+    required String operation,
+    required Object error,
+    required StackTrace stackTrace,
+  }) {
+    final diagnostic = _formatOperationDiagnostic(operation, error, stackTrace);
+    return showDialog<void>(
+      context: context,
+      builder: (context) => OperationErrorDialog(
+        title: title,
+        diagnostic: diagnostic,
+        diagnosticKey: '$operation-error-diagnostic',
+        copyKey: 'copy-$operation-error',
+      ),
+    );
+  }
+
+  String _formatOperationDiagnostic(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) {
     final lines = <String>[
-      'operation: audio-export',
+      'operation: $operation',
       'exceptionType: ${error.runtimeType}',
       'exception: $error',
     ];
@@ -874,36 +925,45 @@ class _EditorScreenState extends State<EditorScreen>
   }
 }
 
-/// Displays a complete audio-export failure report and makes it easy to share
-/// the exact diagnostic with a bug report.
-class AudioExportErrorDialog extends StatefulWidget {
-  const AudioExportErrorDialog({super.key, required this.diagnostic});
+/// Displays a complete operation failure report and makes it easy to share the
+/// exact diagnostic with a bug report.
+class OperationErrorDialog extends StatefulWidget {
+  const OperationErrorDialog({
+    super.key,
+    required this.title,
+    required this.diagnostic,
+    required this.diagnosticKey,
+    required this.copyKey,
+  });
 
+  final String title;
   final String diagnostic;
+  final String diagnosticKey;
+  final String copyKey;
 
   @override
-  State<AudioExportErrorDialog> createState() => _AudioExportErrorDialogState();
+  State<OperationErrorDialog> createState() => _OperationErrorDialogState();
 }
 
-class _AudioExportErrorDialogState extends State<AudioExportErrorDialog> {
+class _OperationErrorDialogState extends State<OperationErrorDialog> {
   bool _copied = false;
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('音频导出失败'),
+      title: Text(widget.title),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 680, maxHeight: 420),
         child: SingleChildScrollView(
           child: SelectableText(
             widget.diagnostic,
-            key: const ValueKey('audio-export-error-diagnostic'),
+            key: ValueKey(widget.diagnosticKey),
           ),
         ),
       ),
       actions: [
         TextButton.icon(
-          key: const ValueKey('copy-audio-export-error'),
+          key: ValueKey(widget.copyKey),
           onPressed: () async {
             await Clipboard.setData(ClipboardData(text: widget.diagnostic));
             if (mounted) {
@@ -920,6 +980,15 @@ class _AudioExportErrorDialogState extends State<AudioExportErrorDialog> {
       ],
     );
   }
+}
+
+class AudioExportErrorDialog extends OperationErrorDialog {
+  const AudioExportErrorDialog({super.key, required super.diagnostic})
+    : super(
+        title: '音频导出失败',
+        diagnosticKey: 'audio-export-error-diagnostic',
+        copyKey: 'copy-audio-export-error',
+      );
 }
 
 class _AudioExportProgressOverlay extends StatelessWidget {

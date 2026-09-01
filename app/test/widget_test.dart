@@ -60,6 +60,12 @@ void main() {
     expect(columnAt(900), OTGY_CHART_COLUMN_PLAYER);
   });
 
+  test('recognizes SLK extensions without case sensitivity', () {
+    expect(hasSlkFileExtension('chart.slk'), isTrue);
+    expect(hasSlkFileExtension('chart.SLK'), isTrue);
+    expect(hasSlkFileExtension('chart.txt'), isFalse);
+  });
+
   testWidgets('shows the three editor regions and precise timing summaries', (
     tester,
   ) async {
@@ -485,6 +491,76 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
 
     expect(find.text('无法打开音频文件选择器。'), findsOneWidget);
+  });
+
+  testWidgets('reports SLK picker failures with copyable diagnostics', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    const channel = MethodChannel('plugins.flutter.io/file_selector');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'openFile');
+          final arguments = call.arguments as Map<Object?, Object?>;
+          final groups = arguments['acceptedTypeGroups'] as List<Object?>;
+          final slkGroup = groups.single as Map<Object?, Object?>;
+          expect(slkGroup['extensions'], ['slk']);
+          expect(slkGroup['uniformTypeIdentifiers'], ['public.data']);
+          throw PlatformException(
+            code: 'unavailable',
+            message: 'Document picker unavailable',
+          );
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('chart-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入 SLK'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('SLK 导入失败'), findsOneWidget);
+    final report = tester.widget<SelectableText>(
+      find.byKey(const ValueKey('slk-import-file-picker-error-diagnostic')),
+    );
+    expect(report.data, contains('operation: slk-import-file-picker'));
+    expect(report.data, contains('platformCode: unavailable'));
+    expect(
+      find.byKey(const ValueKey('copy-slk-import-file-picker-error')),
+      findsOneWidget,
+    );
+    debugDefaultTargetPlatformOverride = previousPlatform;
+  });
+
+  testWidgets('rejects a non-SLK file returned by the iOS data picker', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    const channel = MethodChannel('plugins.flutter.io/file_selector');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'openFile');
+          return ['/does/not/need/to/exist.txt'];
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('chart-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入 SLK'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('SLK 导入失败：请选择 .slk 文件。'), findsOneWidget);
+    expect(controller.sourceKind, WorkspaceSourceKind.untitled);
+    debugDefaultTargetPlatformOverride = previousPlatform;
   });
 
   testWidgets('audio export failure diagnostics can be copied', (tester) async {
