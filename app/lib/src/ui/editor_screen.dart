@@ -269,9 +269,7 @@ class _EditorScreenState extends State<EditorScreen>
       return;
     }
     var quality = policy.defaultQuality;
-    final nameController = TextEditingController(
-      text: _controller.suggestedAudioBaseName,
-    );
+    var baseName = _controller.suggestedAudioBaseName;
     final settings = await showDialog<({String baseName, int quality})>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -283,9 +281,10 @@ class _EditorScreenState extends State<EditorScreen>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                TextField(
-                  controller: nameController,
+                TextFormField(
+                  initialValue: baseName,
                   decoration: const InputDecoration(labelText: '文件基础名称'),
+                  onChanged: (value) => baseName = value,
                 ),
                 const SizedBox(height: 16),
                 Text('品质 $quality'),
@@ -313,7 +312,7 @@ class _EditorScreenState extends State<EditorScreen>
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, (
-                baseName: nameController.text,
+                baseName: baseName,
                 quality: quality,
               )),
               child: const Text('选择保存位置'),
@@ -322,7 +321,6 @@ class _EditorScreenState extends State<EditorScreen>
         ),
       ),
     );
-    nameController.dispose();
     if (settings == null) {
       return;
     }
@@ -540,17 +538,18 @@ class _EditorScreenState extends State<EditorScreen>
         : _controller.sourceKind == WorkspaceSourceKind.importedSlk
         ? _withoutExtension(_controller.chartName)
         : '';
-    final text = TextEditingController(text: initial);
+    var name = initial;
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('保存草稿'),
-        content: TextField(
-          controller: text,
+        content: TextFormField(
+          initialValue: initial,
           autofocus: true,
           maxLength: draftNameMaxCharacters,
           decoration: const InputDecoration(labelText: '草稿名'),
-          onSubmitted: (value) => Navigator.pop(context, value),
+          onChanged: (value) => name = value,
+          onFieldSubmitted: (value) => Navigator.pop(context, value),
         ),
         actions: [
           TextButton(
@@ -558,13 +557,12 @@ class _EditorScreenState extends State<EditorScreen>
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, text.text),
+            onPressed: () => Navigator.pop(context, name),
             child: const Text('保存'),
           ),
         ],
       ),
     );
-    text.dispose();
     return result;
   }
 

@@ -196,6 +196,86 @@ void main() {
     expect(find.byTooltip(name), findsOneWidget);
   });
 
+  testWidgets(
+    'saves an empty chart without audio and rejects blank names safely',
+    (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
+      await pumpEditor(tester, size: const Size(390, 844));
+      final initialSaveRect = tester.getRect(
+        find.byKey(const ValueKey('save-chart')),
+      );
+      final initialClearRect = tester.getRect(
+        find.byKey(const ValueKey('clear-chart')),
+      );
+      final initialExportRect = tester.getRect(
+        find.byKey(const ValueKey('export-slk')),
+      );
+      expect(initialSaveRect.width, 48);
+      for (var attempt = 0; attempt < 10; attempt++) {
+        final save = tester.widget<IconButton>(
+          find.byKey(const ValueKey('save-chart')),
+        );
+        expect(save.onPressed, isNotNull);
+        save.onPressed!();
+        await tester.pumpAndSettle();
+        if (find.text('保存草稿').evaluate().isNotEmpty) {
+          break;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(find.text('保存草稿'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('草稿名不能为空'), findsOneWidget);
+
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
+          .onPressed!();
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField), 'empty-chart');
+      await tester.tap(find.widgetWithText(FilledButton, '保存'));
+      await tester.pump();
+      for (var attempt = 0; attempt < 50; attempt++) {
+        if (controller.sourceKind == WorkspaceSourceKind.savedDraft) {
+          break;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(controller.hasAudio, isFalse);
+      expect(controller.chartName, 'empty-chart');
+      expect(controller.sourceKind, WorkspaceSourceKind.savedDraft);
+      await tester.pumpAndSettle();
+      final savedSaveRect = tester.getRect(
+        find.byKey(const ValueKey('save-chart')),
+      );
+      final saveOptionsRect = tester.getRect(find.byTooltip('保存选项'));
+      final savedClearRect = tester.getRect(
+        find.byKey(const ValueKey('clear-chart')),
+      );
+      final savedExportRect = tester.getRect(
+        find.byKey(const ValueKey('export-slk')),
+      );
+      expect(savedSaveRect.width, 48);
+      expect(saveOptionsRect.width, 48);
+      expect(saveOptionsRect.left, closeTo(savedSaveRect.right, 0.01));
+      expect(savedClearRect.left, closeTo(initialClearRect.left, 0.01));
+      expect(savedExportRect.left, closeTo(initialExportRect.left, 0.01));
+      expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = previousPlatform;
+    },
+  );
+
   testWidgets('successful audio replacement restores automatic edit zoom', (
     tester,
   ) async {
@@ -268,6 +348,32 @@ void main() {
     await tester.pump();
     expect(copiedText, diagnostic);
     expect(find.text('已复制'), findsOneWidget);
+  });
+
+  testWidgets('audio export settings close without a framework error', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = previousPlatform);
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    await pumpEditor(tester, size: const Size(390, 844));
+
+    final export = tester.widget<IconButton>(
+      find.byKey(const ValueKey('export-audio')),
+    );
+    expect(export.onPressed, isNotNull);
+    export.onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.text('导出 Ogg 音频'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = previousPlatform;
   });
 
   testWidgets('BPM long press previews and commits once on release', (

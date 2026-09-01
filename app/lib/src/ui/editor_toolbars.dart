@@ -316,25 +316,31 @@ class _ChartToolbar extends StatelessWidget {
         ? savedDraft
               ? Row(
                   children: [
-                    IconButton(
-                      key: const ValueKey('save-chart'),
-                      onPressed: enabled ? onSave : null,
-                      tooltip: '保存',
-                      icon: const Icon(Icons.save_outlined, size: 20),
+                    SizedBox(
+                      width: 48,
+                      child: IconButton(
+                        key: const ValueKey('save-chart'),
+                        onPressed: enabled ? onSave : null,
+                        tooltip: '保存',
+                        icon: const Icon(Icons.save_outlined, size: 20),
+                      ),
                     ),
-                    MenuAnchor(
-                      menuChildren: [
-                        MenuItemButton(
-                          onPressed: onSaveAs,
-                          child: const Text('另存为'),
+                    SizedBox(
+                      width: 48,
+                      child: MenuAnchor(
+                        menuChildren: [
+                          MenuItemButton(
+                            onPressed: onSaveAs,
+                            child: const Text('另存为'),
+                          ),
+                        ],
+                        builder: (context, menu, child) => IconButton(
+                          onPressed: enabled
+                              ? () => menu.isOpen ? menu.close() : menu.open()
+                              : null,
+                          tooltip: '保存选项',
+                          icon: const Icon(Icons.arrow_drop_down, size: 20),
                         ),
-                      ],
-                      builder: (context, menu, child) => IconButton(
-                        onPressed: enabled
-                            ? () => menu.isOpen ? menu.close() : menu.open()
-                            : null,
-                        tooltip: '保存选项',
-                        icon: const Icon(Icons.arrow_drop_down, size: 20),
                       ),
                     ),
                   ],
@@ -442,8 +448,8 @@ class _ChartToolbar extends StatelessWidget {
           SizedBox(
             width: mobile
                 ? savedDraft
-                      ? 80
-                      : 40
+                      ? 96
+                      : 48
                 : compact
                 ? 74
                 : 118,
