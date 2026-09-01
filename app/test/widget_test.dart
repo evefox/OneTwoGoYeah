@@ -67,9 +67,9 @@ void main() {
   ) async {
     await pumpEditor(tester);
     final canvas = tester.getRect(find.byKey(const ValueKey('editor-canvas')));
-    final chartWidth = canvas.width - 94;
+    final chartWidth = canvas.width;
     final cursorY = canvas.top + editorCursorY(canvas.size);
-    final npcX = canvas.left + 36 + chartWidth / 6;
+    final npcX = canvas.left + chartWidth / 6;
 
     await tester.tapAt(Offset(npcX, cursorY));
     await tester.pump();
@@ -429,7 +429,7 @@ void main() {
   });
 
   testWidgets('canvas omits internal column divider strokes', (tester) async {
-    await pumpEditor(tester);
+    await pumpEditor(tester, size: const Size(999, 700));
     final boundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(const ValueKey('editor-canvas-repaint')),
     );
@@ -447,14 +447,104 @@ void main() {
       return List.generate(4, (channel) => bytes!.getUint8(offset + channel));
     }
 
-    final chartWidth = captured.width - 36 - 58;
+    final chartWidth = captured.width;
     final columnWidth = chartWidth / 3;
-    for (final divider in [
-      (36 + columnWidth).round(),
-      (36 + columnWidth * 2).round(),
-    ]) {
+    for (final divider in [columnWidth.round(), (columnWidth * 2).round()]) {
       expect(pixel(divider, 40), pixel(divider + 3, 40));
     }
+  });
+
+  testWidgets('timing grid spans the full canvas width', (tester) async {
+    await pumpEditor(tester);
+    await controller.setZoom(5);
+    controller.moveToRow(11);
+    await tester.pump();
+
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('editor-canvas-repaint')),
+    );
+    final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 1));
+    expect(image, isNotNull);
+    final captured = image!;
+    addTearDown(captured.dispose);
+    final bytes = await tester.runAsync(
+      () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+    );
+    expect(bytes, isNotNull);
+
+    int redAt(int x, int y) {
+      final offset = (y * captured.width + x) * 4;
+      return bytes!.getUint8(offset);
+    }
+
+    final cursorY = editorCursorY(
+      Size(captured.width.toDouble(), captured.height.toDouble()),
+    );
+    final y = (cursorY + (16 - controller.currentRow) * controller.rowSpacing)
+        .round();
+    expect(redAt(1, y), greaterThan(redAt(1, y + 4)));
+    expect(
+      redAt(captured.width - 2, y),
+      greaterThan(redAt(captured.width - 2, y + 4)),
+    );
+  });
+
+  testWidgets('measure labels sit above their grid lines', (tester) async {
+    await pumpEditor(tester);
+    await controller.setZoom(10);
+    controller.moveToRow(16);
+    await tester.pump();
+
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('editor-canvas-repaint')),
+    );
+    final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 1));
+    expect(image, isNotNull);
+    final captured = image!;
+    addTearDown(captured.dispose);
+    final bytes = await tester.runAsync(
+      () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+    );
+    expect(bytes, isNotNull);
+
+    List<int> pixel(int x, int y) {
+      final offset = (y * captured.width + x) * 4;
+      return List.generate(4, (channel) => bytes!.getUint8(offset + channel));
+    }
+
+    final lineY = editorCursorY(
+      Size(captured.width.toDouble(), captured.height.toDouble()),
+    ).round();
+    final background = pixel(24, lineY - 20);
+    var inkAbove = 0;
+    var inkBelow = 0;
+    for (var x = 4; x < 24; x++) {
+      for (var y = lineY - 10; y <= lineY - 3; y++) {
+        if (!listEquals(pixel(x, y), background)) {
+          inkAbove++;
+        }
+      }
+      for (var y = lineY + 3; y <= lineY + 10; y++) {
+        if (!listEquals(pixel(x, y), background)) {
+          inkBelow++;
+        }
+      }
+    }
+    expect(inkAbove, greaterThan(0));
+    expect(inkBelow, 0);
+  });
+
+  testWidgets('audio and SLK export buttons share the export icon', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    final audio = tester.widget<IconButton>(
+      find.byKey(const ValueKey('export-audio')),
+    );
+    final slk = tester.widget<IconButton>(
+      find.byKey(const ValueKey('export-slk')),
+    );
+    expect((audio.icon as Icon).icon, (slk.icon as Icon).icon);
   });
 
   testWidgets('measure and beat lines keep a strong visual hierarchy', (

@@ -460,7 +460,7 @@ class _ChartToolbar extends StatelessWidget {
             key: const ValueKey('export-slk'),
             onPressed: enabled ? onExportSlk : null,
             tooltip: '导出成品 SLK',
-            icon: const Icon(Icons.publish_outlined, size: 20),
+            icon: const Icon(Icons.ios_share_outlined, size: 20),
           ),
         ],
       ),

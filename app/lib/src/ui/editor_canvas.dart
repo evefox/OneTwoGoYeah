@@ -205,8 +205,7 @@ class _EditorCanvasState extends State<EditorCanvas>
     }
   }
 
-  Rect _chartRect(Size size) =>
-      Rect.fromLTRB(36, 28, math.max(37, size.width - 58), size.height);
+  Rect _chartRect(Size size) => Rect.fromLTRB(0, 28, size.width, size.height);
 
   double _cursorY(Size size) => editorCursorY(size);
 
@@ -794,12 +793,7 @@ class _EditorCanvasPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = EditorColors.canvas);
-    final chart = Rect.fromLTRB(
-      36,
-      28,
-      math.max(37, size.width - 58),
-      size.height,
-    );
+    final chart = Rect.fromLTRB(0, 28, size.width, size.height);
     final cursorY = editorCursorY(size);
     final spacing = rowSpacing;
     final columnWidth = chart.width / 3;
@@ -1035,7 +1029,7 @@ class _EditorCanvasPainter extends CustomPainter {
         _paintText(
           canvas,
           '${row ~/ 16 + 1}',
-          Offset(7, y - 7),
+          Offset(chart.left + 7, y - 10),
           const TextStyle(color: EditorColors.textMuted, fontSize: 10),
         );
       }
@@ -1177,7 +1171,7 @@ class _EditorCanvasPainter extends CustomPainter {
         ..strokeWidth = 2,
     );
     canvas.drawCircle(
-      Offset(chart.left - 4, y),
+      Offset(chart.left + 4, y),
       3,
       Paint()..color = EditorColors.judgement,
     );
