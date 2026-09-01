@@ -127,30 +127,18 @@ private final class PcmPlaybackOutput: NSObject {
       throw PlaybackError.invalidArguments
     }
     dispose()
+    let nextBuffer = try PcmPlaybackBufferBuilder.make(
+      sampleRate: sampleRate,
+      data: data
+    )
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(.playback, mode: .default)
     try session.setActive(true)
-    guard let format = AVAudioFormat(
-      commonFormat: .pcmFormatInt16,
-      sampleRate: Double(sampleRate),
-      channels: 2,
-      interleaved: true
-    ) else {
-      throw PlaybackError.invalidFormat
-    }
-    let frameCount = AVAudioFrameCount(data.count / 4)
-    guard let nextBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
-      throw PlaybackError.allocationFailed
-    }
-    nextBuffer.frameLength = frameCount
-    guard let destination = nextBuffer.audioBufferList.pointee.mBuffers.mData else {
-      throw PlaybackError.allocationFailed
-    }
-    data.copyBytes(to: destination.assumingMemoryBound(to: UInt8.self), count: data.count)
     engine.attach(player)
-    engine.connect(player, to: engine.mainMixerNode, format: format)
+    engine.connect(player, to: engine.mainMixerNode, format: nextBuffer.format)
     try engine.start()
     buffer = nextBuffer
+    let frameCount = nextBuffer.frameLength
     totalFrames = AVAudioFramePosition(frameCount)
     playedFrames = 0
     playing = true
@@ -206,7 +194,44 @@ private final class PcmPlaybackOutput: NSObject {
   }
 }
 
-private enum PlaybackError: LocalizedError {
+enum PcmPlaybackBufferBuilder {
+  static func make(sampleRate: Int, data: Data) throws -> AVAudioPCMBuffer {
+    guard sampleRate > 0, !data.isEmpty, data.count % 4 == 0 else {
+      throw PlaybackError.invalidArguments
+    }
+    guard
+      let format = AVAudioFormat(
+        standardFormatWithSampleRate: Double(sampleRate),
+        channels: 2
+      )
+    else {
+      throw PlaybackError.invalidFormat
+    }
+    let frameCountValue = data.count / 4
+    let frameCount = AVAudioFrameCount(frameCountValue)
+    guard
+      Int(frameCount) == frameCountValue,
+      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+      let channels = buffer.floatChannelData
+    else {
+      throw PlaybackError.allocationFailed
+    }
+    data.withUnsafeBytes { rawBuffer in
+      let bytes = rawBuffer.bindMemory(to: UInt8.self)
+      for frame in 0..<frameCountValue {
+        let offset = frame * 4
+        let leftBits = UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
+        let rightBits = UInt16(bytes[offset + 2]) | UInt16(bytes[offset + 3]) << 8
+        channels[0][frame] = Float(Int16(bitPattern: leftBits)) / 32768
+        channels[1][frame] = Float(Int16(bitPattern: rightBits)) / 32768
+      }
+    }
+    buffer.frameLength = frameCount
+    return buffer
+  }
+}
+
+enum PlaybackError: LocalizedError {
   case invalidArguments
   case invalidFormat
   case allocationFailed

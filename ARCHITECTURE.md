@@ -371,6 +371,8 @@ macOS Runner 保持 App Sandbox，并在 Debug/Profile 与 Release 签名中声�
 
 平台播放适配层消费共享核心生成的帧，不得重新实现速度、混音、裁剪、节拍时序或重采样规则。
 
+iOS `AVAudioEngine` 连接只接受引擎标准的 Float32 非交错格式。iOS Runner 在不改变采样率、帧数、声道或时序的前提下，把 MethodChannel 收到的交错 PCM16LE 逐样本转换为等价的双声道 Float32 非交错缓冲，再用该标准格式连接 `AVAudioPlayerNode`；设备采样率适配仍由 `AVAudioEngine` 完成，Runner 不实现重采样算法。播放位置继续以转换前后完全相同的源帧编号返回。
+
 iOS 文件提供器可能把未知 `.slk` 文件报告为只遵循 `public.data` 的动态 UTI，因此 Flutter 在 iOS 请求 `public.data`，并在文件返回后、读取前强制校验 `.slk` 扩展名。该平台兼容处理只负责选择范围与输入门控，不解析或改写 SLK；严格解析和语义校验仍只调用共享核心。
 
 Flutter 与 Runner 使用三个轻量 MethodChannel：`io.onetwogoyeah/playback` 只传递采样率、交错 PCM16LE 和已播放帧数；`io.onetwogoyeah/files` 默认在同目录把完整临时文件以原子、不替换硬链接发布到目标，macOS 再以 `renameatx_np(RENAME_EXCL)` 作为硬链接不可用时的原子回退，并在用户选定路径不允许创建临时兄弟文件时使用原生 `O_EXCL` 写入和失败清理；`io.onetwogoyeah/lifecycle` 只用于 Windows/macOS 窗口关闭前请求 Flutter 完成未保存确认。Android 使用 `AudioTrack`/`Os.link`，iOS 和 macOS 使用 `AVAudioEngine`/POSIX `link`，Windows 使用 `waveOut`/`CreateHardLinkW`。这些适配层不得解释音频时序、文件名或项目语义。
