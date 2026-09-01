@@ -59,6 +59,9 @@ jobs:
         run: flutter analyze
       - name: Build ${{ matrix.platform }}
         run: ${{ matrix.command }}
+      - name: Verify Android native asset dependencies
+        if: matrix.platform == 'Android'
+        run: ../tool/verify_android_native_asset.sh build/app/outputs/flutter-apk/app-debug.apk
 
   flutter-tests:
     name: Flutter tests

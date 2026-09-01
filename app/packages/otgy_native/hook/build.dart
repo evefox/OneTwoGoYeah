@@ -105,6 +105,12 @@ void main(List<String> args) async {
       return;
     }
     final isWindows = input.config.code.targetOS == OS.windows;
+    // Android does not automatically package the NDK's shared libc++ runtime
+    // for native assets. Statically link it into our one bundled library so
+    // loading the FFI asset does not depend on a missing libc++_shared.so.
+    final cppLinkStdLib = input.config.code.targetOS == OS.android
+        ? 'c++_static'
+        : null;
     final cFlags = isWindows
         ? const <String>['/W3']
         : const <String>['-fno-fast-math'];
@@ -214,11 +220,18 @@ void main(List<String> args) async {
           '$_root/third_party/libvorbis/include',
           '$_root/third_party/libvorbis/src',
         ],
-        libraries: const ['otgy_libmad', 'otgy_libogg', 'otgy_libvorbis'],
+        // libc++_static does not pull Android's separate libm dependency in.
+        libraries: [
+          'otgy_libmad',
+          'otgy_libogg',
+          'otgy_libvorbis',
+          if (input.config.code.targetOS == OS.android) 'm',
+        ],
         flags: cxxFlags,
         defines: const {'OTGY_C_API_BUILD': '1'},
         language: Language.cpp,
         std: 'c++17',
+        cppLinkStdLib: cppLinkStdLib,
       ).run(input: input, output: output);
     }
   });

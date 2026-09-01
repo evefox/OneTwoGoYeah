@@ -693,6 +693,8 @@ Offset 微调浮窗测试必须验证：
 
 `.github/workflows/stage8-platforms.yml` 在 Ubuntu、macOS、Windows 构建并运行原生核心测试；另在对应 Runner 上构建 Android、Windows、macOS 和无签名 iOS Flutter App，并运行 Flutter 与 Dart FFI 分析和测试。平台构建负责验证 `AudioTrack`、`AVAudioEngine`、`waveOut`、原子不替换文件发布及桌面关闭协调代码能够随各自 SDK 编译。macOS 构建后还应使用 `codesign -d --entitlements :- <App>` 确认最终签名保留用户所选文件读写权限。阶段 9 仍须在实际 x86-64 与 ARM64 支持环境运行完整黄金套件；某平台的黄金结果未通过前，不能视为最终发布兼容。
 
+Android 平台构建完成后运行 `tool/verify_android_native_asset.sh`，逐一检查 `arm64-v8a`、`armeabi-v7a` 和 `x86_64` 的 `libotgy_native.so` 导出 `otgy_chart_create_empty`，且不声明或打包 `libc++_shared.so` 依赖。该检查防止 FFI 首次加载因 NDK C++ 运行库缺失而失败；模拟器或真机启动验证仍需在阶段 9 完成。
+
 ## 夹具规则
 
 - 在可行情况下，夹具应足够小，适合放入仓库。
