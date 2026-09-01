@@ -399,6 +399,81 @@ void main() {
     expect(beat, greaterThan(subdivision));
   });
 
+  testWidgets(
+    'playback keeps measure lines and restores the full grid when paused',
+    (tester) async {
+      controller.dispose();
+      controller = EditorController(playbackOutput: _FakePlaybackOutput());
+      final audio = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).readAsBytesSync();
+      await controller.loadAudioBytes(audio, 'fixture.mp3');
+      await pumpEditor(tester);
+
+      controller.toggleWaveform();
+      await controller.setZoom(5);
+      controller.moveToRow(0);
+      await tester.pump();
+
+      Future<List<int>> sampleGrid() async {
+        final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const ValueKey('editor-canvas-repaint')),
+        );
+        final image = await tester.runAsync(
+          () => boundary.toImage(pixelRatio: 1),
+        );
+        expect(image, isNotNull);
+        final captured = image!;
+        final bytes = await tester.runAsync(
+          () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+        );
+        expect(bytes, isNotNull);
+        final cursorY = editorCursorY(
+          Size(captured.width.toDouble(), captured.height.toDouble()),
+        );
+        final spacing = controller.rowSpacing;
+        expect(spacing, greaterThan(4));
+
+        int strongestRedNear(int row) {
+          final center = cursorY + (row - controller.currentRow) * spacing;
+          var red = 0;
+          for (var y = center.floor() - 2; y <= center.ceil() + 2; y++) {
+            final offset = (y * captured.width + 90) * 4;
+            red = math.max(red, bytes!.getUint8(offset));
+          }
+          return red;
+        }
+
+        final samples = [
+          strongestRedNear(16),
+          strongestRedNear(4),
+          strongestRedNear(5),
+        ];
+        captured.dispose();
+        return samples;
+      }
+
+      final pausedGrid = await sampleGrid();
+      expect(pausedGrid[0], greaterThan(pausedGrid[1]));
+      expect(pausedGrid[1], greaterThan(pausedGrid[2]));
+
+      await controller.togglePlayback();
+      await tester.pump();
+      expect(controller.isPlaying, isTrue);
+      final playingGrid = await sampleGrid();
+      expect(playingGrid[0], greaterThan(playingGrid[1]));
+      expect(playingGrid[1], playingGrid[2]);
+      expect(playingGrid[1], lessThan(pausedGrid[1]));
+      expect(playingGrid[2], lessThan(pausedGrid[2]));
+
+      await controller.pausePlayback();
+      await tester.pump();
+      expect(controller.isPlaying, isFalse);
+      final resumedGrid = await sampleGrid();
+      expect(resumedGrid, pausedGrid);
+    },
+  );
+
   testWidgets('last SHOW-D half-measure is lighter than its regular range', (
     tester,
   ) async {

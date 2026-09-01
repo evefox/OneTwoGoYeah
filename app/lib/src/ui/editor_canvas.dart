@@ -859,6 +859,9 @@ class _EditorCanvasPainter extends CustomPainter {
         continue;
       }
       final measure = row % 16 == 0;
+      if (controller.isPlaying && !measure) {
+        continue;
+      }
       final beat = !measure && row % 4 == 0;
       final color = measure
           ? EditorColors.text.withValues(alpha: 0.52)
