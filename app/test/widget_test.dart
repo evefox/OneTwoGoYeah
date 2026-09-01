@@ -284,6 +284,65 @@ void main() {
     expect(find.bySemanticsLabel('谱面编辑画布，NPC、Showtime、玩家三列'), findsOneWidget);
   });
 
+  testWidgets('uses flat file controls without shrinking their control size', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      await pumpEditor(tester, size: const Size(390, 844));
+
+      for (final key in const ['audio-picker', 'chart-menu']) {
+        final button = tester.widget<TextButton>(find.byKey(ValueKey(key)));
+        expect(
+          button.style?.side?.resolve(const <WidgetState>{}),
+          BorderSide.none,
+        );
+        expect(
+          button.style?.side?.resolve(const <WidgetState>{WidgetState.focused}),
+          BorderSide.none,
+        );
+        expect(
+          button.style?.overlayColor?.resolve(const <WidgetState>{
+            WidgetState.focused,
+          }),
+          isNot(Colors.transparent),
+        );
+        expect(
+          button.style?.minimumSize?.resolve(const <WidgetState>{}),
+          const Size(48, 48),
+        );
+        expect(tester.getSize(find.byKey(ValueKey(key))).height, 40);
+      }
+      for (final key in const ['bpm-menu', 'offset-menu']) {
+        final control = find.descendant(
+          of: find.byKey(ValueKey(key)),
+          matching: find.byType(TextButton),
+        );
+        final button = tester.widget<TextButton>(control);
+        expect(button.style?.side?.resolve(const <WidgetState>{}), isNull);
+        expect(
+          button.style?.backgroundColor?.resolve(const <WidgetState>{}),
+          isNull,
+        );
+        expect(tester.getSize(find.byKey(ValueKey(key))).height, 40);
+      }
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('chart-menu')),
+          matching: find.byIcon(Icons.arrow_drop_down),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getRect(find.byKey(const ValueKey('editor-canvas'))).top,
+        closeTo(131, 1),
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+    }
+  });
+
   testWidgets('gives mobile timing controls a clear, tappable second row', (
     tester,
   ) async {
@@ -1307,6 +1366,33 @@ void main() {
 
     expect(controller.waveformVisible, isFalse);
     expect(controller.markers, isEmpty);
+  });
+
+  testWidgets('uses one flat surface style for canvas controls', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    for (final key in const [
+      'navigation-control-surface',
+      'history-control-surface',
+    ]) {
+      final surface = tester.widget<DecoratedBox>(find.byKey(ValueKey(key)));
+      final decoration = surface.decoration as BoxDecoration;
+      expect(decoration.color, isNotNull);
+      expect(decoration.border, isNull);
+      expect(decoration.boxShadow, isNull);
+      expect(decoration.borderRadius, BorderRadius.circular(6));
+    }
+
+    final waveform = tester.widget<IconButton>(
+      find.byKey(const ValueKey('waveform-toggle-button')),
+    );
+    final undo = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.undo),
+    );
+    expect((waveform.icon as Icon).size, 20);
+    expect((undo.icon as Icon).size, 20);
   });
 
   testWidgets('configures chart playback sounds in an outside-dismiss menu', (

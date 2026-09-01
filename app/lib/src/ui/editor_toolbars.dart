@@ -7,6 +7,21 @@ import 'package:flutter/services.dart';
 import '../application/editor_controller.dart';
 import 'editor_theme.dart';
 
+final ButtonStyle _toolbarFileButtonStyle = TextButton.styleFrom(
+  foregroundColor: EditorColors.text,
+  padding: const EdgeInsets.symmetric(horizontal: 6),
+  minimumSize: const Size(48, 48),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+  side: BorderSide.none,
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+  alignment: Alignment.centerLeft,
+);
+
+const ButtonStyle _toolbarIconButtonStyle = ButtonStyle(
+  minimumSize: WidgetStatePropertyAll(Size(40, 40)),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+);
+
 class EditorToolbars extends StatelessWidget {
   const EditorToolbars({
     super.key,
@@ -116,13 +131,21 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           : '更换音频，当前为 ${controller.audioFileName}',
       child: Tooltip(
         message: controller.audioFileName ?? '导入 MP3 或 Ogg 音频',
-        child: OutlinedButton.icon(
+        child: TextButton(
           key: const ValueKey('audio-picker'),
           onPressed: enabled ? onChooseAudio : null,
-          icon: const Icon(Icons.audio_file_outlined, size: 18),
-          label: Align(
-            alignment: Alignment.centerLeft,
-            child: _AudioFileName(fileName: controller.audioFileName),
+          style: _toolbarFileButtonStyle,
+          child: Row(
+            children: [
+              const Icon(Icons.audio_file_outlined, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _AudioFileName(fileName: controller.audioFileName),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -131,6 +154,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
       key: const ValueKey('analyze-audio'),
       onPressed: enabled ? onAnalyze : null,
       tooltip: '分析 BPM 与 Offset',
+      style: _toolbarIconButtonStyle,
       icon: const Icon(Icons.auto_graph_outlined, size: 20),
     );
     final bpm = _ValueMenu(
@@ -141,7 +165,6 @@ class _AudioToolbarState extends State<_AudioToolbar> {
       max: 100000,
       allowNegative: false,
       enabled: enabled,
-      compact: mobile,
       commitTextOnEditingComplete: true,
       onChanged: controller.setBpm,
       stepButtons: [
@@ -161,7 +184,6 @@ class _AudioToolbarState extends State<_AudioToolbar> {
       max: 30,
       allowNegative: true,
       enabled: enabled,
-      compact: mobile,
       commitTextOnEditingComplete: true,
       onChanged: controller.setOffset,
       stepButtons: [
@@ -183,6 +205,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
       key: const ValueKey('export-audio'),
       onPressed: enabled ? onExportAudio : null,
       tooltip: '导出 Ogg 音频',
+      style: _toolbarIconButtonStyle,
       icon: const Icon(Icons.ios_share_outlined, size: 20),
     );
     final timingToggle = IconButton(
@@ -191,13 +214,14 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           ? () => setState(() => _timingExpanded = !_timingExpanded)
           : null,
       tooltip: _timingExpanded ? '收起 BPM 与 Offset' : '展开 BPM 与 Offset',
+      style: _toolbarIconButtonStyle,
       icon: Icon(
         _timingExpanded ? Icons.expand_less : Icons.expand_more,
         size: 20,
       ),
     );
     return Padding(
-      padding: EdgeInsets.fromLTRB(8, compact ? 6 : 7, 8, compact ? 4 : 7),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: mobile
           ? Column(
               children: [
@@ -214,7 +238,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                   ],
                 ),
                 if (_timingExpanded) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Row(
                     children: [
                       Expanded(child: bpm),
@@ -235,7 +259,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                     export,
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [bpm, offset],
@@ -331,6 +355,7 @@ class _ChartToolbar extends StatelessWidget {
                   key: const ValueKey('save-chart'),
                   onPressed: enabled ? onSave : null,
                   tooltip: '保存',
+                  style: _toolbarIconButtonStyle,
                   icon: const Icon(Icons.save_outlined, size: 20),
                 ),
               ),
@@ -349,6 +374,7 @@ class _ChartToolbar extends StatelessWidget {
                         ? () => menu.isOpen ? menu.close() : menu.open()
                         : null,
                     tooltip: '保存选项',
+                    style: _toolbarIconButtonStyle,
                     icon: const Icon(Icons.arrow_drop_down, size: 20),
                   ),
                 ),
@@ -359,10 +385,11 @@ class _ChartToolbar extends StatelessWidget {
             key: const ValueKey('save-chart'),
             onPressed: enabled ? onSave : null,
             tooltip: '保存',
+            style: _toolbarIconButtonStyle,
             icon: const Icon(Icons.save_outlined, size: 20),
           );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 5, 8, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
         children: [
           Expanded(
@@ -379,19 +406,29 @@ class _ChartToolbar extends StatelessWidget {
                   child: const Text('打开草稿'),
                 ),
               ],
-              builder: (context, menu, child) => OutlinedButton.icon(
+              builder: (context, menu, child) => TextButton(
                 key: const ValueKey('chart-menu'),
                 onPressed: enabled
                     ? () => menu.isOpen ? menu.close() : menu.open()
                     : null,
-                icon: const Icon(Icons.description_outlined, size: 18),
-                label: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${controller.chartName}${controller.isDirty ? '  • 未保存' : ''}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                style: _toolbarFileButtonStyle,
+                child: Row(
+                  children: [
+                    const Icon(Icons.description_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '${controller.chartName}${controller.isDirty ? '  • 未保存' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    const Icon(Icons.arrow_drop_down, size: 18),
+                  ],
                 ),
               ),
             ),
@@ -402,6 +439,7 @@ class _ChartToolbar extends StatelessWidget {
             key: const ValueKey('clear-chart'),
             onPressed: enabled ? onClear : null,
             tooltip: '清空谱面',
+            style: _toolbarIconButtonStyle,
             icon: const Icon(Icons.delete_sweep_outlined, size: 20),
           ),
           const SizedBox(width: 2),
@@ -409,6 +447,7 @@ class _ChartToolbar extends StatelessWidget {
             key: const ValueKey('export-slk'),
             onPressed: enabled ? onExportSlk : null,
             tooltip: '导出成品 SLK',
+            style: _toolbarIconButtonStyle,
             icon: const Icon(Icons.ios_share_outlined, size: 20),
           ),
         ],
@@ -435,7 +474,6 @@ class _ValueMenu extends StatefulWidget {
     required this.max,
     required this.allowNegative,
     required this.enabled,
-    this.compact = false,
     this.commitTextOnEditingComplete = false,
     required this.onChanged,
     required this.stepButtons,
@@ -447,7 +485,6 @@ class _ValueMenu extends StatefulWidget {
   final double max;
   final bool allowNegative;
   final bool enabled;
-  final bool compact;
   final bool commitTextOnEditingComplete;
   final ValueChanged<double> onChanged;
   final List<_StepAction> stepButtons;
@@ -687,12 +724,9 @@ class _ValueMenuState extends State<_ValueMenu> {
             : null,
         style: TextButton.styleFrom(
           foregroundColor: EditorColors.text,
-          backgroundColor: widget.compact ? EditorColors.canvas : null,
-          side: widget.compact
-              ? const BorderSide(color: EditorColors.border)
-              : null,
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          minimumSize: const Size(84, 40),
+          minimumSize: const Size(84, 48),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
         child: Row(

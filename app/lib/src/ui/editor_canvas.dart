@@ -15,6 +15,11 @@ const double editorCursorViewportFraction = 0.25;
 const double mobileEditorContentRightInset = 24;
 const Duration playbackVisualPredictionLimit = Duration(milliseconds: 50);
 
+final BoxDecoration _canvasControlSurfaceDecoration = BoxDecoration(
+  color: EditorColors.surface.withValues(alpha: 0.92),
+  borderRadius: BorderRadius.circular(6),
+);
+
 double editorCursorY(Size size) => size.height * editorCursorViewportFraction;
 
 int projectEditorRow({
@@ -707,20 +712,10 @@ class _NavigationRailState extends State<_NavigationRail> {
     final controller = widget.controller;
     final navigation = widget.navigation;
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: EditorColors.surfaceRaised.withValues(alpha: 0.96),
-        border: Border.all(color: EditorColors.border),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x55080B0E),
-            blurRadius: 12,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
+      key: const ValueKey('navigation-control-surface'),
+      decoration: _canvasControlSurfaceDecoration,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 2),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -732,6 +727,8 @@ class _NavigationRailState extends State<_NavigationRail> {
                 controller.waveformVisible
                     ? Icons.graphic_eq
                     : Icons.hide_source_outlined,
+                size: 20,
+                color: controller.waveformVisible ? EditorColors.accent : null,
               ),
             ),
             MenuAnchor(
@@ -811,17 +808,17 @@ class _NavigationRailState extends State<_NavigationRail> {
                     ? null
                     : () => menu.isOpen ? menu.close() : menu.open(),
                 tooltip: '音效切换',
-                icon: const Icon(Icons.spatial_audio_off_outlined),
+                icon: const Icon(Icons.spatial_audio_off_outlined, size: 20),
               ),
             ),
-            const SizedBox(width: 28, child: Divider(height: 5)),
+            const SizedBox(width: 24, child: Divider(height: 5)),
             IconButton(
               onPressed:
                   controller.generalActionsEnabled && navigation.canToBegin
                   ? () => controller.moveToRow(navigation.toBeginRow)
                   : null,
               tooltip: '跳到开头',
-              icon: const Icon(Icons.vertical_align_top),
+              icon: const Icon(Icons.vertical_align_top, size: 20),
             ),
             IconButton(
               onPressed:
@@ -829,7 +826,7 @@ class _NavigationRailState extends State<_NavigationRail> {
                   ? () => controller.moveToRow(navigation.pageUpRow)
                   : null,
               tooltip: '上翻一页',
-              icon: const Icon(Icons.keyboard_arrow_up),
+              icon: const Icon(Icons.keyboard_arrow_up, size: 20),
             ),
             IconButton(
               onPressed:
@@ -846,6 +843,8 @@ class _NavigationRailState extends State<_NavigationRail> {
                 controller.isPlaying
                     ? Icons.pause_rounded
                     : Icons.play_arrow_rounded,
+                size: 20,
+                color: controller.isPlaying ? EditorColors.accent : null,
               ),
             ),
             IconButton(
@@ -854,14 +853,14 @@ class _NavigationRailState extends State<_NavigationRail> {
                   ? () => controller.moveToRow(navigation.pageDownRow)
                   : null,
               tooltip: '下翻一页',
-              icon: const Icon(Icons.keyboard_arrow_down),
+              icon: const Icon(Icons.keyboard_arrow_down, size: 20),
             ),
             IconButton(
               onPressed: controller.generalActionsEnabled && navigation.canToEnd
                   ? () => controller.moveToRow(navigation.toEndRow)
                   : null,
               tooltip: '跳到末尾',
-              icon: const Icon(Icons.vertical_align_bottom),
+              icon: const Icon(Icons.vertical_align_bottom, size: 20),
             ),
           ],
         ),
@@ -878,11 +877,8 @@ class _HistoryControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: EditorColors.surfaceRaised.withValues(alpha: 0.94),
-        border: Border.all(color: EditorColors.border),
-        borderRadius: BorderRadius.circular(7),
-      ),
+      key: const ValueKey('history-control-surface'),
+      decoration: _canvasControlSurfaceDecoration,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -891,14 +887,14 @@ class _HistoryControls extends StatelessWidget {
                 ? controller.undo
                 : null,
             tooltip: '撤销',
-            icon: const Icon(Icons.undo, size: 19),
+            icon: const Icon(Icons.undo, size: 20),
           ),
           IconButton(
             onPressed: controller.generalActionsEnabled && controller.canRedo
                 ? controller.redo
                 : null,
             tooltip: '重做',
-            icon: const Icon(Icons.redo, size: 19),
+            icon: const Icon(Icons.redo, size: 20),
           ),
         ],
       ),
