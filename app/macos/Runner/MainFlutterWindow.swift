@@ -53,15 +53,37 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
   }
 
   private func handleFileCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard call.method == "linkNoReplace" else {
+    guard call.method == "linkNoReplace" || call.method == "writeNoReplace" else {
       result(FlutterMethodNotImplemented)
       return
     }
     guard
       let arguments = call.arguments as? [String: Any],
-      let source = arguments["sourcePath"] as? String,
       let target = arguments["targetPath"] as? String
     else {
+      result(FlutterError(code: "invalid-arguments", message: "File paths are required.", details: nil))
+      return
+    }
+    if call.method == "writeNoReplace" {
+      guard let typedData = arguments["bytes"] as? FlutterStandardTypedData else {
+        result(FlutterError(code: "invalid-arguments", message: "Output bytes are required.", details: nil))
+        return
+      }
+      let code = writeNoReplace(data: typedData.data, path: target)
+      if code == 0 {
+        result(true)
+      } else if code == EEXIST {
+        result(false)
+      } else {
+        result(FlutterError(
+          code: "file-publish-error",
+          message: String(cString: strerror(code)),
+          details: code
+        ))
+      }
+      return
+    }
+    guard let source = arguments["sourcePath"] as? String else {
       result(FlutterError(code: "invalid-arguments", message: "File paths are required.", details: nil))
       return
     }
@@ -77,13 +99,83 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
     let code = errno
     if code == EEXIST {
       result(false)
-    } else {
-      result(FlutterError(
-        code: "file-publish-error",
-        message: String(cString: strerror(code)),
-        details: code
-      ))
+      return
     }
+
+    // Some volumes (and the macOS sandbox) reject hard links even though an
+    // atomic exclusive rename is supported. Keep the same no-replace
+    // semantics while avoiding a partially visible destination.
+    let renameStatus = source.withCString { sourcePointer in
+      target.withCString { targetPointer in
+        Darwin.renameatx_np(
+          AT_FDCWD,
+          sourcePointer,
+          AT_FDCWD,
+          targetPointer,
+          UInt32(RENAME_EXCL)
+        )
+      }
+    }
+    if renameStatus == 0 {
+      result(true)
+      return
+    }
+    let renameCode = errno
+    if renameCode == EEXIST {
+      result(false)
+      return
+    }
+    result(FlutterError(
+      code: "file-publish-error",
+      message: String(cString: strerror(renameCode)),
+      details: renameCode
+    ))
+  }
+
+  private func writeNoReplace(data: Data, path: String) -> Int32 {
+    let descriptor = path.withCString {
+      Darwin.open(
+        $0,
+        O_WRONLY | O_CREAT | O_EXCL,
+        S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH
+      )
+    }
+    guard descriptor >= 0 else {
+      return errno
+    }
+
+    var failureCode: Int32 = 0
+    let wroteAll = data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) -> Bool in
+      guard let baseAddress = buffer.baseAddress else {
+        return true
+      }
+      var offset = 0
+      while offset < buffer.count {
+        let written = Darwin.write(
+          descriptor,
+          baseAddress.advanced(by: offset),
+          buffer.count - offset
+        )
+        if written <= 0 {
+          failureCode = written < 0 ? errno : EIO
+          return false
+        }
+        offset += written
+      }
+      return true
+    }
+    if wroteAll && Darwin.fsync(descriptor) != 0 {
+      failureCode = errno
+    }
+    let closeStatus = Darwin.close(descriptor)
+    if wroteAll && failureCode == 0 && closeStatus != 0 {
+      failureCode = errno
+    }
+    guard failureCode == 0 else {
+      _ = path.withCString { Darwin.unlink($0) }
+      return failureCode
+    }
+    return 0
   }
 }
 

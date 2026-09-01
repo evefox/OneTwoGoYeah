@@ -124,6 +124,7 @@ class _AudioToolbar extends StatelessWidget {
         max: 100000,
         allowNegative: false,
         enabled: enabled,
+        commitTextOnEditingComplete: true,
         onChanged: controller.setBpm,
         stepButtons: [
           _StepAction(Icons.remove, 'BPM 减少 0.001', () {
@@ -142,6 +143,7 @@ class _AudioToolbar extends StatelessWidget {
         max: 30,
         allowNegative: true,
         enabled: enabled,
+        commitTextOnEditingComplete: true,
         onChanged: controller.setOffset,
         stepButtons: [
           _StepAction(Icons.keyboard_double_arrow_left, '往前一拍', () {
@@ -377,6 +379,7 @@ class _ValueMenu extends StatefulWidget {
     required this.max,
     required this.allowNegative,
     required this.enabled,
+    this.commitTextOnEditingComplete = false,
     required this.onChanged,
     required this.stepButtons,
   });
@@ -387,6 +390,7 @@ class _ValueMenu extends StatefulWidget {
   final double max;
   final bool allowNegative;
   final bool enabled;
+  final bool commitTextOnEditingComplete;
   final ValueChanged<double> onChanged;
   final List<_StepAction> stepButtons;
 
@@ -396,17 +400,24 @@ class _ValueMenu extends StatefulWidget {
 
 class _ValueMenuState extends State<_ValueMenu> {
   final _controller = TextEditingController();
+  final _focusNode = FocusNode();
   Timer? _repeatDelay;
   Timer? _repeatTimer;
   double? _repeatValue;
   bool _suppressNextTap = false;
 
   @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_handleFocusChanged);
+  }
+
+  @override
   void didUpdateWidget(covariant _ValueMenu oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!_controller.selection.isValid ||
-        oldWidget.value != widget.value &&
-            _controller.text != widget.value.toStringAsFixed(3)) {
+    if ((!widget.commitTextOnEditingComplete || !_focusNode.hasFocus) &&
+        (!_controller.selection.isValid || oldWidget.value != widget.value) &&
+        _controller.text != widget.value.toStringAsFixed(3)) {
       _controller.text = widget.value.toStringAsFixed(3);
     }
   }
@@ -415,8 +426,16 @@ class _ValueMenuState extends State<_ValueMenu> {
   void dispose() {
     _repeatDelay?.cancel();
     _repeatTimer?.cancel();
+    _focusNode.removeListener(_handleFocusChanged);
+    _focusNode.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _handleFocusChanged() {
+    if (!_focusNode.hasFocus && widget.commitTextOnEditingComplete) {
+      _commitText();
+    }
   }
 
   void _beginRepeat(_StepAction action) {
@@ -488,18 +507,42 @@ class _ValueMenuState extends State<_ValueMenu> {
     action.onPressed();
   }
 
-  void _parse(String text) {
+  double? _parse(String text) {
     if (!RegExp(
       widget.allowNegative
           ? r'^-?\d{0,6}(?:\.\d{0,3})?$'
           : r'^\d{0,6}(?:\.\d{0,3})?$',
     ).hasMatch(text)) {
-      return;
+      return null;
     }
     final value = double.tryParse(text);
     if (value != null && value >= widget.min && value <= widget.max) {
+      return value;
+    }
+    return null;
+  }
+
+  void _handleTextChanged(String text) {
+    if (widget.commitTextOnEditingComplete) {
+      return;
+    }
+    final value = _parse(text);
+    if (value != null) {
       widget.onChanged(value);
     }
+  }
+
+  void _commitText() {
+    final value = widget.enabled ? _parse(_controller.text) : null;
+    if (value != null) {
+      widget.onChanged(value);
+    }
+    final displayValue = value ?? widget.value;
+    final displayText = displayValue.toStringAsFixed(3);
+    _controller.value = TextEditingValue(
+      text: displayText,
+      selection: TextSelection.collapsed(offset: displayText.length),
+    );
   }
 
   @override
@@ -520,7 +563,9 @@ class _ValueMenuState extends State<_ValueMenu> {
                 ),
                 const SizedBox(height: 6),
                 TextField(
+                  key: ValueKey('${widget.label.toLowerCase()}-input'),
                   controller: _controller,
+                  focusNode: _focusNode,
                   enabled: widget.enabled,
                   autofocus: true,
                   keyboardType: const TextInputType.numberWithOptions(
@@ -530,7 +575,13 @@ class _ValueMenuState extends State<_ValueMenu> {
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.\-]')),
                   ],
-                  onChanged: _parse,
+                  onChanged: _handleTextChanged,
+                  onSubmitted: widget.commitTextOnEditingComplete
+                      ? (_) {
+                          _commitText();
+                          _focusNode.unfocus();
+                        }
+                      : null,
                   decoration: InputDecoration(suffixText: widget.label),
                 ),
                 const SizedBox(height: 8),

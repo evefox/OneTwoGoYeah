@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:otgy_native/otgy_native.dart';
 
 import '../infrastructure/playback_output.dart';
@@ -22,6 +23,32 @@ typedef AudioExportSaveCallback = Future<void> Function(
 final class AudioExportCancelled implements Exception {
   const AudioExportCancelled();
 }
+
+const _playbackSoundFiles = <(PlaybackSoundId, String)>[
+  (PlaybackSoundId.f1_1, 'f1-1'),
+  (PlaybackSoundId.f1_2, 'f1-2'),
+  (PlaybackSoundId.f1_3, 'f1-3'),
+  (PlaybackSoundId.f1_4, 'f1-4'),
+  (PlaybackSoundId.f1_6, 'f1-6'),
+  (PlaybackSoundId.f1_7, 'f1-7'),
+  (PlaybackSoundId.f1_8, 'f1-8'),
+  (PlaybackSoundId.f1_9, 'f1-9'),
+  (PlaybackSoundId.f1Go, 'f1-go'),
+  (PlaybackSoundId.f1Yeah, 'f1_yeah'),
+  (PlaybackSoundId.m1_1, 'm1-1'),
+  (PlaybackSoundId.m1_2, 'm1-2'),
+  (PlaybackSoundId.m1_3, 'm1-3'),
+  (PlaybackSoundId.m1_4, 'm1-4'),
+  (PlaybackSoundId.m1_6, 'm1-6'),
+  (PlaybackSoundId.m1_7, 'm1-7'),
+  (PlaybackSoundId.m1_8, 'm1-8'),
+  (PlaybackSoundId.m1_9, 'm1-9'),
+  (PlaybackSoundId.m1Go, 'm1-go'),
+  (PlaybackSoundId.m1Yeah, 'm1_yeah'),
+  (PlaybackSoundId.spaceBar, 'space_bar'),
+  (PlaybackSoundId.turn1, 'turn_1'),
+  (PlaybackSoundId.turn2, 'turn_2'),
+];
 
 final class _BackgroundAudioAnalysis {
   const _BackgroundAudioAnalysis({
@@ -46,6 +73,45 @@ final class _BackgroundAudioAnalysis {
   }
 }
 
+Future<AudioExportResult> _runAudioExportInIsolate({
+  required Uint8List source,
+  required String extension,
+  required double offset,
+  required int quality,
+  required String baseName,
+  required int cancelAddress,
+  required SendPort progressSendPort,
+}) {
+  // Keep this closure in a top-level helper. Closures created inside
+  // EditorController.exportAudio share that method's context with UI listeners
+  // and can accidentally capture unsendable controller state (for example the
+  // pending playback-sound Future).
+  return Isolate.run(() {
+    final borrowedCancellation = AudioExportCancellation.borrowAddress(
+      cancelAddress,
+    );
+    final audio = OtgyNative.decodeAudio(source, extension);
+    try {
+      return audio.exportOgg(
+        offset: offset,
+        quality: quality,
+        baseName: baseName,
+        cancellation: borrowedCancellation,
+        onProgress: (progress) {
+          progressSendPort.send([
+            progress.stage.value,
+            progress.completedUnits,
+            progress.totalUnits,
+          ]);
+        },
+      );
+    } finally {
+      audio.dispose();
+      borrowedCancellation.dispose();
+    }
+  });
+}
+
 final class EditorNotice {
   const EditorNotice(this.message, {this.kind = EditorNoticeKind.info});
 
@@ -65,6 +131,8 @@ class EditorController extends ChangeNotifier {
   NativeChartEditor _editor;
   final PlaybackOutput _playbackOutput;
   NativeAudio? _audio;
+  NativePlaybackSoundBank? _playbackSoundBank;
+  Future<NativePlaybackSoundBank>? _playbackSoundBankFuture;
   List<ChartMarker> _markers = const [];
   List<ShowtimeMove> _showtimeMoves = const [];
   List<WaveformBlock> _waveformBlocks = const [];
@@ -75,6 +143,9 @@ class EditorController extends ChangeNotifier {
   bool _isPlaying = false;
   bool _isDirty = false;
   bool _waveformVisible = true;
+  PlaybackSoundLanguage _playbackSoundLanguage = PlaybackSoundLanguage.chinese;
+  PlaybackDanceMode _playbackDanceMode = PlaybackDanceMode.fourKey;
+  bool _transitionSoundsEnabled = false;
   String? _audioFileName;
   Uint8List? _audioSourceBytes;
   String? _audioExtension;
@@ -101,6 +172,9 @@ class EditorController extends ChangeNotifier {
   int _playbackPlayedFrames = 0;
   bool _playbackPollActive = false;
   int _playbackGeneration = 0;
+  final math.Random _playbackSoundRandom = math.Random();
+  int? _playbackSoundSeed;
+  double? _playbackSoundResumeRow;
   AudioExportCancellation? _audioExportCancellation;
   AudioExportProgress? _audioExportProgress;
 
@@ -126,6 +200,9 @@ class EditorController extends ChangeNotifier {
       0;
   bool get isDirty => _isDirty;
   bool get waveformVisible => _waveformVisible;
+  PlaybackSoundLanguage get playbackSoundLanguage => _playbackSoundLanguage;
+  PlaybackDanceMode get playbackDanceMode => _playbackDanceMode;
+  bool get transitionSoundsEnabled => _transitionSoundsEnabled;
   bool get hasAudio => _audio != null;
   bool get canUndo => _editor.canUndo;
   bool get canRedo => _editor.canRedo;
@@ -222,6 +299,7 @@ class EditorController extends ChangeNotifier {
       _bpm = 100;
       _offset = 0;
       _currentRow = 0;
+      _invalidatePlaybackSoundSession();
       _notice = const EditorNotice('音频已加载');
       _updateDirty();
     } on Object {
@@ -437,30 +515,15 @@ class EditorController extends ChangeNotifier {
       notifyListeners();
     });
     try {
-      final result = await Isolate.run(() {
-        final borrowedCancellation = AudioExportCancellation.borrowAddress(
-          cancelAddress,
-        );
-        final audio = OtgyNative.decodeAudio(source, extension);
-        try {
-          return audio.exportOgg(
-            offset: offset,
-            quality: quality,
-            baseName: baseName,
-            cancellation: borrowedCancellation,
-            onProgress: (progress) {
-              progressSendPort.send([
-                progress.stage.value,
-                progress.completedUnits,
-                progress.totalUnits,
-              ]);
-            },
-          );
-        } finally {
-          audio.dispose();
-          borrowedCancellation.dispose();
-        }
-      });
+      final result = await _runAudioExportInIsolate(
+        source: source,
+        extension: extension,
+        offset: offset,
+        quality: quality,
+        baseName: baseName,
+        cancelAddress: cancelAddress,
+        progressSendPort: progressSendPort,
+      );
       await progressSubscription.cancel();
       progressSubscription = null;
       progressPort.close();
@@ -623,6 +686,10 @@ class EditorController extends ChangeNotifier {
       showNotice('请先加载音频');
       return;
     }
+    if (_isBusy) {
+      return;
+    }
+    _setBusy(true);
     try {
       final cursorSeconds = OtgyNative.sixteenthRowToSeconds(
         bpm: projectedBpm,
@@ -636,7 +703,25 @@ class EditorController extends ChangeNotifier {
       if (!start.isPlaying) {
         return;
       }
-      final playback = audio.renderPlayback(start.timelineSeconds);
+      final usesChartSounds = _markers.isNotEmpty;
+      PlaybackPcm playback;
+      if (usesChartSounds) {
+        final soundBank = await _ensurePlaybackSoundBank();
+        final seed = _soundSeedForPlayback();
+        playback = audio.renderChartPlayback(
+          editor: _editor,
+          soundBank: soundBank,
+          language: _playbackSoundLanguage,
+          danceMode: _playbackDanceMode,
+          transitionSoundsEnabled: _transitionSoundsEnabled,
+          randomSeed: seed,
+          bpm: projectedBpm,
+          offset: _offset,
+          timelineStartSeconds: start.timelineSeconds,
+        );
+      } else {
+        playback = audio.renderPlayback(start.timelineSeconds);
+      }
       if (playback.frameCount == 0) {
         _applyPlaybackPosition(
           PlaybackPosition(
@@ -669,7 +754,9 @@ class EditorController extends ChangeNotifier {
       _isPlaying = false;
       _playbackStart = null;
       unawaited(_playbackOutput.dispose());
-      showNotice('无法启动音频播放', error: true);
+      showNotice(_markers.isNotEmpty ? '无法加载或混合谱面音效' : '无法启动音频播放', error: true);
+    } finally {
+      _setBusy(false);
     }
   }
 
@@ -737,6 +824,12 @@ class EditorController extends ChangeNotifier {
       _playbackStart = null;
       _isPlaying = false;
       _playbackGeneration++;
+      if (_playbackSoundSeed != null &&
+          position.timelineSeconds < position.audioDurationSeconds) {
+        _playbackSoundResumeRow = _currentRow;
+      } else {
+        _invalidatePlaybackSoundSession();
+      }
     }
     notifyListeners();
   }
@@ -755,6 +848,33 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setPlaybackSoundLanguage(PlaybackSoundLanguage value) {
+    if (_isPlaying || _isBusy || value == _playbackSoundLanguage) {
+      return;
+    }
+    _playbackSoundLanguage = value;
+    _invalidatePlaybackSoundSession();
+    notifyListeners();
+  }
+
+  void setPlaybackDanceMode(PlaybackDanceMode value) {
+    if (_isPlaying || _isBusy || value == _playbackDanceMode) {
+      return;
+    }
+    _playbackDanceMode = value;
+    _invalidatePlaybackSoundSession();
+    notifyListeners();
+  }
+
+  void setTransitionSoundsEnabled(bool value) {
+    if (_isPlaying || _isBusy || value == _transitionSoundsEnabled) {
+      return;
+    }
+    _transitionSoundsEnabled = value;
+    _invalidatePlaybackSoundSession();
+    notifyListeners();
+  }
+
   void moveToRow(double value) {
     if (!generalActionsEnabled) {
       return;
@@ -765,6 +885,7 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _currentRow = next;
+    _invalidatePlaybackSoundSession();
     notifyListeners();
   }
 
@@ -868,12 +989,77 @@ class EditorController extends ChangeNotifier {
     final previous = _editor;
     _editor = pending;
     _refreshProjection();
+    _invalidatePlaybackSoundSession();
     previous.dispose();
   }
 
   void _commitChartChange() {
     _projectRevision++;
+    _invalidatePlaybackSoundSession();
     _updateDirty();
+  }
+
+  Future<NativePlaybackSoundBank> _ensurePlaybackSoundBank() async {
+    final current = _playbackSoundBank;
+    if (current != null) {
+      return current;
+    }
+    final pending = _playbackSoundBankFuture ??= _loadPlaybackSoundBank();
+    try {
+      final bank = await pending;
+      _playbackSoundBank = bank;
+      if (identical(_playbackSoundBankFuture, pending)) {
+        _playbackSoundBankFuture = null;
+      }
+      return bank;
+    } on Object {
+      if (identical(_playbackSoundBankFuture, pending)) {
+        _playbackSoundBankFuture = null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<NativePlaybackSoundBank> _loadPlaybackSoundBank() async {
+    final assets = <PlaybackSoundAsset>[];
+    for (final language in PlaybackSoundLanguage.values) {
+      final directory = language == PlaybackSoundLanguage.chinese ? 'zh' : 'en';
+      for (final (id, fileName) in _playbackSoundFiles) {
+        final data = await rootBundle.load(
+          'assets/sounds/$directory/$fileName.wav',
+        );
+        assets.add(
+          PlaybackSoundAsset(
+            language: language,
+            id: id,
+            wavBytes: data.buffer.asUint8List(
+              data.offsetInBytes,
+              data.lengthInBytes,
+            ),
+          ),
+        );
+      }
+    }
+    return NativePlaybackSoundBank.decode(assets);
+  }
+
+  int _soundSeedForPlayback() {
+    final existing = _playbackSoundSeed;
+    if (existing != null && _playbackSoundResumeRow == _currentRow) {
+      _playbackSoundResumeRow = null;
+      return existing;
+    }
+    final seed =
+        (_playbackSoundRandom.nextInt(1 << 30) << 30) |
+        _playbackSoundRandom.nextInt(1 << 30);
+    _playbackSoundSeed = seed;
+    _playbackSoundResumeRow = null;
+    return seed;
+  }
+
+  void _invalidatePlaybackSoundSession() {
+    _playbackSoundSeed = null;
+    _playbackSoundResumeRow = null;
   }
 
   void _updateDirty() {
@@ -915,6 +1101,7 @@ class EditorController extends ChangeNotifier {
     _audioExportCancellation?.request();
     unawaited(_playbackOutput.dispose());
     _audio?.dispose();
+    _playbackSoundBank?.dispose();
     _editor.dispose();
     super.dispose();
   }

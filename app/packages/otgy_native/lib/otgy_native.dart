@@ -359,6 +359,99 @@ final class PlaybackPcm {
   final Uint8List interleavedPcm16le;
 }
 
+enum PlaybackSoundLanguage { chinese, english }
+
+enum PlaybackDanceMode { fourKey, eightKey }
+
+enum PlaybackSoundId {
+  f1_1,
+  f1_2,
+  f1_3,
+  f1_4,
+  f1_6,
+  f1_7,
+  f1_8,
+  f1_9,
+  f1Go,
+  f1Yeah,
+  m1_1,
+  m1_2,
+  m1_3,
+  m1_4,
+  m1_6,
+  m1_7,
+  m1_8,
+  m1_9,
+  m1Go,
+  m1Yeah,
+  spaceBar,
+  turn1,
+  turn2,
+}
+
+final class PlaybackSoundAsset {
+  const PlaybackSoundAsset({
+    required this.language,
+    required this.id,
+    required this.wavBytes,
+  });
+
+  final PlaybackSoundLanguage language;
+  final PlaybackSoundId id;
+  final Uint8List wavBytes;
+}
+
+final class NativePlaybackSoundBank {
+  NativePlaybackSoundBank._(this._handle);
+
+  factory NativePlaybackSoundBank.decode(List<PlaybackSoundAsset> assets) {
+    return using((arena) {
+      final nativeAssets = arena<native.otgy_playback_sound_asset>(
+        assets.length,
+      );
+      final outBank = arena<Pointer<native.otgy_playback_sound_bank>>();
+      final error = arena<Pointer<native.otgy_error>>();
+      for (var index = 0; index < assets.length; index++) {
+        final asset = assets[index];
+        nativeAssets[index]
+          ..language = asset.language.index
+          ..id = asset.id.index
+          ..wav_bytes = _copyBytes(asset.wavBytes, arena);
+      }
+      try {
+        _checkStatus(
+          native.otgy_playback_sound_bank_create(
+            nativeAssets,
+            assets.length,
+            outBank,
+            error,
+          ),
+          error,
+        );
+        return NativePlaybackSoundBank._(outBank.value);
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
+  Pointer<native.otgy_playback_sound_bank> _handle;
+
+  Pointer<native.otgy_playback_sound_bank> _requireHandle() {
+    if (_handle == nullptr) {
+      throw StateError('NativePlaybackSoundBank has been disposed.');
+    }
+    return _handle;
+  }
+
+  void dispose() {
+    if (_handle != nullptr) {
+      native.otgy_playback_sound_bank_destroy(_handle);
+      _handle = nullptr;
+    }
+  }
+}
+
 final class PlaybackPosition {
   const PlaybackPosition({
     required this.isPlaying,
@@ -687,6 +780,65 @@ final class NativeAudio {
       } finally {
         if (output.value != nullptr) {
           native.otgy_playback_pcm_destroy(output.value);
+        }
+        _destroyError(error);
+      }
+    });
+  }
+
+  PlaybackPcm renderChartPlayback({
+    required NativeChartEditor editor,
+    required NativePlaybackSoundBank soundBank,
+    required PlaybackSoundLanguage language,
+    required PlaybackDanceMode danceMode,
+    required bool transitionSoundsEnabled,
+    required int randomSeed,
+    required double bpm,
+    required double offset,
+    required double timelineStartSeconds,
+  }) {
+    return using((arena) {
+      final output = arena<Pointer<native.otgy_playback_pcm>>();
+      final error = arena<Pointer<native.otgy_error>>();
+      final config = arena<native.otgy_playback_sound_config>()
+        ..ref.language = language.index
+        ..ref.dance_mode = danceMode.index
+        ..ref.transition_sounds_enabled = transitionSoundsEnabled ? 1 : 0
+        ..ref.random_seed = randomSeed
+        ..ref.bpm = bpm
+        ..ref.offset_seconds = offset;
+      Pointer<native.otgy_chart> chart = nullptr;
+      try {
+        chart = editor._copyChart(error);
+        _checkStatus(
+          native.otgy_render_chart_playback_pcm(
+            _requireHandle(),
+            chart,
+            soundBank._requireHandle(),
+            config.ref,
+            timelineStartSeconds,
+            output,
+            error,
+          ),
+          error,
+        );
+        final handle = output.value;
+        final bytes = native.otgy_playback_pcm_get_bytes(handle);
+        return PlaybackPcm(
+          sampleRate: native.otgy_playback_pcm_get_sample_rate(handle),
+          frameCount: native.otgy_playback_pcm_get_frame_count(handle),
+          interleavedPcm16le: bytes.length == 0
+              ? Uint8List(0)
+              : Uint8List.fromList(
+                  bytes.data.cast<Uint8>().asTypedList(bytes.length),
+                ),
+        );
+      } finally {
+        if (output.value != nullptr) {
+          native.otgy_playback_pcm_destroy(output.value);
+        }
+        if (chart != nullptr) {
+          native.otgy_chart_destroy(chart);
         }
         _destroyError(error);
       }

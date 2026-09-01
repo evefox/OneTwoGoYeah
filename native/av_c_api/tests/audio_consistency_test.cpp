@@ -10,6 +10,7 @@
 #include "av_core/audio/pcm16_hash.hpp"
 #include "av_core/playback/playback_pcm.hpp"
 #include "av_core/playback/playback_position.hpp"
+#include "av_core/playback/playback_sound.hpp"
 #include "av_core/timing/bpm_detector.hpp"
 #include "av_core/timing/offset_detector.hpp"
 #include "av_core/timing/onset_detector.hpp"
@@ -634,6 +635,47 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
              std::memcmp(bytes.data, direct.pcm()->bytes().data(),
                          direct.pcm()->bytes().size()) == 0,
          "playback PCM bytes differ");
+
+  auto direct_bank_result =
+      otgy::core::decode_playback_sound_bank(nullptr, 0U);
+  expect(static_cast<bool>(direct_bank_result),
+         "direct empty sound bank failed");
+  auto direct_bank = std::move(direct_bank_result).take_bank();
+  const otgy::core::ChartDraft empty_chart{{}, {}, {}, {}, {}, {}};
+  const otgy::core::PlaybackSoundConfig direct_config{
+      otgy::core::PlaybackSoundLanguage::Chinese,
+      otgy::core::PlaybackDanceMode::FourKey, false, 1U, {100.0, 0.0}};
+  const auto direct_chart_pcm = otgy::core::render_chart_playback_pcm(
+      direct_pcm, empty_chart, direct_bank, direct_config, kStart);
+  expect(static_cast<bool>(direct_chart_pcm),
+         "direct chart playback PCM failed");
+  otgy_playback_sound_bank* raw_bank = nullptr;
+  expect(otgy_playback_sound_bank_create(nullptr, 0U, &raw_bank,
+                                         &raw_error) == OTGY_STATUS_OK,
+         "C ABI empty sound bank failed");
+  auto bank = handle<otgy_playback_sound_bank,
+                     otgy_playback_sound_bank_destroy>(raw_bank);
+  otgy_chart* raw_chart = nullptr;
+  expect(otgy_chart_create_empty(&raw_chart, &raw_error) == OTGY_STATUS_OK,
+         "C ABI empty chart failed");
+  auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+  const otgy_playback_sound_config abi_config{
+      OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE, OTGY_PLAYBACK_DANCE_MODE_4K, 0U,
+      1U, 100.0, 0.0};
+  raw_pcm = nullptr;
+  expect(otgy_render_chart_playback_pcm(
+             abi_pcm, chart.get(), bank.get(), abi_config, kStart, &raw_pcm,
+             &raw_error) == OTGY_STATUS_OK,
+         "C ABI chart playback PCM failed");
+  auto chart_pcm =
+      handle<otgy_playback_pcm, otgy_playback_pcm_destroy>(raw_pcm);
+  const auto chart_bytes = otgy_playback_pcm_get_bytes(chart_pcm.get());
+  expect(chart_bytes.length == direct_chart_pcm.pcm()->bytes().size() &&
+             std::memcmp(chart_bytes.data,
+                         direct_chart_pcm.pcm()->bytes().data(),
+                         direct_chart_pcm.pcm()->bytes().size()) == 0,
+         "C ABI chart playback PCM bytes differ");
+  otgy_playback_sound_bank_destroy(nullptr);
 
   const auto direct_position = otgy::core::start_playback(
       static_cast<double>(direct_pcm.frame_count()) /

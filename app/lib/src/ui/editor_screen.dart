@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -361,9 +362,9 @@ class _EditorScreenState extends State<EditorScreen>
       _controller.showNotice('音频已导出');
     } on AudioExportCancelled {
       _controller.showNotice('导出已取消');
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
       if (mounted) {
-        await _showAudioExportError(error);
+        await _showAudioExportError(error, stackTrace);
       }
     }
   }
@@ -722,23 +723,44 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
-  Future<void> _showAudioExportError(Object error) {
-    final diagnostic = error is OtgyException
-        ? error.message
-        : '无法写入所选位置，请检查目标文件和可用空间。';
+  Future<void> _showAudioExportError(
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    final diagnostic = _formatAudioExportDiagnostic(error, stackTrace);
     return showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('音频导出失败'),
-        content: Text(diagnostic),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
+      builder: (context) => AudioExportErrorDialog(diagnostic: diagnostic),
     );
+  }
+
+  String _formatAudioExportDiagnostic(Object error, StackTrace stackTrace) {
+    final lines = <String>[
+      'operation: audio-export',
+      'exceptionType: ${error.runtimeType}',
+      'exception: $error',
+    ];
+    if (error case PlatformException(:final code, :final message, :final details)) {
+      lines
+        ..add('platformCode: $code')
+        ..add('platformMessage: ${message ?? ''}')
+        ..add('platformDetails: ${details ?? ''}');
+    }
+    if (error case FileSystemException(
+      :final osError,
+      :final path,
+    )) {
+      lines
+        ..add('fileSystemPath: ${path ?? ''}')
+        ..add('fileSystemError: ${osError ?? ''}');
+    }
+    final trace = stackTrace.toString().trim();
+    if (trace.isNotEmpty) {
+      lines
+        ..add('stackTrace:')
+        ..add(trace);
+    }
+    return lines.join('\n');
   }
 
   Future<bool> _confirmDeleteDraft(String name) async =>
@@ -852,6 +874,54 @@ class _EditorScreenState extends State<EditorScreen>
           ),
         );
       },
+    );
+  }
+}
+
+/// Displays a complete audio-export failure report and makes it easy to share
+/// the exact diagnostic with a bug report.
+class AudioExportErrorDialog extends StatefulWidget {
+  const AudioExportErrorDialog({super.key, required this.diagnostic});
+
+  final String diagnostic;
+
+  @override
+  State<AudioExportErrorDialog> createState() => _AudioExportErrorDialogState();
+}
+
+class _AudioExportErrorDialogState extends State<AudioExportErrorDialog> {
+  bool _copied = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('音频导出失败'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680, maxHeight: 420),
+        child: SingleChildScrollView(
+          child: SelectableText(
+            widget.diagnostic,
+            key: const ValueKey('audio-export-error-diagnostic'),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton.icon(
+          key: const ValueKey('copy-audio-export-error'),
+          onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: widget.diagnostic));
+            if (mounted) {
+              setState(() => _copied = true);
+            }
+          },
+          icon: Icon(_copied ? Icons.check : Icons.content_copy),
+          label: Text(_copied ? '已复制' : '复制错误信息'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
     );
   }
 }

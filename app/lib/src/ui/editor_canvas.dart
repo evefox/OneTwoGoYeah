@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,10 @@ import 'package:otgy_native/otgy_native.dart';
 
 import '../application/editor_controller.dart';
 import 'editor_theme.dart';
+
+const double editorCursorViewportFraction = 0.25;
+
+double editorCursorY(Size size) => size.height * editorCursorViewportFraction;
 
 int projectEditorRow({
   required double y,
@@ -39,13 +44,22 @@ class EditorCanvas extends StatefulWidget {
   State<EditorCanvas> createState() => _EditorCanvasState();
 }
 
+enum _CanvasGestureMode { undecided, verticalPan, horizontalPan, zoom }
+
 class _EditorCanvasState extends State<EditorCanvas> {
   final _focusNode = FocusNode(debugLabel: '谱面编辑画布');
   double _gestureZoom = 10;
+  double _gestureTargetZoom = 10;
+  double _gesturePreviewScale = 1;
+  PointerDeviceKind? _gestureKind;
+  _CanvasGestureMode _gestureMode = _CanvasGestureMode.undecided;
+  bool _gestureEnabled = false;
 
   bool get _mobile =>
       defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.android;
+
+  bool get _macOS => defaultTargetPlatform == TargetPlatform.macOS;
 
   @override
   void dispose() {
@@ -56,7 +70,7 @@ class _EditorCanvasState extends State<EditorCanvas> {
   Rect _chartRect(Size size) =>
       Rect.fromLTRB(36, 28, math.max(37, size.width - 58), size.height);
 
-  double _cursorY(Size size) => size.height * 0.52;
+  double _cursorY(Size size) => editorCursorY(size);
 
   int? _columnAt(Offset point, Size size) {
     final rect = _chartRect(size);
@@ -90,19 +104,120 @@ class _EditorCanvasState extends State<EditorCanvas> {
   }
 
   void _handleScroll(PointerScrollEvent event) {
+    if ((_macOS && event.scrollDelta.dx.abs() >= event.scrollDelta.dy.abs()) ||
+        event.scrollDelta.dy == 0) {
+      return;
+    }
     final keyboard = HardwareKeyboard.instance;
     final control = keyboard.isControlPressed || keyboard.isMetaPressed;
     if (control && keyboard.isAltPressed && !_mobile) {
-      widget.controller.setScale(
-        widget.controller.scale + (event.scrollDelta.dy > 0 ? -0.25 : 0.25),
+      unawaited(
+        widget.controller.setScale(
+          widget.controller.scale + (event.scrollDelta.dy > 0 ? -0.25 : 0.25),
+        ),
       );
     } else if (control) {
-      widget.controller.setZoom(
-        widget.controller.zoom + (event.scrollDelta.dy > 0 ? -0.25 : 0.25),
+      unawaited(
+        widget.controller.setZoom(
+          widget.controller.zoom + (event.scrollDelta.dy > 0 ? -0.25 : 0.25),
+        ),
       );
     } else {
       widget.controller.moveByPixels(event.scrollDelta.dy);
     }
+  }
+
+  void _handleScaleStart(ScaleStartDetails details) {
+    _gestureZoom = widget.controller.zoom;
+    _gestureTargetZoom = _gestureZoom;
+    _gestureKind = details.kind;
+    _gestureMode = _CanvasGestureMode.undecided;
+    _gestureEnabled =
+        widget.controller.generalActionsEnabled && !widget.controller.isBusy;
+    if (_gesturePreviewScale != 1) {
+      setState(() => _gesturePreviewScale = 1);
+    }
+  }
+
+  void _handleScaleUpdate(ScaleUpdateDetails details) {
+    if (!_gestureEnabled) {
+      return;
+    }
+    if (_mobile) {
+      if (details.pointerCount >= 2) {
+        unawaited(
+          widget.controller.setZoom(
+            _zoomForGestureScale(_gestureZoom, details.scale),
+          ),
+        );
+      } else if (details.pointerCount == 1) {
+        widget.controller.moveByPixels(-details.focalPointDelta.dy);
+      }
+      return;
+    }
+    if (!_macOS || _gestureKind != PointerDeviceKind.trackpad) {
+      return;
+    }
+
+    if (_gestureMode == _CanvasGestureMode.undecided) {
+      if ((details.scale - 1).abs() > 0.001) {
+        _gestureMode = _CanvasGestureMode.zoom;
+      } else if (details.focalPointDelta.distanceSquared > 0) {
+        _gestureMode =
+            details.focalPointDelta.dy.abs() > details.focalPointDelta.dx.abs()
+            ? _CanvasGestureMode.verticalPan
+            : _CanvasGestureMode.horizontalPan;
+      } else {
+        return;
+      }
+    }
+
+    if (_gestureMode == _CanvasGestureMode.verticalPan) {
+      widget.controller.moveByPixels(-details.focalPointDelta.dy);
+      return;
+    }
+    if (_gestureMode == _CanvasGestureMode.horizontalPan) {
+      return;
+    }
+
+    _gestureTargetZoom = _zoomForGestureScale(_gestureZoom, details.scale);
+    final previewScale = math
+        .pow(2, (_gestureTargetZoom - _gestureZoom) / 2)
+        .toDouble();
+    if (previewScale != _gesturePreviewScale) {
+      setState(() => _gesturePreviewScale = previewScale);
+    }
+  }
+
+  void _handleScaleEnd(ScaleEndDetails details) {
+    final commitTrackpadZoom =
+        _gestureEnabled &&
+        _macOS &&
+        _gestureKind == PointerDeviceKind.trackpad &&
+        _gestureMode == _CanvasGestureMode.zoom;
+    final targetZoom = _gestureTargetZoom;
+    _gestureEnabled = false;
+    _gestureKind = null;
+    _gestureMode = _CanvasGestureMode.undecided;
+    if (_gesturePreviewScale != 1) {
+      setState(() => _gesturePreviewScale = 1);
+    }
+    if (commitTrackpadZoom) {
+      unawaited(widget.controller.setZoom(targetZoom));
+    }
+  }
+
+  double _zoomForGestureScale(double initialZoom, double gestureScale) {
+    if (!gestureScale.isFinite || gestureScale <= 0) {
+      return initialZoom;
+    }
+    return (initialZoom + math.log(gestureScale) / math.ln2 * 2)
+        .clamp(1, 19)
+        .toDouble();
+  }
+
+  void _zoomBy(double delta) {
+    unawaited(widget.controller.setZoom(widget.controller.zoom + delta));
   }
 
   @override
@@ -110,7 +225,10 @@ class _EditorCanvasState extends State<EditorCanvas> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final spacing = math.max(0.001, widget.controller.rowSpacing);
+        final spacing = math.max(
+          0.001,
+          widget.controller.rowSpacing * _gesturePreviewScale,
+        );
         final visibleBeats = math
             .max(1, constraints.maxHeight / spacing / 4)
             .toDouble();
@@ -145,110 +263,126 @@ class _EditorCanvasState extends State<EditorCanvas> {
           );
         }
 
-        return CallbackShortcuts(
-          bindings: {
-            const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-                widget.controller.undo,
+        final shortcutBindings = <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
+              widget.controller.undo,
+          const SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            control: true,
+            shift: true,
+          ): widget.controller.redo,
+          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
+              widget.controller.undo,
+          const SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            meta: true,
+            shift: true,
+          ): widget.controller.redo,
+          const SingleActivator(LogicalKeyboardKey.space):
+              widget.controller.togglePlayback,
+        };
+        if (_macOS) {
+          shortcutBindings.addAll({
+            const SingleActivator(LogicalKeyboardKey.equal, meta: true): () =>
+                _zoomBy(0.25),
             const SingleActivator(
-              LogicalKeyboardKey.keyZ,
-              control: true,
-              shift: true,
-            ): widget.controller.redo,
-            const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
-                widget.controller.undo,
-            const SingleActivator(
-              LogicalKeyboardKey.keyZ,
+              LogicalKeyboardKey.equal,
               meta: true,
               shift: true,
-            ): widget.controller.redo,
-            const SingleActivator(LogicalKeyboardKey.space):
-                widget.controller.togglePlayback,
-          },
+            ): () =>
+                _zoomBy(0.25),
+            const SingleActivator(LogicalKeyboardKey.add, meta: true): () =>
+                _zoomBy(0.25),
+            const SingleActivator(LogicalKeyboardKey.minus, meta: true): () =>
+                _zoomBy(-0.25),
+            const SingleActivator(LogicalKeyboardKey.digit0, meta: true): () =>
+                unawaited(widget.controller.setZoom(10)),
+          });
+        }
+
+        return CallbackShortcuts(
+          bindings: shortcutBindings,
           child: Focus(
             focusNode: _focusNode,
             autofocus: true,
-            child: Listener(
-              onPointerSignal: (event) {
-                if (event is PointerScrollEvent) {
-                  _handleScroll(event);
-                }
-              },
-              onPointerDown: (event) {
-                if (event.buttons == kMiddleMouseButton) {
-                  widget.controller.moveToRow(
-                    _rowAt(event.localPosition.dy, size).toDouble(),
-                  );
-                }
-              },
-              child: GestureDetector(
-                key: const ValueKey('editor-canvas'),
-                behavior: HitTestBehavior.opaque,
-                onTapUp: (details) => _handleTap(details, size),
-                onScaleStart: (details) {
-                  _gestureZoom = widget.controller.zoom;
-                },
-                onScaleUpdate: (details) {
-                  if (!_mobile) {
-                    return;
-                  }
-                  if (details.pointerCount >= 2) {
-                    widget.controller.setZoom(
-                      _gestureZoom + math.log(details.scale) / math.ln2 * 2,
-                    );
-                  } else if (details.pointerCount == 1) {
-                    widget.controller.moveByPixels(-details.focalPointDelta.dy);
-                  }
-                },
-                child: Semantics(
-                  label: '谱面编辑画布，NPC、玩家、Showtime 三列',
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      RepaintBoundary(
-                        child: CustomPaint(
-                          painter: _EditorCanvasPainter(
-                            controller: widget.controller,
-                            mobile: _mobile,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Listener(
+                  onPointerSignal: (event) {
+                    if (event is PointerScrollEvent) {
+                      _handleScroll(event);
+                    }
+                  },
+                  onPointerDown: (event) {
+                    if (event.buttons == kMiddleMouseButton) {
+                      widget.controller.moveToRow(
+                        _rowAt(event.localPosition.dy, size).toDouble(),
+                      );
+                    }
+                  },
+                  child: GestureDetector(
+                    key: const ValueKey('editor-canvas'),
+                    behavior: HitTestBehavior.opaque,
+                    onTapUp: (details) => _handleTap(details, size),
+                    onScaleStart: _handleScaleStart,
+                    onScaleUpdate: _handleScaleUpdate,
+                    onScaleEnd: _handleScaleEnd,
+                    child: Semantics(
+                      label: '谱面编辑画布，NPC、玩家、Showtime 三列',
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          RepaintBoundary(
+                            key: const ValueKey('editor-canvas-repaint'),
+                            child: CustomPaint(
+                              key: const ValueKey('editor-canvas-paint'),
+                              painter: _EditorCanvasPainter(
+                                controller: widget.controller,
+                                mobile: _mobile,
+                                rowSpacing: spacing,
+                              ),
+                            ),
                           ),
-                        ),
+                          ...markerSemantics,
+                          for (var column = 0; column < 3; column++)
+                            Positioned(
+                              left: rect.left + column * columnWidth,
+                              top: 0,
+                              width: columnWidth,
+                              height: rect.top,
+                              child: Semantics(
+                                header: true,
+                                label: const ['NPC', '玩家', 'Showtime'][column],
+                                child: const SizedBox.expand(),
+                              ),
+                            ),
+                        ],
                       ),
-                      ...markerSemantics,
-                      for (var column = 0; column < 3; column++)
-                        Positioned(
-                          left: rect.left + column * columnWidth,
-                          top: 0,
-                          width: columnWidth,
-                          height: rect.top,
-                          child: Semantics(
-                            header: true,
-                            label: const ['NPC', '玩家', 'Showtime'][column],
-                            child: const SizedBox.expand(),
-                          ),
-                        ),
-                      Positioned(
-                        right: 8,
-                        top: 40,
-                        child: _NavigationRail(
-                          controller: widget.controller,
-                          navigation: navigation,
-                        ),
-                      ),
-                      Positioned(
-                        left: 8,
-                        bottom: 8,
-                        child: _HistoryControls(controller: widget.controller),
-                      ),
-                      if (widget.controller.isBusy)
-                        const Positioned.fill(
-                          child: ColoredBox(
-                            color: Color(0x6610151A),
-                            child: Center(child: CircularProgressIndicator()),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+                Positioned(
+                  right: 8,
+                  top: 40,
+                  child: _NavigationRail(
+                    controller: widget.controller,
+                    navigation: navigation,
+                  ),
+                ),
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child: _HistoryControls(controller: widget.controller),
+                ),
+                if (widget.controller.isBusy)
+                  const Positioned.fill(
+                    child: ColoredBox(
+                      color: Color(0x6610151A),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  ),
+              ],
             ),
           ),
         );
@@ -257,14 +391,50 @@ class _EditorCanvasState extends State<EditorCanvas> {
   }
 }
 
-class _NavigationRail extends StatelessWidget {
+class _NavigationRail extends StatefulWidget {
   const _NavigationRail({required this.controller, required this.navigation});
 
   final EditorController controller;
   final TimelineNavigation navigation;
 
   @override
+  State<_NavigationRail> createState() => _NavigationRailState();
+}
+
+class _NavigationRailState extends State<_NavigationRail> {
+  final _soundMenu = MenuController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NavigationRail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleControllerChanged);
+      widget.controller.addListener(_handleControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerChanged);
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    if (widget.controller.isPlaying && _soundMenu.isOpen) {
+      _soundMenu.close();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final navigation = widget.navigation;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: EditorColors.surfaceRaised.withValues(alpha: 0.96),
@@ -284,12 +454,93 @@ class _NavigationRail extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
+              key: const ValueKey('waveform-toggle-button'),
               onPressed: controller.toggleWaveform,
               tooltip: controller.waveformVisible ? '隐藏波形' : '显示波形',
               icon: Icon(
                 controller.waveformVisible
                     ? Icons.graphic_eq
                     : Icons.hide_source_outlined,
+              ),
+            ),
+            MenuAnchor(
+              controller: _soundMenu,
+              alignmentOffset: const Offset(-226, -36),
+              menuChildren: [
+                SizedBox(
+                  key: const ValueKey('playback-sound-menu'),
+                  width: 210,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '语言',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        const SizedBox(height: 6),
+                        SegmentedButton<PlaybackSoundLanguage>(
+                          key: const ValueKey('playback-sound-language'),
+                          segments: const [
+                            ButtonSegment(
+                              value: PlaybackSoundLanguage.chinese,
+                              label: Text('中文'),
+                            ),
+                            ButtonSegment(
+                              value: PlaybackSoundLanguage.english,
+                              label: Text('英文'),
+                            ),
+                          ],
+                          selected: {controller.playbackSoundLanguage},
+                          showSelectedIcon: false,
+                          onSelectionChanged: (value) =>
+                              controller.setPlaybackSoundLanguage(value.single),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          '舞步模式',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        const SizedBox(height: 6),
+                        SegmentedButton<PlaybackDanceMode>(
+                          key: const ValueKey('playback-dance-mode'),
+                          segments: const [
+                            ButtonSegment(
+                              value: PlaybackDanceMode.fourKey,
+                              label: Text('4K'),
+                            ),
+                            ButtonSegment(
+                              value: PlaybackDanceMode.eightKey,
+                              label: Text('8K'),
+                            ),
+                          ],
+                          selected: {controller.playbackDanceMode},
+                          showSelectedIcon: false,
+                          onSelectionChanged: (value) =>
+                              controller.setPlaybackDanceMode(value.single),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile.adaptive(
+                          key: const ValueKey('transition-sounds-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('切换音效'),
+                          value: controller.transitionSoundsEnabled,
+                          onChanged: controller.setTransitionSoundsEnabled,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              builder: (context, menu, child) => IconButton(
+                key: const ValueKey('playback-sound-button'),
+                onPressed: controller.isPlaying
+                    ? null
+                    : () => menu.isOpen ? menu.close() : menu.open(),
+                tooltip: '音效切换',
+                icon: const Icon(Icons.spatial_audio_off_outlined),
               ),
             ),
             const SizedBox(width: 28, child: Divider(height: 5)),
@@ -385,10 +636,15 @@ class _HistoryControls extends StatelessWidget {
 }
 
 class _EditorCanvasPainter extends CustomPainter {
-  const _EditorCanvasPainter({required this.controller, required this.mobile});
+  const _EditorCanvasPainter({
+    required this.controller,
+    required this.mobile,
+    required this.rowSpacing,
+  });
 
   final EditorController controller;
   final bool mobile;
+  final double rowSpacing;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -399,8 +655,8 @@ class _EditorCanvasPainter extends CustomPainter {
       math.max(37, size.width - 58),
       size.height,
     );
-    final cursorY = size.height * 0.52;
-    final spacing = math.max(0.001, controller.rowSpacing);
+    final cursorY = editorCursorY(size);
+    final spacing = rowSpacing;
     final columnWidth = chart.width / 3;
 
     _drawColumnBackgrounds(canvas, chart, columnWidth);
@@ -427,13 +683,6 @@ class _EditorCanvasPainter extends CustomPainter {
           Paint()..color = EditorColors.text.withValues(alpha: 0.018),
         );
       }
-    }
-    final line = Paint()
-      ..color = EditorColors.border.withValues(alpha: 0.72)
-      ..strokeWidth = 1;
-    for (var column = 0; column <= 3; column++) {
-      final x = chart.left + column * columnWidth;
-      canvas.drawLine(Offset(x, chart.top), Offset(x, chart.bottom), line);
     }
   }
 
@@ -550,13 +799,21 @@ class _EditorCanvasPainter extends CustomPainter {
       if (visible.isEmpty) {
         continue;
       }
-      canvas.drawRect(
-        visible,
-        Paint()..color = EditorColors.markerD.withValues(alpha: 0.10),
-      );
       if (move.isLast) {
         final openTop =
             cursorY + (move.rangeEnd - 8 - controller.currentRow) * spacing;
+        final regularRect = Rect.fromLTRB(
+          chart.left,
+          top,
+          chart.right,
+          openTop,
+        ).intersect(chart);
+        if (!regularRect.isEmpty) {
+          canvas.drawRect(
+            regularRect,
+            Paint()..color = EditorColors.markerD.withValues(alpha: 0.10),
+          );
+        }
         final openRect = Rect.fromLTRB(
           chart.left,
           openTop,
@@ -577,6 +834,11 @@ class _EditorCanvasPainter extends CustomPainter {
             dash,
           );
         }
+      } else {
+        canvas.drawRect(
+          visible,
+          Paint()..color = EditorColors.markerD.withValues(alpha: 0.10),
+        );
       }
     }
   }
@@ -599,16 +861,20 @@ class _EditorCanvasPainter extends CustomPainter {
       final measure = row % 16 == 0;
       final beat = !measure && row % 4 == 0;
       final color = measure
-          ? EditorColors.text.withValues(alpha: 0.34)
+          ? EditorColors.text.withValues(alpha: 0.52)
           : beat
-          ? EditorColors.text.withValues(alpha: 0.18)
+          ? EditorColors.text.withValues(alpha: 0.30)
           : EditorColors.text.withValues(alpha: 0.075);
       canvas.drawLine(
         Offset(chart.left, y),
         Offset(chart.right, y),
         Paint()
           ..color = color
-          ..strokeWidth = measure ? 1.5 : 1,
+          ..strokeWidth = measure
+              ? 2
+              : beat
+              ? 1.25
+              : 1,
       );
       if (measure) {
         _paintText(

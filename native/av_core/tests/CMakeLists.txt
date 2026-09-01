@@ -59,6 +59,21 @@ endif()
 
 add_test(NAME av_core.playback_pcm COMMAND av_core_playback_pcm_test)
 
+add_executable(av_core_playback_sound_test
+  playback_sound_test.cpp
+)
+target_link_libraries(av_core_playback_sound_test PRIVATE OneTwoGoYeah::av_core)
+
+if(MSVC)
+  target_compile_options(av_core_playback_sound_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(av_core_playback_sound_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.playback_sound COMMAND av_core_playback_sound_test)
+
 add_executable(av_core_audio_export_name_test
   audio_export_name_test.cpp
 )

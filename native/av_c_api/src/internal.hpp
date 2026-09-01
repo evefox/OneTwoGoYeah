@@ -15,6 +15,7 @@
 #include "av_core/coordination/operation_gate.hpp"
 #include "av_core/playback/playback_position.hpp"
 #include "av_core/playback/playback_pcm.hpp"
+#include "av_core/playback/playback_sound.hpp"
 #include "av_core/project/project_serialization.hpp"
 #include "av_core/slk/slk_chart_draft_projection.hpp"
 #include "av_core/slk/slk_export.hpp"
@@ -138,6 +139,10 @@ struct otgy_slk_document final {
 
 struct otgy_playback_pcm final {
   otgy::core::PlaybackPcm value;
+};
+
+struct otgy_playback_sound_bank final {
+  otgy::core::PlaybackSoundBank value;
 };
 
 namespace otgy::c_api {

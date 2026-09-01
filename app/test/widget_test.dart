@@ -1,13 +1,20 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_project_store.dart';
 import 'package:one_two_go_yeah/src/infrastructure/playback_output.dart';
+import 'package:one_two_go_yeah/src/ui/editor_canvas.dart';
+import 'package:one_two_go_yeah/src/ui/editor_screen.dart';
 import 'package:otgy_native/otgy_native.dart';
 
 void main() {
@@ -61,7 +68,7 @@ void main() {
     await pumpEditor(tester);
     final canvas = tester.getRect(find.byKey(const ValueKey('editor-canvas')));
     final chartWidth = canvas.width - 94;
-    final cursorY = canvas.top + canvas.height * 0.52;
+    final cursorY = canvas.top + editorCursorY(canvas.size);
     final npcX = canvas.left + 36 + chartWidth / 6;
 
     await tester.tapAt(Offset(npcX, cursorY));
@@ -126,6 +133,45 @@ void main() {
     expect(find.text('无法打开音频文件选择器。'), findsOneWidget);
   });
 
+  testWidgets('audio export failure diagnostics can be copied', (tester) async {
+    String? copiedText;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copiedText = (call.arguments as Map<Object?, Object?>)['text']
+                as String;
+          }
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    const diagnostic =
+        'operation: audio-export\n'
+        'exceptionType: MissingPluginException\n'
+        'exception: File publisher is not registered.\n'
+        'stackTrace:\n#0 test';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: AudioExportErrorDialog(diagnostic: diagnostic),
+        ),
+      ),
+    );
+    expect(find.text('音频导出失败'), findsOneWidget);
+    final report = tester.widget<SelectableText>(
+      find.byKey(const ValueKey('audio-export-error-diagnostic')),
+    );
+    expect(report.data, contains('MissingPluginException'));
+
+    await tester.tap(find.byKey(const ValueKey('copy-audio-export-error')));
+    await tester.pump();
+    expect(copiedText, diagnostic);
+    expect(find.text('已复制'), findsOneWidget);
+  });
+
   testWidgets('BPM long press previews and commits once on release', (
     tester,
   ) async {
@@ -143,6 +189,134 @@ void main() {
     expect(controller.bpm, greaterThan(100));
   });
 
+  testWidgets('BPM keeps complete local input and commits after editing', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await tester.tap(find.byKey(const ValueKey('bpm-menu')));
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('bpm-input'));
+    expect(input, findsOneWidget);
+    var controllerNotifications = 0;
+    void countNotification() => controllerNotifications++;
+    controller.addListener(countNotification);
+    addTearDown(() => controller.removeListener(countNotification));
+
+    for (final text in ['1', '12', '123']) {
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        ),
+      );
+      await tester.pump();
+      expect(tester.widget<TextField>(input).controller!.text, text);
+      expect(controller.bpm, 100);
+      expect(controllerNotifications, 0);
+    }
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(controller.bpm, 123);
+    expect(controllerNotifications, 1);
+    expect(tester.widget<TextField>(input).controller!.text, '123.000');
+    expect(find.text('123.000'), findsNWidgets(2));
+
+    await tester.tap(input);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '124',
+        selection: TextSelection.collapsed(offset: 3),
+      ),
+    );
+    await tester.pump();
+    tester.binding.focusManager.primaryFocus?.unfocus();
+    await tester.pump();
+
+    expect(controller.bpm, 124);
+    expect(controllerNotifications, 2);
+    expect(tester.widget<TextField>(input).controller!.text, '124.000');
+  });
+
+  testWidgets('BPM restores the authoritative value after invalid input', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await tester.tap(find.byKey(const ValueKey('bpm-menu')));
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('bpm-input'));
+    for (final text in ['100001', '']) {
+      await tester.tap(input);
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        ),
+      );
+      await tester.pump();
+      expect(controller.bpm, 100);
+
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(controller.bpm, 100);
+      expect(tester.widget<TextField>(input).controller!.text, '100.000');
+    }
+  });
+
+  testWidgets('Offset keeps complete local input and commits after editing', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await tester.tap(find.byKey(const ValueKey('offset-menu')));
+    await tester.pumpAndSettle();
+
+    final input = find.byKey(const ValueKey('offset-input'));
+    expect(input, findsOneWidget);
+    var controllerNotifications = 0;
+    void countNotification() => controllerNotifications++;
+    controller.addListener(countNotification);
+    addTearDown(() => controller.removeListener(countNotification));
+
+    for (final text in ['1', '12', '12.', '12.3', '12.34', '12.345']) {
+      tester.testTextInput.updateEditingValue(
+        TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        ),
+      );
+      await tester.pump();
+      expect(tester.widget<TextField>(input).controller!.text, text);
+      expect(controller.offset, 0);
+      expect(controllerNotifications, 0);
+    }
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+
+    expect(controller.offset, 12.345);
+    expect(controllerNotifications, 1);
+    expect(tester.widget<TextField>(input).controller!.text, '12.345');
+
+    await tester.tap(input);
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '31',
+        selection: TextSelection.collapsed(offset: 2),
+      ),
+    );
+    await tester.pump();
+    expect(controller.offset, 12.345);
+
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(controller.offset, 12.345);
+    expect(controllerNotifications, 1);
+    expect(tester.widget<TextField>(input).controller!.text, '12.345');
+  });
+
   testWidgets('dragging the canvas does not send a tap edit command', (
     tester,
   ) async {
@@ -154,6 +328,245 @@ void main() {
     await tester.pump();
 
     expect(controller.markers, isEmpty);
+  });
+
+  testWidgets('canvas omits internal column divider strokes', (tester) async {
+    await pumpEditor(tester);
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('editor-canvas-repaint')),
+    );
+    final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 1));
+    expect(image, isNotNull);
+    final captured = image!;
+    addTearDown(captured.dispose);
+    final bytes = await tester.runAsync(
+      () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+    );
+    expect(bytes, isNotNull);
+
+    List<int> pixel(int x, int y) {
+      final offset = (y * captured.width + x) * 4;
+      return List.generate(4, (channel) => bytes!.getUint8(offset + channel));
+    }
+
+    final chartWidth = captured.width - 36 - 58;
+    final columnWidth = chartWidth / 3;
+    for (final divider in [
+      (36 + columnWidth).round(),
+      (36 + columnWidth * 2).round(),
+    ]) {
+      expect(pixel(divider, 40), pixel(divider + 3, 40));
+    }
+  });
+
+  testWidgets('measure and beat lines keep a strong visual hierarchy', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await controller.setZoom(5);
+    controller.moveToRow(11);
+    await tester.pump();
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('editor-canvas-repaint')),
+    );
+    final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 1));
+    expect(image, isNotNull);
+    final captured = image!;
+    addTearDown(captured.dispose);
+    final bytes = await tester.runAsync(
+      () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+    );
+    expect(bytes, isNotNull);
+
+    final cursorY = editorCursorY(
+      Size(captured.width.toDouble(), captured.height.toDouble()),
+    );
+    final spacing = controller.rowSpacing;
+    int strongestRedNear(int row) {
+      final center = cursorY + (row - controller.currentRow) * spacing;
+      var red = 0;
+      for (var y = center.floor() - 2; y <= center.ceil() + 2; y++) {
+        final offset = (y * captured.width + 90) * 4;
+        red = math.max(red, bytes!.getUint8(offset));
+      }
+      return red;
+    }
+
+    final measure = strongestRedNear(16);
+    final beat = strongestRedNear(12);
+    final subdivision = strongestRedNear(13);
+    expect(measure, greaterThan(beat));
+    expect(beat, greaterThan(subdivision));
+  });
+
+  testWidgets('last SHOW-D half-measure is lighter than its regular range', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    controller.clickCell(0, 0, mobile: false);
+    controller.clickCell(0, 1, mobile: false);
+    controller.clickCell(0, 2, mobile: false);
+    controller.clickCell(0, 2, mobile: false);
+    controller.clickCell(1, 3, mobile: false);
+    controller.clickCell(1, 4, mobile: false);
+    controller.clickCell(2, 6, mobile: false);
+    expect(controller.showtimeMoves, hasLength(1));
+    final move = controller.showtimeMoves.single;
+    expect(move.isLast, isTrue);
+
+    await controller.setZoom(5);
+    controller.moveToRow(20);
+    await tester.pump();
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('editor-canvas-repaint')),
+    );
+    final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 1));
+    expect(image, isNotNull);
+    final captured = image!;
+    addTearDown(captured.dispose);
+    final bytes = await tester.runAsync(
+      () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+    );
+    expect(bytes, isNotNull);
+
+    final cursorY = editorCursorY(
+      Size(captured.width.toDouble(), captured.height.toDouble()),
+    );
+    final spacing = controller.rowSpacing;
+    int redAtRow(double row) {
+      final y = (cursorY + (row - controller.currentRow) * spacing).round();
+      final offset = (y * captured.width + 90) * 4;
+      return bytes!.getUint8(offset);
+    }
+
+    final regularRed = redAtRow(move.rangeEnd - 11.5);
+    final finalHalfRed = redAtRow(move.rangeEnd - 3.5);
+    expect(regularRed, greaterThan(finalHalfRed));
+  });
+
+  testWidgets(
+    'macOS trackpad pans the vertical timeline and ignores horizontal pan',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        await pumpEditor(tester);
+        final canvas = tester.getRect(
+          find.byKey(const ValueKey('editor-canvas')),
+        );
+
+        final vertical = await tester.createGesture(
+          kind: PointerDeviceKind.trackpad,
+        );
+        await vertical.panZoomStart(canvas.center);
+        await vertical.panZoomUpdate(canvas.center, pan: const Offset(0, -80));
+        await tester.pump();
+        expect(controller.currentRow, greaterThan(0));
+        await vertical.panZoomEnd();
+
+        final afterVerticalPan = controller.currentRow;
+        final horizontal = await tester.createGesture(
+          kind: PointerDeviceKind.trackpad,
+        );
+        await horizontal.panZoomStart(canvas.center);
+        await horizontal.panZoomUpdate(
+          canvas.center,
+          pan: const Offset(120, -4),
+        );
+        await tester.pump();
+        expect(controller.currentRow, afterVerticalPan);
+        await horizontal.panZoomEnd();
+
+        final horizontalScroll = TestPointer(999, PointerDeviceKind.trackpad);
+        await tester.sendEventToBinding(horizontalScroll.hover(canvas.center));
+        await tester.sendEventToBinding(
+          horizontalScroll.scroll(const Offset(120, -4)),
+        );
+        await tester.pump();
+        expect(controller.currentRow, afterVerticalPan);
+
+        final zoomBeforeRotation = controller.zoom;
+        final scaleBeforeRotation = controller.scale;
+        final rotation = await tester.createGesture(
+          kind: PointerDeviceKind.trackpad,
+        );
+        await rotation.panZoomStart(canvas.center);
+        await rotation.panZoomUpdate(canvas.center, rotation: 0.5);
+        await tester.pump();
+        expect(controller.currentRow, afterVerticalPan);
+        expect(controller.zoom, zoomBeforeRotation);
+        expect(controller.scale, scaleBeforeRotation);
+        await rotation.panZoomEnd();
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'macOS trackpad pinch previews continuously and commits quarter-step Zoom',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        await pumpEditor(tester);
+        final canvasFinder = find.byKey(const ValueKey('editor-canvas'));
+        final canvas = tester.getRect(canvasFinder);
+        final paintFinder = find.byKey(const ValueKey('editor-canvas-paint'));
+        final beforePainter = tester.widget<CustomPaint>(paintFinder).painter!;
+        final beforeSpacing = (beforePainter as dynamic).rowSpacing as double;
+        final scaleBefore = controller.scale;
+
+        final pinch = await tester.createGesture(
+          kind: PointerDeviceKind.trackpad,
+        );
+        await pinch.panZoomStart(canvas.center);
+        await pinch.panZoomUpdate(canvas.center, scale: 1.5);
+        await tester.pump();
+
+        expect(controller.zoom, 10);
+        expect(controller.scale, scaleBefore);
+        final previewPainter = tester.widget<CustomPaint>(paintFinder).painter!;
+        final previewSpacing = (previewPainter as dynamic).rowSpacing as double;
+        expect(previewSpacing, greaterThan(beforeSpacing));
+
+        await pinch.panZoomEnd();
+        await tester.pump();
+        expect(controller.zoom, 11.25);
+        expect(controller.zoom * 4, (controller.zoom * 4).roundToDouble());
+        expect(controller.scale, scaleBefore);
+        expect(controller.currentRow, 0);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets('macOS Command shortcuts adjust and reset Zoom', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await pumpEditor(tester);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.equal);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(controller.zoom, 10.25);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.minus);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(controller.zoom, 10);
+
+      await controller.setZoom(12);
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit0);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pump();
+      expect(controller.zoom, 10);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('disables backward navigation at the timeline beginning', (
@@ -171,6 +584,59 @@ void main() {
     expect(pageUp.onPressed, isNull);
   });
 
+  testWidgets('floating controls stay clickable through canvas rebuilds', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    final waveform = find.byKey(const ValueKey('waveform-toggle-button'));
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: tester.getCenter(waveform));
+    await tester.pump();
+
+    for (var row = 1; row <= 5; row++) {
+      controller.moveToRow(row.toDouble());
+      await tester.pump();
+      expect(waveform, findsOneWidget);
+    }
+
+    expect(controller.waveformVisible, isTrue);
+    await mouse.down(tester.getCenter(waveform));
+    await mouse.up();
+    await tester.pump();
+
+    expect(controller.waveformVisible, isFalse);
+    expect(controller.markers, isEmpty);
+  });
+
+  testWidgets('configures chart playback sounds in an outside-dismiss menu', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+
+    expect(controller.playbackSoundLanguage, PlaybackSoundLanguage.chinese);
+    expect(controller.playbackDanceMode, PlaybackDanceMode.fourKey);
+    expect(controller.transitionSoundsEnabled, isFalse);
+
+    await tester.tap(find.byKey(const ValueKey('playback-sound-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('playback-sound-menu')), findsOneWidget);
+
+    await tester.tap(find.text('英文'));
+    await tester.pump();
+    await tester.tap(find.text('8K'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('transition-sounds-switch')));
+    await tester.pump();
+    expect(controller.playbackSoundLanguage, PlaybackSoundLanguage.english);
+    expect(controller.playbackDanceMode, PlaybackDanceMode.eightKey);
+    expect(controller.transitionSoundsEnabled, isTrue);
+
+    await tester.tapAt(const Offset(20, 400));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('playback-sound-menu')), findsNothing);
+  });
+
   testWidgets('device playback uses shared PCM and enforces the core gate', (
     tester,
   ) async {
@@ -186,6 +652,14 @@ void main() {
     await controller.togglePlayback();
     await tester.pump();
     expect(controller.isPlaying, isTrue);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('playback-sound-button')),
+          )
+          .onPressed,
+      isNull,
+    );
     expect(output.sampleRate, 11025);
     expect(output.bytes, isNotEmpty);
     expect(output.bytes.length % 4, 0);
@@ -201,6 +675,14 @@ void main() {
     await tester.pump();
     expect(controller.isPlaying, isFalse);
     expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('playback-sound-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(
       controller.currentRow,
       OtgyNative.secondsToSixteenthRow(
         bpm: 100,
@@ -208,6 +690,29 @@ void main() {
         seconds: output.playedFrames / output.sampleRate,
       ),
     );
+  });
+
+  testWidgets('loads packaged WAV sounds and renders chart playback PCM', (
+    tester,
+  ) async {
+    controller.dispose();
+    final output = _FakePlaybackOutput();
+    controller = EditorController(playbackOutput: output);
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    controller.clickCell(0, 0, mobile: false);
+    controller.setTransitionSoundsEnabled(true);
+    await pumpEditor(tester);
+
+    await controller.togglePlayback();
+    await tester.pump();
+
+    expect(controller.isPlaying, isTrue);
+    expect(output.sampleRate, 11025);
+    expect(output.bytes, isNotEmpty);
+    await controller.pausePlayback();
   });
 
   test(

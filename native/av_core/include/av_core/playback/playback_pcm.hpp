@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -16,6 +17,9 @@ enum class PlaybackPcmError : std::uint8_t {
   InvalidTimelineStart = 1,
   SizeOverflow = 2,
   AllocationFailure = 3,
+  InvalidSoundConfiguration = 4,
+  MissingSoundAsset = 5,
+  SoundTimingFailure = 6,
 };
 
 [[nodiscard]] constexpr std::string_view playback_pcm_error_message(
@@ -29,6 +33,12 @@ enum class PlaybackPcmError : std::uint8_t {
       return "playback PCM dimensions exceed the representable size";
     case PlaybackPcmError::AllocationFailure:
       return "unable to allocate playback PCM frames";
+    case PlaybackPcmError::InvalidSoundConfiguration:
+      return "playback sound configuration is invalid";
+    case PlaybackPcmError::MissingSoundAsset:
+      return "playback sound bank is missing a required asset";
+    case PlaybackPcmError::SoundTimingFailure:
+      return "playback sound event cannot be projected to an audio frame";
   }
   return "unknown playback PCM error";
 }
@@ -46,6 +56,9 @@ class PlaybackPcm final {
   }
   [[nodiscard]] const std::vector<std::uint8_t>& bytes() const noexcept {
     return interleaved_pcm16le_;
+  }
+  [[nodiscard]] std::vector<std::uint8_t> take_bytes() && noexcept {
+    return std::move(interleaved_pcm16le_);
   }
 
  private:

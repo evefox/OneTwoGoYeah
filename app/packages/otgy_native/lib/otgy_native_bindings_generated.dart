@@ -1026,6 +1026,47 @@ external otgy_byte_view otgy_playback_pcm_get_bytes(
 
 @ffi.Native<
   otgy_status Function(
+    ffi.Pointer<otgy_playback_sound_asset>,
+    ffi.Uint64,
+    ffi.Pointer<ffi.Pointer<otgy_playback_sound_bank>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_playback_sound_bank_create(
+  ffi.Pointer<otgy_playback_sound_asset> assets,
+  int asset_count,
+  ffi.Pointer<ffi.Pointer<otgy_playback_sound_bank>> out_bank,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<otgy_playback_sound_bank>)>()
+external void otgy_playback_sound_bank_destroy(
+  ffi.Pointer<otgy_playback_sound_bank> bank,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_pcm>,
+    ffi.Pointer<otgy_chart>,
+    ffi.Pointer<otgy_playback_sound_bank>,
+    otgy_playback_sound_config,
+    ffi.Double,
+    ffi.Pointer<ffi.Pointer<otgy_playback_pcm>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_render_chart_playback_pcm(
+  ffi.Pointer<otgy_pcm> pcm,
+  ffi.Pointer<otgy_chart> chart,
+  ffi.Pointer<otgy_playback_sound_bank> sound_bank,
+  otgy_playback_sound_config config,
+  double timeline_start_seconds,
+  ffi.Pointer<ffi.Pointer<otgy_playback_pcm>> out_playback_pcm,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
     ffi.Uint32,
     ffi.Uint32,
     ffi.Pointer<ffi.Uint32>,
@@ -1674,6 +1715,8 @@ final class otgy_slk_document extends ffi.Opaque {}
 
 final class otgy_playback_pcm extends ffi.Opaque {}
 
+final class otgy_playback_sound_bank extends ffi.Opaque {}
+
 final class otgy_audio_source_info extends ffi.Struct {
   @ffi.Uint32()
   external int codec;
@@ -1869,6 +1912,36 @@ final class otgy_playback_position extends ffi.Struct {
 
   @ffi.Double()
   external double audio_duration_seconds;
+}
+
+final class otgy_playback_sound_asset extends ffi.Struct {
+  @ffi.Uint32()
+  external int language;
+
+  @ffi.Uint32()
+  external int id;
+
+  external otgy_byte_view wav_bytes;
+}
+
+final class otgy_playback_sound_config extends ffi.Struct {
+  @ffi.Uint32()
+  external int language;
+
+  @ffi.Uint32()
+  external int dance_mode;
+
+  @ffi.Uint8()
+  external int transition_sounds_enabled;
+
+  @ffi.Uint64()
+  external int random_seed;
+
+  @ffi.Double()
+  external double bpm;
+
+  @ffi.Double()
+  external double offset_seconds;
 }
 
 final class otgy_chart_marker extends ffi.Struct {
@@ -2124,6 +2197,8 @@ const int OTGY_ERROR_DOMAIN_CHART_TIMELINE_RANGE = 29;
 
 const int OTGY_ERROR_DOMAIN_PLAYBACK_PCM = 30;
 
+const int OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK = 31;
+
 const int OTGY_ABI_ERROR_NULL_ARGUMENT = 1;
 
 const int OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE = 2;
@@ -2165,6 +2240,60 @@ const int OTGY_TIMING_GRID_LINE_SIXTEENTH = 2;
 const int OTGY_PLAYBACK_PHASE_PAUSED = 0;
 
 const int OTGY_PLAYBACK_PHASE_PLAYING = 1;
+
+const int OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE = 0;
+
+const int OTGY_PLAYBACK_SOUND_LANGUAGE_ENGLISH = 1;
+
+const int OTGY_PLAYBACK_DANCE_MODE_4K = 0;
+
+const int OTGY_PLAYBACK_DANCE_MODE_8K = 1;
+
+const int OTGY_PLAYBACK_SOUND_F1_1 = 0;
+
+const int OTGY_PLAYBACK_SOUND_F1_2 = 1;
+
+const int OTGY_PLAYBACK_SOUND_F1_3 = 2;
+
+const int OTGY_PLAYBACK_SOUND_F1_4 = 3;
+
+const int OTGY_PLAYBACK_SOUND_F1_6 = 4;
+
+const int OTGY_PLAYBACK_SOUND_F1_7 = 5;
+
+const int OTGY_PLAYBACK_SOUND_F1_8 = 6;
+
+const int OTGY_PLAYBACK_SOUND_F1_9 = 7;
+
+const int OTGY_PLAYBACK_SOUND_F1_GO = 8;
+
+const int OTGY_PLAYBACK_SOUND_F1_YEAH = 9;
+
+const int OTGY_PLAYBACK_SOUND_M1_1 = 10;
+
+const int OTGY_PLAYBACK_SOUND_M1_2 = 11;
+
+const int OTGY_PLAYBACK_SOUND_M1_3 = 12;
+
+const int OTGY_PLAYBACK_SOUND_M1_4 = 13;
+
+const int OTGY_PLAYBACK_SOUND_M1_6 = 14;
+
+const int OTGY_PLAYBACK_SOUND_M1_7 = 15;
+
+const int OTGY_PLAYBACK_SOUND_M1_8 = 16;
+
+const int OTGY_PLAYBACK_SOUND_M1_9 = 17;
+
+const int OTGY_PLAYBACK_SOUND_M1_GO = 18;
+
+const int OTGY_PLAYBACK_SOUND_M1_YEAH = 19;
+
+const int OTGY_PLAYBACK_SOUND_SPACE_BAR = 20;
+
+const int OTGY_PLAYBACK_SOUND_TURN_1 = 21;
+
+const int OTGY_PLAYBACK_SOUND_TURN_2 = 22;
 
 const int OTGY_APPLICATION_MODE_IDLE = 0;
 

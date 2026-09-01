@@ -59,6 +59,7 @@ typedef uint32_t otgy_error_domain;
 #define OTGY_ERROR_DOMAIN_SLK_POSITION UINT32_C(28)
 #define OTGY_ERROR_DOMAIN_CHART_TIMELINE_RANGE UINT32_C(29)
 #define OTGY_ERROR_DOMAIN_PLAYBACK_PCM UINT32_C(30)
+#define OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK UINT32_C(31)
 
 #define OTGY_ABI_ERROR_NULL_ARGUMENT UINT32_C(1)
 #define OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE UINT32_C(2)
@@ -113,6 +114,7 @@ typedef struct otgy_chart_validation otgy_chart_validation;
 typedef struct otgy_finished_chart otgy_finished_chart;
 typedef struct otgy_slk_document otgy_slk_document;
 typedef struct otgy_playback_pcm otgy_playback_pcm;
+typedef struct otgy_playback_sound_bank otgy_playback_sound_bank;
 
 OTGY_C_API uint32_t otgy_c_api_version(void);
 OTGY_C_API otgy_string_view otgy_core_version(void);
@@ -450,6 +452,61 @@ OTGY_C_API uint64_t otgy_playback_pcm_get_frame_count(
     const otgy_playback_pcm* pcm);
 OTGY_C_API otgy_byte_view otgy_playback_pcm_get_bytes(
     const otgy_playback_pcm* pcm);
+
+#define OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE UINT32_C(0)
+#define OTGY_PLAYBACK_SOUND_LANGUAGE_ENGLISH UINT32_C(1)
+#define OTGY_PLAYBACK_DANCE_MODE_4K UINT32_C(0)
+#define OTGY_PLAYBACK_DANCE_MODE_8K UINT32_C(1)
+
+#define OTGY_PLAYBACK_SOUND_F1_1 UINT32_C(0)
+#define OTGY_PLAYBACK_SOUND_F1_2 UINT32_C(1)
+#define OTGY_PLAYBACK_SOUND_F1_3 UINT32_C(2)
+#define OTGY_PLAYBACK_SOUND_F1_4 UINT32_C(3)
+#define OTGY_PLAYBACK_SOUND_F1_6 UINT32_C(4)
+#define OTGY_PLAYBACK_SOUND_F1_7 UINT32_C(5)
+#define OTGY_PLAYBACK_SOUND_F1_8 UINT32_C(6)
+#define OTGY_PLAYBACK_SOUND_F1_9 UINT32_C(7)
+#define OTGY_PLAYBACK_SOUND_F1_GO UINT32_C(8)
+#define OTGY_PLAYBACK_SOUND_F1_YEAH UINT32_C(9)
+#define OTGY_PLAYBACK_SOUND_M1_1 UINT32_C(10)
+#define OTGY_PLAYBACK_SOUND_M1_2 UINT32_C(11)
+#define OTGY_PLAYBACK_SOUND_M1_3 UINT32_C(12)
+#define OTGY_PLAYBACK_SOUND_M1_4 UINT32_C(13)
+#define OTGY_PLAYBACK_SOUND_M1_6 UINT32_C(14)
+#define OTGY_PLAYBACK_SOUND_M1_7 UINT32_C(15)
+#define OTGY_PLAYBACK_SOUND_M1_8 UINT32_C(16)
+#define OTGY_PLAYBACK_SOUND_M1_9 UINT32_C(17)
+#define OTGY_PLAYBACK_SOUND_M1_GO UINT32_C(18)
+#define OTGY_PLAYBACK_SOUND_M1_YEAH UINT32_C(19)
+#define OTGY_PLAYBACK_SOUND_SPACE_BAR UINT32_C(20)
+#define OTGY_PLAYBACK_SOUND_TURN_1 UINT32_C(21)
+#define OTGY_PLAYBACK_SOUND_TURN_2 UINT32_C(22)
+
+typedef struct otgy_playback_sound_asset {
+  uint32_t language;
+  uint32_t id;
+  otgy_byte_view wav_bytes;
+} otgy_playback_sound_asset;
+
+typedef struct otgy_playback_sound_config {
+  uint32_t language;
+  uint32_t dance_mode;
+  uint8_t transition_sounds_enabled;
+  uint64_t random_seed;
+  double bpm;
+  double offset_seconds;
+} otgy_playback_sound_config;
+
+OTGY_C_API otgy_status otgy_playback_sound_bank_create(
+    const otgy_playback_sound_asset* assets, uint64_t asset_count,
+    otgy_playback_sound_bank** out_bank, otgy_error** out_error);
+OTGY_C_API void otgy_playback_sound_bank_destroy(
+    otgy_playback_sound_bank* bank);
+OTGY_C_API otgy_status otgy_render_chart_playback_pcm(
+    const otgy_pcm* pcm, const otgy_chart* chart,
+    const otgy_playback_sound_bank* sound_bank,
+    otgy_playback_sound_config config, double timeline_start_seconds,
+    otgy_playback_pcm** out_playback_pcm, otgy_error** out_error);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(
     uint32_t mode, uint32_t operation, uint32_t* out_result,

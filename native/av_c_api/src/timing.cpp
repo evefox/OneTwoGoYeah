@@ -349,6 +349,91 @@ otgy_byte_view otgy_playback_pcm_get_bytes(const otgy_playback_pcm* pcm) {
           static_cast<std::uint64_t>(pcm->value.bytes().size())};
 }
 
+otgy_status otgy_playback_sound_bank_create(
+    const otgy_playback_sound_asset* assets, std::uint64_t asset_count,
+    otgy_playback_sound_bank** out_bank, otgy_error** out_error) {
+  if (out_bank != nullptr) {
+    *out_bank = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    std::size_t count = 0U;
+    if (out_bank == nullptr || (assets == nullptr && asset_count != 0U)) {
+      return invalid_argument(out_error);
+    }
+    if (!to_size(asset_count, count)) {
+      return invalid_argument(out_error, OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE,
+                              kLengthOutOfRange);
+    }
+    std::vector<otgy::core::PlaybackSoundAsset> core_assets;
+    core_assets.reserve(count);
+    for (std::size_t index = 0U; index < count; ++index) {
+      std::size_t wav_size = 0U;
+      if (!valid_bytes(assets[index].wav_bytes, wav_size)) {
+        return invalid_argument(out_error, OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE,
+                                kLengthOutOfRange);
+      }
+      core_assets.push_back(
+          {static_cast<otgy::core::PlaybackSoundLanguage>(
+               assets[index].language),
+           static_cast<otgy::core::PlaybackSoundId>(assets[index].id),
+           assets[index].wav_bytes.data, wav_size});
+    }
+    auto result = otgy::core::decode_playback_sound_bank(
+        core_assets.data(), core_assets.size());
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::playback_sound_bank_error_message(result.error()));
+    }
+    return make_handle<otgy_playback_sound_bank>(
+        otgy_playback_sound_bank{std::move(result).take_bank()}, out_bank,
+        out_error);
+  });
+}
+
+void otgy_playback_sound_bank_destroy(otgy_playback_sound_bank* bank) {
+  delete bank;
+}
+
+otgy_status otgy_render_chart_playback_pcm(
+    const otgy_pcm* pcm, const otgy_chart* chart,
+    const otgy_playback_sound_bank* sound_bank,
+    otgy_playback_sound_config config, double timeline_start_seconds,
+    otgy_playback_pcm** out_playback_pcm, otgy_error** out_error) {
+  if (out_playback_pcm != nullptr) {
+    *out_playback_pcm = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (pcm == nullptr || chart == nullptr || sound_bank == nullptr ||
+        out_playback_pcm == nullptr) {
+      return invalid_argument(out_error);
+    }
+    if (config.transition_sounds_enabled > 1U) {
+      return invalid_argument(out_error, OTGY_ABI_ERROR_INVALID_BOOLEAN,
+                              kInvalidBoolean);
+    }
+    const otgy::core::PlaybackSoundConfig core_config{
+        static_cast<otgy::core::PlaybackSoundLanguage>(config.language),
+        static_cast<otgy::core::PlaybackDanceMode>(config.dance_mode),
+        config.transition_sounds_enabled != 0U,
+        config.random_seed,
+        {config.bpm, config.offset_seconds}};
+    auto result = otgy::core::render_chart_playback_pcm(
+        pcm->value, chart->value, sound_bank->value, core_config,
+        timeline_start_seconds);
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_PCM,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::playback_pcm_error_message(result.error()));
+    }
+    return make_handle<otgy_playback_pcm>(
+        otgy_playback_pcm{std::move(result).take_pcm()}, out_playback_pcm,
+        out_error);
+  });
+}
+
 otgy_status otgy_coordinate_application_operation(
     std::uint32_t mode, std::uint32_t operation, std::uint32_t* out_result,
     otgy_error** out_error) {

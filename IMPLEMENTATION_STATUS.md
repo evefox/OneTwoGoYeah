@@ -1,6 +1,6 @@
 # 实现状态
 
-更新时间：2026-08-31
+更新时间：2026-09-01
 
 ## 当前阶段
 
@@ -13,11 +13,15 @@
 - 接通 MP3/Ogg 选择与事务替换、六阶段 BPM/Offset 联合分析、三位小数显示但高精度提交、共享 Ogg 导出进度/取消，以及逐字节规范 SLK 导入校验导出。
 - 实现正式草稿列表、保存/另存为/覆盖/删除、500 毫秒恢复快照、异常会话恢复、未保存操作与退出保护；Windows/macOS 窗口关闭通过生命周期通道等待 Flutter 确认。
 - 新增共享 `render_playback_pcm` 与按设备帧推进，四平台分别用 Android `AudioTrack`、Apple `AVAudioEngine` 和 Windows `waveOut` 输出；暂停、自然结束、焦点或设备中断保留最后确认帧且不自动续播。
-- 新增线程安全 C ABI 音频导出取消句柄和跨 isolate 协作取消；保存阶段继续全局门控，临时文件只通过 Android/POSIX/Windows 原子不替换硬链接发布，同名或并发冲突选择最小 `_2/_3` 后缀。
+- 新增线程安全 C ABI 音频导出取消句柄和跨 isolate 协作取消；保存阶段继续全局门控，临时文件优先通过 Android/POSIX/Windows 原子不替换硬链接发布，macOS 另有 `renameatx_np(RENAME_EXCL)` 和用户选定路径 `O_EXCL` 写入回退，同名或并发冲突选择最小 `_2/_3` 后缀。
 - 新增阶段 8 多平台 CI，覆盖原生 Ubuntu/macOS/Windows、Flutter Android/Windows/macOS/iOS 构建，以及 Dart FFI/Flutter 分析和测试。
 - 修复 Flutter 后台联合分析闭包捕获不可发送 `ReceivePort` 导致 BPM/Offset 分析未启动的问题；后台 isolate 回归现直接取得真实候选和六阶段终态。
 - 修复 Apple 播放暂停只挂起节点以及旧 buffer/旧设备查询回调污染下一次播放的问题；暂停现保留实际帧后停止输出，Flutter 与 Apple 适配层都以播放代次丢弃过期结果，macOS Runner 测试锁定替代播放状态。
 - 修复 Dart 原生资产构建钩子在非代码资产阶段读取 `HookConfig.code` 的失败，macOS 调试运行与 Xcode Runner 测试均可完成构建。
+- 增加 macOS 原生触控板映射：以纵向为主的双指滑动平滑移动时间线，以水平方向为主的滑动和旋转不占用功能；捏合围绕固定光标线连续预览 Zoom，结束时吸附到 `0.25` 级别，并增加 `Command +/-/0` Zoom 快捷键。
+- 修复 BPM 直接输入被中间值刷新截断的问题；输入期间保留完整局部文本，按回车或失焦后才校验并提交一次，非法、空白和越界输入恢复当前权威值。
+- Offset 直接输入采用相同的编辑结束提交规则；画布当前时间光标/播放判定线移到高度 `25%`，移除三列内部纵向分割线并增强小节线、拍线；悬浮控件脱离画布手势命中层以稳定单击。`SHOW-D` 常规范围与最后半小节改为不重叠的深、浅填充，像素回归锁定由深到浅的视觉层级。
+- 增加谱面播放音效：右侧波形按钮下方提供中文/英文、4K/8K 和切换音效设置；`av_core` 唯一实现 WAV PCM16 解码、固定种子随机、NPC 使用 `m1`、玩家使用关联 `f1` 的 N/S 音效配对、SHOW 音效、确定性重采样和饱和混音，暂停续播保持同一音效计划。两套 46 个 WAV 已随 App 离线打包，macOS Debug 构建与完整核心/C ABI/Flutter 回归通过。
 
 - 增加稳定实施计划和可跨会话读取的状态文件。
 - 增加 Git 忽略与 SLK 二进制属性规则。
@@ -48,6 +52,7 @@
 - 增加进程内 `encode_ogg_vorbis`，固定 Ogg serial、1024 帧提交块、PCM float 转换、品质映射和 TITLE/ARTIST/ALBUM 顺序；有效 UTF-8 元数据确定写入，无效字段省略。
 - 增加品质 `1`、`3`、`5` 三份 CC0 确定性 Ogg 黄金输出，分别固定 SHA-256 并在普通测试中完整逐字节比较；重复编码、解码有效性、进度、取消、错误和所有权均通过。
 - 增加 `AudioExportSnapshot` 与高层编码任务，在确认时深复制 PCM/元数据并捕获 PCM 标识、原始 Offset、品质、来源信息、规范基础名和变换计划；在途任务只读取快照，取消不返回部分字节。
+- 后台 Ogg 编码任务移至不捕获 `EditorController` 的顶层 isolate helper，避免播放音效资源加载 Future 进入 isolate 消息而导致导出在准备阶段失败；导出异常弹窗保留类型、平台详情和堆栈，并支持复制完整诊断。
 - 增加纯 `coordinate_application_operation` 门控；`Playing` 只允许暂停和切换波形，`ExportingAudio` 只允许取消导出，其余分别返回稳定 `PlaybackActive`/`AudioExportActive`。
 - 实现 `avtool export-audio <audio> --offset <seconds> --quality <q> --output <file.ogg>`，严格独立于区域设置解析参数，直接复用解码、来源品质、快照、Offset 和 Ogg 核心；同目录临时写入后以不覆盖式硬链接原子发布。
 - 增加直接核心导出探针与真实 CLI 逐字节一致性测试，覆盖 MP3/Ogg、零/正/负半帧 Offset 和品质 `1/3/5`；稳定错误测试覆盖参数、来源上限、删除全部帧、读取/解码、目标格式、写入、已有目标及临时文件清理。

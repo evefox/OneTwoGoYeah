@@ -18,3 +18,7 @@
 # 本地示例音频版权状态尚未确认，不纳入版本控制
 /example/*.mp3
 /example/*.ogg
+
+# 本地提供的音效参考副本与导出产物不纳入版本控制
+/example/sounds/
+/example/export/
