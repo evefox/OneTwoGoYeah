@@ -402,7 +402,7 @@ class _ChartToolbar extends StatelessWidget {
             key: const ValueKey('clear-chart'),
             onPressed: enabled ? onClear : null,
             tooltip: '清空谱面',
-            icon: const Icon(Icons.layers_clear_outlined, size: 20),
+            icon: const Icon(Icons.delete_sweep_outlined, size: 20),
           ),
           const SizedBox(width: 2),
           IconButton(
