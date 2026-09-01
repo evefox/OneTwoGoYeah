@@ -66,6 +66,14 @@ void main() {
     expect(hasSlkFileExtension('chart.txt'), isFalse);
   });
 
+  test('recognizes supported audio extensions without case sensitivity', () {
+    expect(hasSupportedAudioFileExtension('track.mp3'), isTrue);
+    expect(hasSupportedAudioFileExtension('track.MP3'), isTrue);
+    expect(hasSupportedAudioFileExtension('track.ogg'), isTrue);
+    expect(hasSupportedAudioFileExtension('track.OGG'), isTrue);
+    expect(hasSupportedAudioFileExtension('track.wav'), isFalse);
+  });
+
   testWidgets('shows the three editor regions and precise timing summaries', (
     tester,
   ) async {
@@ -689,6 +697,40 @@ void main() {
 
     expect(find.text('无法打开音频文件选择器。'), findsOneWidget);
   });
+
+  testWidgets(
+    'iOS audio picker keeps Ogg selectable and validates extensions',
+    (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      const channel = MethodChannel('plugins.flutter.io/file_selector');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            expect(call.method, 'openFile');
+            final arguments = call.arguments as Map<Object?, Object?>;
+            final groups = arguments['acceptedTypeGroups'] as List<Object?>;
+            final audioGroup = groups.single as Map<Object?, Object?>;
+            expect(audioGroup['extensions'], ['mp3', 'ogg']);
+            expect(audioGroup['uniformTypeIdentifiers'], ['public.data']);
+            return ['/does/not/need/to/exist.wav'];
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      try {
+        await pumpEditor(tester);
+
+        await tester.tap(find.byKey(const ValueKey('audio-picker')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('音频加载失败：请选择 .mp3 或 .ogg 文件。'), findsOneWidget);
+        expect(controller.hasAudio, isFalse);
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
+      }
+    },
+  );
 
   testWidgets('reports SLK picker failures with copyable diagnostics', (
     tester,

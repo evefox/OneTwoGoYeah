@@ -20,6 +20,12 @@ typedef ProjectStoreFactory = Future<LocalProjectStore> Function();
 bool hasSlkFileExtension(String fileName) =>
     fileName.toLowerCase().endsWith('.slk');
 
+@visibleForTesting
+bool hasSupportedAudioFileExtension(String fileName) {
+  final lower = fileName.toLowerCase();
+  return lower.endsWith('.mp3') || lower.endsWith('.ogg');
+}
+
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, this.controller, this.storeFactory});
 
@@ -181,19 +187,25 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _chooseAudio() async {
-    const type = XTypeGroup(
+    final type = XTypeGroup(
       label: 'MP3 或 Ogg 音频',
-      extensions: ['mp3', 'ogg'],
-      uniformTypeIdentifiers: ['public.mp3', 'org.xiph.ogg-audio'],
+      extensions: const ['mp3', 'ogg'],
+      uniformTypeIdentifiers: defaultTargetPlatform == TargetPlatform.iOS
+          ? const ['public.data']
+          : const ['public.mp3', 'org.xiph.ogg-audio'],
     );
     XFile? file;
     try {
-      file = await openFile(acceptedTypeGroups: const [type]);
+      file = await openFile(acceptedTypeGroups: [type]);
     } on Object {
       _controller.showNotice('无法打开音频文件选择器。', error: true);
       return;
     }
     if (file == null) {
+      return;
+    }
+    if (!hasSupportedAudioFileExtension(file.name)) {
+      _controller.showNotice('音频加载失败：请选择 .mp3 或 .ogg 文件。', error: true);
       return;
     }
     try {
