@@ -98,6 +98,63 @@ void main() {
     expect(find.bySemanticsLabel('谱面编辑画布，NPC、玩家、Showtime 三列'), findsOneWidget);
   });
 
+  testWidgets('gives mobile timing controls a clear, tappable second row', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    try {
+      await pumpEditor(tester, size: const Size(390, 844));
+
+      final audio = tester.getRect(find.byKey(const ValueKey('audio-picker')));
+      final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
+      final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
+      final export = tester.getRect(find.byKey(const ValueKey('export-audio')));
+
+      expect(audio.width, greaterThan(300));
+      expect(bpm.top, greaterThan(audio.bottom));
+      expect(offset.center.dy, closeTo(bpm.center.dy, 1));
+      expect(export.center.dy, closeTo(bpm.center.dy, 1));
+      expect(bpm.width, greaterThan(120));
+      expect(offset.width, greaterThan(120));
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('save-chart')),
+          matching: find.text('保存'),
+        ),
+        findsNothing,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+    }
+  });
+
+  testWidgets('keeps macOS compact windows on the desktop toolbar layout', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await pumpEditor(tester, size: const Size(390, 844));
+
+      final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
+      expect(bpm.width, lessThan(120));
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+    }
+  });
+
+  testWidgets('keeps the desktop audio toolbar on one row', (tester) async {
+    await pumpEditor(tester, size: const Size(1000, 700));
+
+    final audio = tester.getRect(find.byKey(const ValueKey('audio-picker')));
+    final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
+    final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
+
+    expect(bpm.top, closeTo(audio.top, 1));
+    expect(offset.top, closeTo(audio.top, 1));
+  });
+
   testWidgets('keeps the audio extension visible in a compact toolbar', (
     tester,
   ) async {

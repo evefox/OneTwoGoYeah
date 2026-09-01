@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -42,12 +43,17 @@ class EditorToolbars extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compact = constraints.maxWidth < 680;
+          final mobile =
+              compact &&
+              (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform == TargetPlatform.iOS);
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               _AudioToolbar(
                 controller: controller,
                 compact: compact,
+                mobile: mobile,
                 onChooseAudio: onChooseAudio,
                 onAnalyze: onAnalyze,
                 onExportAudio: onExportAudio,
@@ -56,6 +62,7 @@ class EditorToolbars extends StatelessWidget {
               _ChartToolbar(
                 controller: controller,
                 compact: compact,
+                mobile: mobile,
                 onImportSlk: onImportSlk,
                 onOpenDrafts: onOpenDrafts,
                 onSave: onSave,
@@ -75,6 +82,7 @@ class _AudioToolbar extends StatelessWidget {
   const _AudioToolbar({
     required this.controller,
     required this.compact,
+    required this.mobile,
     required this.onChooseAudio,
     required this.onAnalyze,
     required this.onExportAudio,
@@ -82,6 +90,7 @@ class _AudioToolbar extends StatelessWidget {
 
   final EditorController controller;
   final bool compact;
+  final bool mobile;
   final VoidCallback onChooseAudio;
   final VoidCallback onAnalyze;
   final VoidCallback onExportAudio;
@@ -109,78 +118,112 @@ class _AudioToolbar extends StatelessWidget {
         ),
       ),
     );
-    final actions = [
-      IconButton(
-        key: const ValueKey('analyze-audio'),
-        onPressed: enabled ? onAnalyze : null,
-        tooltip: '分析 BPM 与 Offset',
-        icon: const Icon(Icons.auto_graph_outlined, size: 20),
-      ),
-      _ValueMenu(
-        key: const ValueKey('bpm-menu'),
-        label: 'BPM',
-        value: controller.bpm,
-        min: 0,
-        max: 100000,
-        allowNegative: false,
-        enabled: enabled,
-        commitTextOnEditingComplete: true,
-        onChanged: controller.setBpm,
-        stepButtons: [
-          _StepAction(Icons.remove, 'BPM 减少 0.001', () {
-            controller.nudgeBpm(-0.001);
-          }, repeatDelta: -0.001),
-          _StepAction(Icons.add, 'BPM 增加 0.001', () {
-            controller.nudgeBpm(0.001);
-          }, repeatDelta: 0.001),
-        ],
-      ),
-      _ValueMenu(
-        key: const ValueKey('offset-menu'),
-        label: 'Offset',
-        value: controller.offset,
-        min: -30,
-        max: 30,
-        allowNegative: true,
-        enabled: enabled,
-        commitTextOnEditingComplete: true,
-        onChanged: controller.setOffset,
-        stepButtons: [
-          _StepAction(Icons.keyboard_double_arrow_left, '往前一拍', () {
-            controller.nudgeOffsetByBeat(1);
-          }),
-          _StepAction(Icons.chevron_left, '往前半拍', () {
-            controller.nudgeOffsetByBeat(0.5);
-          }),
-          _StepAction(Icons.chevron_right, '往后半拍', () {
-            controller.nudgeOffsetByBeat(-0.5);
-          }),
-          _StepAction(Icons.keyboard_double_arrow_right, '往后一拍', () {
-            controller.nudgeOffsetByBeat(-1);
-          }),
-        ],
-      ),
-      IconButton(
-        key: const ValueKey('export-audio'),
-        onPressed: enabled ? onExportAudio : null,
-        tooltip: '导出 Ogg 音频',
-        icon: const Icon(Icons.ios_share_outlined, size: 20),
-      ),
-    ];
+    final analyze = IconButton(
+      key: const ValueKey('analyze-audio'),
+      onPressed: enabled ? onAnalyze : null,
+      tooltip: '分析 BPM 与 Offset',
+      icon: const Icon(Icons.auto_graph_outlined, size: 20),
+    );
+    final bpm = _ValueMenu(
+      key: const ValueKey('bpm-menu'),
+      label: 'BPM',
+      value: controller.bpm,
+      min: 0,
+      max: 100000,
+      allowNegative: false,
+      enabled: enabled,
+      compact: mobile,
+      commitTextOnEditingComplete: true,
+      onChanged: controller.setBpm,
+      stepButtons: [
+        _StepAction(Icons.remove, 'BPM 减少 0.001', () {
+          controller.nudgeBpm(-0.001);
+        }, repeatDelta: -0.001),
+        _StepAction(Icons.add, 'BPM 增加 0.001', () {
+          controller.nudgeBpm(0.001);
+        }, repeatDelta: 0.001),
+      ],
+    );
+    final offset = _ValueMenu(
+      key: const ValueKey('offset-menu'),
+      label: 'Offset',
+      value: controller.offset,
+      min: -30,
+      max: 30,
+      allowNegative: true,
+      enabled: enabled,
+      compact: mobile,
+      commitTextOnEditingComplete: true,
+      onChanged: controller.setOffset,
+      stepButtons: [
+        _StepAction(Icons.keyboard_double_arrow_left, '往前一拍', () {
+          controller.nudgeOffsetByBeat(1);
+        }),
+        _StepAction(Icons.chevron_left, '往前半拍', () {
+          controller.nudgeOffsetByBeat(0.5);
+        }),
+        _StepAction(Icons.chevron_right, '往后半拍', () {
+          controller.nudgeOffsetByBeat(-0.5);
+        }),
+        _StepAction(Icons.keyboard_double_arrow_right, '往后一拍', () {
+          controller.nudgeOffsetByBeat(-1);
+        }),
+      ],
+    );
+    final export = IconButton(
+      key: const ValueKey('export-audio'),
+      onPressed: enabled ? onExportAudio : null,
+      tooltip: '导出 Ogg 音频',
+      icon: const Icon(Icons.ios_share_outlined, size: 20),
+    );
     return Padding(
       padding: EdgeInsets.fromLTRB(8, compact ? 6 : 7, 8, compact ? 4 : 7),
-      child: compact
+      child: mobile
           ? Column(
               children: [
-                Row(children: [file, actions.first, actions.last]),
+                // Keep the audio source and its analysis entry point together.
+                // The value controls then get the full width on a phone, which
+                // makes the current timing values easier to scan and tap.
+                Row(
+                  children: [
+                    file,
+                    const SizedBox(width: 4),
+                    analyze,
+                  ],
+                ),
                 const SizedBox(height: 4),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: actions.sublist(1, 3),
+                  children: [
+                    Expanded(child: bpm),
+                    const SizedBox(width: 4),
+                    Expanded(child: offset),
+                    const SizedBox(width: 2),
+                    export,
+                  ],
                 ),
               ],
             )
-          : Row(children: [file, const SizedBox(width: 6), ...actions]),
+          : compact
+              ? Column(
+                  children: [
+                    Row(children: [file, analyze, export]),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [bpm, offset],
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    file,
+                    const SizedBox(width: 6),
+                    analyze,
+                    bpm,
+                    offset,
+                    export,
+                  ],
+                ),
     );
   }
 }
@@ -220,6 +263,7 @@ class _ChartToolbar extends StatelessWidget {
   const _ChartToolbar({
     required this.controller,
     required this.compact,
+    required this.mobile,
     required this.onImportSlk,
     required this.onOpenDrafts,
     required this.onSave,
@@ -230,6 +274,7 @@ class _ChartToolbar extends StatelessWidget {
 
   final EditorController controller;
   final bool compact;
+  final bool mobile;
   final VoidCallback onImportSlk;
   final VoidCallback onOpenDrafts;
   final VoidCallback onSave;
@@ -277,7 +322,11 @@ class _ChartToolbar extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           SizedBox(
-            width: compact ? 74 : 118,
+            width: mobile
+                ? 86
+                : compact
+                    ? 74
+                    : 118,
             child: controller.sourceKind == WorkspaceSourceKind.savedDraft
                 ? Row(
                     children: [
@@ -293,9 +342,13 @@ class _ChartToolbar extends StatelessWidget {
                               ),
                             ),
                           ),
-                          child: compact
-                              ? const Icon(Icons.save_outlined, size: 20)
-                              : const Text('保存'),
+                          child: Semantics(
+                            label: '保存',
+                            button: true,
+                            child: compact
+                                ? const Icon(Icons.save_outlined, size: 20)
+                                : const Text('保存'),
+                          ),
                         ),
                       ),
                       MenuAnchor(
@@ -332,12 +385,22 @@ class _ChartToolbar extends StatelessWidget {
                       ),
                     ],
                   )
-                : OutlinedButton.icon(
-                    key: const ValueKey('save-chart'),
-                    onPressed: enabled ? onSave : null,
-                    icon: const Icon(Icons.save_outlined, size: 18),
-                    label: const Text('保存'),
-                  ),
+                : mobile
+                    ? OutlinedButton(
+                        key: const ValueKey('save-chart'),
+                        onPressed: enabled ? onSave : null,
+                        child: Semantics(
+                          label: '保存',
+                          button: true,
+                          child: const Icon(Icons.save_outlined, size: 20),
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        key: const ValueKey('save-chart'),
+                        onPressed: enabled ? onSave : null,
+                        icon: const Icon(Icons.save_outlined, size: 18),
+                        label: const Text('保存'),
+                      ),
           ),
           IconButton(
             key: const ValueKey('clear-chart'),
@@ -345,10 +408,7 @@ class _ChartToolbar extends StatelessWidget {
             tooltip: '清空谱面',
             icon: const Icon(Icons.layers_clear_outlined, size: 20),
           ),
-          const SizedBox(
-            height: 24,
-            child: VerticalDivider(width: 9, thickness: 1),
-          ),
+          const SizedBox(width: 2),
           IconButton(
             key: const ValueKey('export-slk'),
             onPressed: enabled ? onExportSlk : null,
@@ -379,6 +439,7 @@ class _ValueMenu extends StatefulWidget {
     required this.max,
     required this.allowNegative,
     required this.enabled,
+    this.compact = false,
     this.commitTextOnEditingComplete = false,
     required this.onChanged,
     required this.stepButtons,
@@ -390,6 +451,7 @@ class _ValueMenu extends StatefulWidget {
   final double max;
   final bool allowNegative;
   final bool enabled;
+  final bool compact;
   final bool commitTextOnEditingComplete;
   final ValueChanged<double> onChanged;
   final List<_StepAction> stepButtons;
@@ -629,6 +691,10 @@ class _ValueMenuState extends State<_ValueMenu> {
             : null,
         style: TextButton.styleFrom(
           foregroundColor: EditorColors.text,
+          backgroundColor: widget.compact ? EditorColors.canvas : null,
+          side: widget.compact
+              ? const BorderSide(color: EditorColors.border)
+              : null,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           minimumSize: const Size(84, 40),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
