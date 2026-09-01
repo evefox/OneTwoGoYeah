@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:otgy_native/otgy_native.dart';
 
@@ -11,6 +12,7 @@ import '../application/editor_controller.dart';
 import 'editor_theme.dart';
 
 const double editorCursorViewportFraction = 0.25;
+const Duration playbackVisualPredictionLimit = Duration(milliseconds: 50);
 
 double editorCursorY(Size size) => size.height * editorCursorViewportFraction;
 
@@ -46,11 +48,21 @@ class EditorCanvas extends StatefulWidget {
 
 enum _CanvasGestureMode { undecided, verticalPan, horizontalPan, zoom }
 
-class _EditorCanvasState extends State<EditorCanvas> {
+class _EditorCanvasState extends State<EditorCanvas>
+    with SingleTickerProviderStateMixin {
   final _focusNode = FocusNode(debugLabel: '谱面编辑画布');
+  late final ValueNotifier<double> _paintCurrentRow;
+  late final Ticker _playbackVisualTicker;
   double _gestureZoom = 10;
   double _gestureTargetZoom = 10;
   double _gesturePreviewScale = 1;
+  double _confirmedPlaybackRow = 0;
+  double _visualAnchorRow = 0;
+  double _playbackRowsPerSecond = 0;
+  double _playbackEndRow = 0;
+  Duration _tickerElapsed = Duration.zero;
+  Duration _confirmedAt = Duration.zero;
+  Duration _visualAnchorAt = Duration.zero;
   PointerDeviceKind? _gestureKind;
   _CanvasGestureMode _gestureMode = _CanvasGestureMode.undecided;
   bool _gestureEnabled = false;
@@ -62,9 +74,134 @@ class _EditorCanvasState extends State<EditorCanvas> {
   bool get _macOS => defaultTargetPlatform == TargetPlatform.macOS;
 
   @override
+  void initState() {
+    super.initState();
+    _paintCurrentRow = ValueNotifier(widget.controller.currentRow);
+    _playbackVisualTicker = createTicker(_handlePlaybackVisualFrame);
+    widget.controller.addListener(_synchronizePlaybackVisual);
+    _synchronizePlaybackVisual();
+  }
+
+  @override
+  void didUpdateWidget(covariant EditorCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) {
+      return;
+    }
+    oldWidget.controller.removeListener(_synchronizePlaybackVisual);
+    widget.controller.addListener(_synchronizePlaybackVisual);
+    _stopPlaybackVisual();
+    _synchronizePlaybackVisual();
+  }
+
+  @override
   void dispose() {
+    widget.controller.removeListener(_synchronizePlaybackVisual);
+    _playbackVisualTicker.dispose();
+    _paintCurrentRow.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _synchronizePlaybackVisual() {
+    final controller = widget.controller;
+    if (!controller.isPlaying) {
+      _stopPlaybackVisual();
+      return;
+    }
+    if (!_playbackVisualTicker.isActive) {
+      _startPlaybackVisual();
+      return;
+    }
+
+    final confirmedRow = controller.currentRow;
+    if (confirmedRow == _confirmedPlaybackRow) {
+      return;
+    }
+    if (confirmedRow < _confirmedPlaybackRow) {
+      _confirmedPlaybackRow = confirmedRow;
+      _confirmedAt = _tickerElapsed;
+      _visualAnchorRow = confirmedRow;
+      _visualAnchorAt = _tickerElapsed;
+      _setPaintCurrentRow(confirmedRow);
+      return;
+    }
+
+    final projected = _projectPlaybackVisualRow(_tickerElapsed);
+    _confirmedPlaybackRow = confirmedRow;
+    _confirmedAt = _tickerElapsed;
+    _visualAnchorRow = math.max(projected, confirmedRow);
+    _visualAnchorAt = _tickerElapsed;
+    _setPaintCurrentRow(_visualAnchorRow);
+  }
+
+  void _startPlaybackVisual() {
+    final controller = widget.controller;
+    _tickerElapsed = Duration.zero;
+    _confirmedAt = Duration.zero;
+    _visualAnchorAt = Duration.zero;
+    _confirmedPlaybackRow = controller.currentRow;
+    _visualAnchorRow = controller.currentRow;
+    _playbackRowsPerSecond =
+        controller.pixelsPerSecond / math.max(0.001, controller.rowSpacing);
+    final audioEndSeconds = controller.audioDurationSeconds;
+    _playbackEndRow = audioEndSeconds == null
+        ? controller.currentRow
+        : OtgyNative.secondsToSixteenthRow(
+            bpm: controller.projectedBpm,
+            offset: controller.offset,
+            seconds: audioEndSeconds,
+          ).clamp(0, controller.timelineRange.endRow).toDouble();
+    _setPaintCurrentRow(controller.currentRow);
+    _playbackVisualTicker.start();
+  }
+
+  void _stopPlaybackVisual() {
+    if (_playbackVisualTicker.isActive) {
+      _playbackVisualTicker.stop();
+    }
+    _tickerElapsed = Duration.zero;
+    _confirmedAt = Duration.zero;
+    _visualAnchorAt = Duration.zero;
+    _confirmedPlaybackRow = widget.controller.currentRow;
+    _visualAnchorRow = widget.controller.currentRow;
+    _setPaintCurrentRow(widget.controller.currentRow);
+  }
+
+  void _handlePlaybackVisualFrame(Duration elapsed) {
+    _tickerElapsed = elapsed;
+    if (!widget.controller.isPlaying) {
+      _stopPlaybackVisual();
+      return;
+    }
+    _setPaintCurrentRow(_projectPlaybackVisualRow(elapsed));
+  }
+
+  double _projectPlaybackVisualRow(Duration elapsed) {
+    final anchorMicros = math.max(
+      0,
+      (elapsed - _visualAnchorAt).inMicroseconds,
+    );
+    final confirmedMicros = math.min(
+      playbackVisualPredictionLimit.inMicroseconds,
+      math.max(0, (elapsed - _confirmedAt).inMicroseconds),
+    );
+    final candidate = _visualAnchorRow + _rowsForMicros(anchorMicros);
+    final confirmedCeiling =
+        _confirmedPlaybackRow + _rowsForMicros(confirmedMicros);
+    return math
+        .max(_paintCurrentRow.value, math.min(candidate, confirmedCeiling))
+        .clamp(0, _playbackEndRow)
+        .toDouble();
+  }
+
+  double _rowsForMicros(int microseconds) =>
+      microseconds / Duration.microsecondsPerSecond * _playbackRowsPerSecond;
+
+  void _setPaintCurrentRow(double value) {
+    if (_paintCurrentRow.value != value) {
+      _paintCurrentRow.value = value;
+    }
   }
 
   Rect _chartRect(Size size) =>
@@ -341,6 +478,7 @@ class _EditorCanvasState extends State<EditorCanvas> {
                                 controller: widget.controller,
                                 mobile: _mobile,
                                 rowSpacing: spacing,
+                                currentRow: _paintCurrentRow,
                               ),
                             ),
                           ),
@@ -636,15 +774,17 @@ class _HistoryControls extends StatelessWidget {
 }
 
 class _EditorCanvasPainter extends CustomPainter {
-  const _EditorCanvasPainter({
+  _EditorCanvasPainter({
     required this.controller,
     required this.mobile,
     required this.rowSpacing,
-  });
+    required this.currentRow,
+  }) : super(repaint: currentRow);
 
   final EditorController controller;
   final bool mobile;
   final double rowSpacing;
+  final ValueListenable<double> currentRow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -658,14 +798,15 @@ class _EditorCanvasPainter extends CustomPainter {
     final cursorY = editorCursorY(size);
     final spacing = rowSpacing;
     final columnWidth = chart.width / 3;
+    final paintCurrentRow = currentRow.value;
 
     _drawColumnBackgrounds(canvas, chart, columnWidth);
     if (controller.waveformVisible && controller.waveformBlocks.isNotEmpty) {
-      _drawWaveform(canvas, chart, cursorY, spacing);
+      _drawWaveform(canvas, chart, cursorY, spacing, paintCurrentRow);
     }
-    _drawShowtimeRanges(canvas, chart, cursorY, spacing);
-    _drawGrid(canvas, chart, cursorY, spacing);
-    _drawMarkers(canvas, chart, cursorY, spacing, columnWidth);
+    _drawShowtimeRanges(canvas, chart, cursorY, spacing, paintCurrentRow);
+    _drawGrid(canvas, chart, cursorY, spacing, paintCurrentRow);
+    _drawMarkers(canvas, chart, cursorY, spacing, columnWidth, paintCurrentRow);
     _drawCursor(canvas, chart, cursorY);
     _drawHeaders(canvas, chart, columnWidth);
   }
@@ -691,6 +832,7 @@ class _EditorCanvasPainter extends CustomPainter {
     Rect chart,
     double cursorY,
     double spacing,
+    double paintCurrentRow,
   ) {
     final blocks = controller.waveformBlocks;
     final first = blocks.first;
@@ -707,7 +849,7 @@ class _EditorCanvasPainter extends CustomPainter {
       screenY < chart.bottom.ceil();
       screenY++
     ) {
-      final row = controller.currentRow + (screenY - cursorY) / spacing;
+      final row = paintCurrentRow + (screenY - cursorY) / spacing;
       final seconds = OtgyNative.sixteenthRowToSeconds(
         bpm: controller.projectedBpm,
         offset: controller.offset,
@@ -785,11 +927,11 @@ class _EditorCanvasPainter extends CustomPainter {
     Rect chart,
     double cursorY,
     double spacing,
+    double paintCurrentRow,
   ) {
     for (final move in controller.showtimeMoves) {
-      final top = cursorY + (move.rangeStart - controller.currentRow) * spacing;
-      final bottom =
-          cursorY + (move.rangeEnd - controller.currentRow) * spacing;
+      final top = cursorY + (move.rangeStart - paintCurrentRow) * spacing;
+      final bottom = cursorY + (move.rangeEnd - paintCurrentRow) * spacing;
       final visible = Rect.fromLTRB(
         chart.left,
         top,
@@ -801,7 +943,7 @@ class _EditorCanvasPainter extends CustomPainter {
       }
       if (move.isLast) {
         final openTop =
-            cursorY + (move.rangeEnd - 8 - controller.currentRow) * spacing;
+            cursorY + (move.rangeEnd - 8 - paintCurrentRow) * spacing;
         final regularRect = Rect.fromLTRB(
           chart.left,
           top,
@@ -843,18 +985,23 @@ class _EditorCanvasPainter extends CustomPainter {
     }
   }
 
-  void _drawGrid(Canvas canvas, Rect chart, double cursorY, double spacing) {
+  void _drawGrid(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+    double paintCurrentRow,
+  ) {
     if (controller.bpm == 0) {
       return;
     }
     final first = math.max(
       0,
-      (controller.currentRow - cursorY / spacing).floor() - 1,
+      (paintCurrentRow - cursorY / spacing).floor() - 1,
     );
-    final last = (controller.currentRow + (chart.bottom - cursorY) / spacing)
-        .ceil();
+    final last = (paintCurrentRow + (chart.bottom - cursorY) / spacing).ceil();
     for (var row = first; row <= last; row++) {
-      final y = cursorY + (row - controller.currentRow) * spacing;
+      final y = cursorY + (row - paintCurrentRow) * spacing;
       if (y < chart.top || y > chart.bottom) {
         continue;
       }
@@ -896,6 +1043,7 @@ class _EditorCanvasPainter extends CustomPainter {
     double cursorY,
     double spacing,
     double columnWidth,
+    double paintCurrentRow,
   ) {
     final circleSize = editorMarkerSize(
       rowSpacing: spacing,
@@ -910,7 +1058,7 @@ class _EditorCanvasPainter extends CustomPainter {
     for (final marker in controller.markers) {
       final center = Offset(
         chart.left + (marker.column + 0.5) * columnWidth,
-        cursorY + (marker.row - controller.currentRow) * spacing,
+        cursorY + (marker.row - paintCurrentRow) * spacing,
       );
       if (center.dy < chart.top - diamondSize ||
           center.dy > chart.bottom + diamondSize) {

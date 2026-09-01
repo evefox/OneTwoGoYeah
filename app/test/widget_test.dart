@@ -767,6 +767,61 @@ void main() {
     );
   });
 
+  testWidgets(
+    'playback painting interpolates by display frame without drifting past the device',
+    (tester) async {
+      controller.dispose();
+      final output = _FakePlaybackOutput();
+      controller = EditorController(playbackOutput: output);
+      final audio = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).readAsBytesSync();
+      await controller.loadAudioBytes(audio, 'fixture.mp3');
+      await pumpEditor(tester);
+
+      double paintedRow() {
+        final customPaint = tester.widget<CustomPaint>(
+          find.byKey(const ValueKey('editor-canvas-paint')),
+        );
+        final painter = customPaint.painter!;
+        final row = (painter as dynamic).currentRow as ValueListenable<double>;
+        return row.value;
+      }
+
+      await controller.togglePlayback();
+      await tester.pump();
+      final confirmedStart = controller.currentRow;
+      expect(paintedRow(), confirmedStart);
+
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(controller.currentRow, confirmedStart);
+      expect(paintedRow(), greaterThan(confirmedStart));
+
+      final maximumPrediction =
+          controller.pixelsPerSecond /
+          controller.rowSpacing *
+          playbackVisualPredictionLimit.inMicroseconds /
+          Duration.microsecondsPerSecond;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(controller.currentRow, confirmedStart);
+      expect(paintedRow(), closeTo(confirmedStart + maximumPrediction, 1e-9));
+
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(controller.currentRow, confirmedStart);
+      expect(paintedRow(), closeTo(confirmedStart + maximumPrediction, 1e-9));
+
+      output.playedFrames = output.sampleRate ~/ 2;
+      await controller.pausePlayback();
+      await tester.pump();
+      expect(controller.isPlaying, isFalse);
+      expect(paintedRow(), controller.currentRow);
+
+      final pausedRow = paintedRow();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(paintedRow(), pausedRow);
+    },
+  );
+
   testWidgets('loads packaged WAV sounds and renders chart playback PCM', (
     tester,
   ) async {
