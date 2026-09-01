@@ -84,6 +84,8 @@ void main() {
   testWidgets(
     'aligns chart columns to waveform channels without stretching on wide windows',
     (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       final audio = File(
         '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
       ).readAsBytesSync();
@@ -168,8 +170,83 @@ void main() {
         widePlayer.center.dx - wideNpc.center.dx,
         closeTo(roleAxisDistance, 0.01),
       );
+      debugDefaultTargetPlatformOverride = previousPlatform;
     },
   );
+
+  testWidgets('reserves mobile clearance beside the right control rail', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    await pumpEditor(tester, size: const Size(390, 700));
+
+    Rect headerRect(String label) =>
+        tester.getRect(find.byKey(ValueKey('column-header-$label')));
+
+    final canvas = tester.getRect(find.byKey(const ValueKey('editor-canvas')));
+    final chart = Rect.fromLTRB(0, 28, canvas.width, canvas.height);
+    final block = controller.canvasWaveformBlocks.first;
+    final nativeWidth = block.channelWidth * 2 + block.channelSpacing;
+    final projectionWidth = canvas.width - mobileEditorContentRightInset;
+    final fit = math.min(1.0, projectionWidth / nativeWidth);
+    final leftOrigin = (projectionWidth - nativeWidth * fit) / 2;
+    final expectedNpc = leftOrigin + block.channelWidth * fit / 2;
+    final expectedShowtime = projectionWidth / 2;
+    final expectedPlayer =
+        leftOrigin +
+        (block.channelWidth + block.channelSpacing) * fit +
+        block.channelWidth * fit / 2;
+
+    expect(
+      headerRect('NPC').center.dx,
+      closeTo(canvas.left + expectedNpc, 0.01),
+    );
+    expect(
+      headerRect('Showtime').center.dx,
+      closeTo(canvas.left + expectedShowtime, 0.01),
+    );
+    expect(
+      headerRect('玩家').center.dx,
+      closeTo(canvas.left + expectedPlayer, 0.01),
+    );
+    expect(
+      headerRect('Showtime').center.dx,
+      closeTo(canvas.center.dx - mobileEditorContentRightInset / 2, 0.01),
+    );
+
+    final unshiftedFit = math.min(1.0, canvas.width / nativeWidth);
+    final unshiftedLeftOrigin = (canvas.width - nativeWidth * unshiftedFit) / 2;
+    final unshiftedPlayer =
+        unshiftedLeftOrigin +
+        (block.channelWidth + block.channelSpacing) * unshiftedFit +
+        block.channelWidth * unshiftedFit / 2;
+    final unshiftedBoundary = (canvas.width / 2 + unshiftedPlayer) / 2;
+    final shiftedBoundary = (expectedShowtime + expectedPlayer) / 2;
+    final reclaimedPlayerX = (shiftedBoundary + unshiftedBoundary) / 2;
+    expect(
+      projectEditorColumn(
+        x: reclaimedPlayerX,
+        chart: chart,
+        waveformBlocks: controller.canvasWaveformBlocks,
+      ),
+      OTGY_CHART_COLUMN_SHOWTIME,
+    );
+    expect(
+      projectEditorColumn(
+        x: reclaimedPlayerX,
+        chart: chart,
+        waveformBlocks: controller.canvasWaveformBlocks,
+        rightInset: mobileEditorContentRightInset,
+      ),
+      OTGY_CHART_COLUMN_PLAYER,
+    );
+    debugDefaultTargetPlatformOverride = previousPlatform;
+  });
 
   testWidgets('edits through the native chart command and supports history', (
     tester,

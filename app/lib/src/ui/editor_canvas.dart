@@ -12,6 +12,7 @@ import '../application/editor_controller.dart';
 import 'editor_theme.dart';
 
 const double editorCursorViewportFraction = 0.25;
+const double mobileEditorContentRightInset = 24;
 const Duration playbackVisualPredictionLimit = Duration(milliseconds: 50);
 
 double editorCursorY(Size size) => size.height * editorCursorViewportFraction;
@@ -41,7 +42,12 @@ int projectEditorColumn({
   required double x,
   required Rect chart,
   required List<WaveformBlock> waveformBlocks,
-}) => _CanvasColumnLayout.from(chart, waveformBlocks).columnAt(x);
+  double rightInset = 0,
+}) => _CanvasColumnLayout.from(
+  chart,
+  waveformBlocks,
+  rightInset: rightInset,
+).columnAt(x);
 
 const _visualChartColumns = <int>[
   OTGY_CHART_COLUMN_NPC,
@@ -62,20 +68,27 @@ final class _CanvasColumnLayout {
 
   factory _CanvasColumnLayout.from(
     Rect chart,
-    List<WaveformBlock> waveformBlocks,
-  ) {
+    List<WaveformBlock> waveformBlocks, {
+    double rightInset = 0,
+  }) {
+    final projection = Rect.fromLTRB(
+      chart.left,
+      chart.top,
+      (chart.right - rightInset).clamp(chart.left, chart.right).toDouble(),
+      chart.bottom,
+    );
     var waveformFit = 1.0;
-    var leftWaveformOrigin = chart.left;
-    var rightWaveformOrigin = chart.right;
-    var npcCenter = chart.left + chart.width / 6;
-    var showtimeCenter = chart.center.dx;
-    var playerCenter = chart.left + chart.width * 5 / 6;
+    var leftWaveformOrigin = projection.left;
+    var rightWaveformOrigin = projection.right;
+    var npcCenter = projection.left + projection.width / 6;
+    var showtimeCenter = projection.center.dx;
+    var playerCenter = projection.left + projection.width * 5 / 6;
 
     if (waveformBlocks.isNotEmpty) {
       final first = waveformBlocks.first;
       final nativeTotal = first.channelWidth * 2 + first.channelSpacing;
-      waveformFit = math.min(1.0, chart.width / math.max(1, nativeTotal));
-      leftWaveformOrigin = chart.center.dx - nativeTotal * waveformFit / 2;
+      waveformFit = math.min(1.0, projection.width / math.max(1, nativeTotal));
+      leftWaveformOrigin = projection.center.dx - nativeTotal * waveformFit / 2;
       rightWaveformOrigin =
           leftWaveformOrigin +
           (first.channelWidth + first.channelSpacing) * waveformFit;
@@ -316,6 +329,7 @@ class _EditorCanvasState extends State<EditorCanvas>
       x: point.dx,
       chart: rect,
       waveformBlocks: widget.controller.canvasWaveformBlocks,
+      rightInset: _mobile ? mobileEditorContentRightInset : 0,
     );
   }
 
@@ -480,6 +494,7 @@ class _EditorCanvasState extends State<EditorCanvas>
         final columnLayout = _CanvasColumnLayout.from(
           rect,
           widget.controller.canvasWaveformBlocks,
+          rightInset: _mobile ? mobileEditorContentRightInset : 0,
         );
         for (final marker in widget.controller.markers) {
           final y =
@@ -914,6 +929,7 @@ class _EditorCanvasPainter extends CustomPainter {
     final columnLayout = _CanvasColumnLayout.from(
       chart,
       controller.canvasWaveformBlocks,
+      rightInset: mobile ? mobileEditorContentRightInset : 0,
     );
 
     _drawColumnBackgrounds(canvas, columnLayout);
