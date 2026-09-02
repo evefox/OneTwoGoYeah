@@ -423,34 +423,70 @@ class _EditorScreenState extends State<EditorScreen>
       mimeTypes: ['audio/ogg'],
       uniformTypeIdentifiers: ['org.xiph.ogg-audio'],
     );
-    final location = await getSaveLocation(
-      suggestedName: suggestedName,
-      acceptedTypeGroups: const [type],
-    );
-    if (location == null) {
-      return;
-    }
+    String? androidDocumentUri;
+    String? selectedPath;
+    var exportCompleted = false;
     try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        androidDocumentUri = await AudioExportPublisher.selectAndroidDocument(
+          suggestedName: suggestedName,
+          mimeType: 'audio/ogg',
+        );
+        if (androidDocumentUri == null) {
+          return;
+        }
+      } else {
+        final location = await getSaveLocation(
+          suggestedName: suggestedName,
+          acceptedTypeGroups: const [type],
+        );
+        if (location == null) {
+          return;
+        }
+        selectedPath = location.path;
+      }
       await _controller.exportAudio(
         quality: settings.quality,
         baseName: settings.baseName,
         save: (result, isCancelled, onProgress) async {
-          await AudioExportPublisher.publish(
-            bytes: result.bytes,
-            selectedPath: location.path,
-            baseName: settings.baseName,
-            localTime: time,
-            isCancelled: isCancelled,
-            onProgress: onProgress,
-          );
+          if (androidDocumentUri case final documentUri?) {
+            await AudioExportPublisher.publishAndroidDocument(
+              bytes: result.bytes,
+              documentUri: documentUri,
+              isCancelled: isCancelled,
+              onProgress: onProgress,
+            );
+          } else {
+            await AudioExportPublisher.publish(
+              bytes: result.bytes,
+              selectedPath: selectedPath!,
+              baseName: settings.baseName,
+              localTime: time,
+              isCancelled: isCancelled,
+              onProgress: onProgress,
+            );
+          }
         },
       );
+      exportCompleted = true;
       _controller.showNotice('音频已导出');
     } on AudioExportCancelled {
       _controller.showNotice('导出已取消');
     } on Object catch (error, stackTrace) {
       if (mounted) {
         await _showAudioExportError(error, stackTrace);
+      }
+    } finally {
+      if (!exportCompleted && androidDocumentUri != null) {
+        try {
+          await AudioExportPublisher.discardAndroidDocument(
+            documentUri: androidDocumentUri,
+          );
+        } on Object catch (error, stackTrace) {
+          if (mounted) {
+            await _showAudioExportError(error, stackTrace);
+          }
+        }
       }
     }
   }

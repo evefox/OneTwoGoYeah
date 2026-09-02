@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -157,6 +158,158 @@ void main() {
         directory.listSync().where((item) => item.path.contains('.otgy-tmp')),
         isEmpty,
       );
+    },
+  );
+
+  test(
+    'Android document picker receives the canonical name and MIME type',
+    () async {
+      String? method;
+      Map<String, Object?>? arguments;
+
+      final uri = await AudioExportPublisher.selectAndroidDocument(
+        suggestedName: '曲目_20260902_120000.ogg',
+        mimeType: 'audio/ogg',
+        invokeMethod: (nextMethod, nextArguments) async {
+          method = nextMethod;
+          arguments = nextArguments;
+          return 'content://documents/export.ogg';
+        },
+      );
+
+      expect(uri, 'content://documents/export.ogg');
+      expect(method, 'createDocument');
+      expect(arguments, <String, Object?>{
+        'suggestedName': '曲目_20260902_120000.ogg',
+        'mimeType': 'audio/ogg',
+      });
+    },
+  );
+
+  test('Android document picker cancellation returns no destination', () async {
+    final uri = await AudioExportPublisher.selectAndroidDocument(
+      suggestedName: 'cancelled.ogg',
+      mimeType: 'audio/ogg',
+      invokeMethod: (_, _) async => null,
+    );
+
+    expect(uri, isNull);
+  });
+
+  test(
+    'Android document publication writes chunks and finishes once',
+    () async {
+      final bytes = Uint8List.fromList(
+        List<int>.generate(300000, (index) => index & 0xff),
+      );
+      final written = BytesBuilder(copy: false);
+      final methods = <String>[];
+      final progress = <(int, int)>[];
+
+      await AudioExportPublisher.publishAndroidDocument(
+        bytes: bytes,
+        documentUri: 'content://documents/export.ogg',
+        isCancelled: () => false,
+        onProgress: (completed, total) => progress.add((completed, total)),
+        invokeMethod: (method, arguments) async {
+          methods.add(method);
+          switch (method) {
+            case 'openDocumentWrite':
+              expect(arguments['uri'], 'content://documents/export.ogg');
+              return 17;
+            case 'writeDocumentChunk':
+              expect(arguments['session'], 17);
+              written.add(arguments['bytes']! as Uint8List);
+              break;
+            case 'finishDocumentWrite':
+              expect(arguments['session'], 17);
+              break;
+            default:
+              fail('Unexpected files channel method: $method');
+          }
+          return null;
+        },
+      );
+
+      expect(methods, [
+        'openDocumentWrite',
+        'writeDocumentChunk',
+        'writeDocumentChunk',
+        'finishDocumentWrite',
+      ]);
+      expect(written.takeBytes(), bytes);
+      expect(progress, [
+        (0, bytes.length),
+        (262144, bytes.length),
+        (bytes.length, bytes.length),
+      ]);
+    },
+  );
+
+  test(
+    'Android document cancellation aborts and deletes partial output',
+    () async {
+      var cancelled = false;
+      final methods = <String>[];
+
+      await expectLater(
+        AudioExportPublisher.publishAndroidDocument(
+          bytes: Uint8List(300000),
+          documentUri: 'content://documents/cancelled.ogg',
+          isCancelled: () => cancelled,
+          invokeMethod: (method, arguments) async {
+            methods.add(method);
+            switch (method) {
+              case 'openDocumentWrite':
+                return 23;
+              case 'writeDocumentChunk':
+                cancelled = true;
+                break;
+              case 'abortDocumentWrite':
+                expect(arguments['session'], 23);
+                expect(arguments['uri'], 'content://documents/cancelled.ogg');
+                break;
+              default:
+                fail('Unexpected files channel method: $method');
+            }
+            return null;
+          },
+        ),
+        throwsA(isA<AudioExportPublishCancelled>()),
+      );
+      expect(methods, [
+        'openDocumentWrite',
+        'writeDocumentChunk',
+        'abortDocumentWrite',
+      ]);
+    },
+  );
+
+  test(
+    'Android document open failure deletes the reserved destination',
+    () async {
+      final methods = <String>[];
+
+      await expectLater(
+        AudioExportPublisher.publishAndroidDocument(
+          bytes: Uint8List.fromList([1, 2, 3]),
+          documentUri: 'content://documents/failed.ogg',
+          isCancelled: () => false,
+          invokeMethod: (method, arguments) async {
+            methods.add(method);
+            if (method == 'openDocumentWrite') {
+              return null;
+            }
+            if (method == 'deleteDocument') {
+              expect(arguments['uri'], 'content://documents/failed.ogg');
+              return null;
+            }
+            fail('Unexpected files channel method: $method');
+          },
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(methods, ['openDocumentWrite', 'deleteDocument']);
     },
   );
 }

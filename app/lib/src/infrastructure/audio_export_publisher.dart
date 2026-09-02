@@ -19,9 +19,101 @@ typedef WriteBytesNoReplace = Future<bool> Function(
   void Function(int completedUnits, int totalUnits)? onProgress,
 );
 
+typedef FilesMethodInvoker = Future<Object?> Function(
+  String method,
+  Map<String, Object?> arguments,
+);
+
 abstract final class AudioExportPublisher {
   static const _chunkSize = 256 * 1024;
   static const _filesChannel = MethodChannel('io.onetwogoyeah/files');
+
+  static Future<String?> selectAndroidDocument({
+    required String suggestedName,
+    required String mimeType,
+    FilesMethodInvoker invokeMethod = _invokeFilesMethod,
+  }) async {
+    final uri = await invokeMethod('createDocument', <String, Object?>{
+      'suggestedName': suggestedName,
+      'mimeType': mimeType,
+    });
+    if (uri == null) {
+      return null;
+    }
+    if (uri is! String || uri.isEmpty) {
+      throw const FileSystemException(
+        'Android document picker returned an invalid URI.',
+      );
+    }
+    return uri;
+  }
+
+  static Future<void> publishAndroidDocument({
+    required Uint8List bytes,
+    required String documentUri,
+    required bool Function() isCancelled,
+    void Function(int completedUnits, int totalUnits)? onProgress,
+    FilesMethodInvoker invokeMethod = _invokeFilesMethod,
+  }) async {
+    int? session;
+    var completed = false;
+    try {
+      if (isCancelled()) {
+        throw const AudioExportPublishCancelled();
+      }
+      final opened = await invokeMethod('openDocumentWrite', <String, Object?>{
+        'uri': documentUri,
+      });
+      if (opened is! int) {
+        throw const FileSystemException(
+          'Android document writer returned an invalid session.',
+        );
+      }
+      session = opened;
+      var written = 0;
+      onProgress?.call(written, bytes.length);
+      while (written < bytes.length) {
+        if (isCancelled()) {
+          throw const AudioExportPublishCancelled();
+        }
+        final end = (written + _chunkSize).clamp(0, bytes.length);
+        await invokeMethod('writeDocumentChunk', <String, Object?>{
+          'session': session,
+          'bytes': Uint8List.sublistView(bytes, written, end),
+        });
+        written = end;
+        onProgress?.call(written, bytes.length);
+      }
+      if (isCancelled()) {
+        throw const AudioExportPublishCancelled();
+      }
+      await invokeMethod('finishDocumentWrite', <String, Object?>{
+        'session': session,
+      });
+      completed = true;
+    } finally {
+      if (!completed) {
+        if (session case final session?) {
+          await invokeMethod('abortDocumentWrite', <String, Object?>{
+            'session': session,
+            'uri': documentUri,
+          });
+        } else {
+          await discardAndroidDocument(
+            documentUri: documentUri,
+            invokeMethod: invokeMethod,
+          );
+        }
+      }
+    }
+  }
+
+  static Future<void> discardAndroidDocument({
+    required String documentUri,
+    FilesMethodInvoker invokeMethod = _invokeFilesMethod,
+  }) async {
+    await invokeMethod('deleteDocument', <String, Object?>{'uri': documentUri});
+  }
 
   static Future<File> publish({
     required Uint8List bytes,
@@ -187,6 +279,11 @@ abstract final class AudioExportPublisher {
     }
     return published;
   }
+
+  static Future<Object?> _invokeFilesMethod(
+    String method,
+    Map<String, Object?> arguments,
+  ) => _filesChannel.invokeMethod<Object?>(method, arguments);
 
   static Future<File> _createTemporaryFile(File target) async {
     final prefix = '.${target.uri.pathSegments.last}.otgy-tmp';

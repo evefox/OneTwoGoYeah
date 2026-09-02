@@ -1018,6 +1018,52 @@ void main() {
     debugDefaultTargetPlatformOverride = previousPlatform;
   });
 
+  testWidgets(
+    'Android audio export uses the system document channel and handles picker failures',
+    (tester) async {
+      final previousPlatform = debugDefaultTargetPlatformOverride;
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      const channel = MethodChannel('io.onetwogoyeah/files');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            expect(call.method, 'createDocument');
+            final arguments = call.arguments as Map<Object?, Object?>;
+            expect(arguments['mimeType'], 'audio/ogg');
+            expect(arguments['suggestedName'], startsWith('fixture_'));
+            expect(arguments['suggestedName'], endsWith('.ogg'));
+            throw PlatformException(
+              code: 'document-picker-error',
+              message: 'Unable to open Android document picker',
+              details: const <String, Object?>{'provider': 'test'},
+            );
+          });
+      try {
+        final audio = File(
+          '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+        ).readAsBytesSync();
+        await controller.loadAudioBytes(audio, 'fixture.mp3');
+        await pumpEditor(tester, size: const Size(390, 844));
+
+        await tester.tap(find.byKey(const ValueKey('export-audio')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, '选择保存位置'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('音频导出失败'), findsOneWidget);
+        final report = tester.widget<SelectableText>(
+          find.byKey(const ValueKey('audio-export-error-diagnostic')),
+        );
+        expect(report.data, contains('operation: audio-export'));
+        expect(report.data, contains('platformCode: document-picker-error'));
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      }
+    },
+  );
+
   testWidgets('BPM long press previews and commits once on release', (
     tester,
   ) async {
