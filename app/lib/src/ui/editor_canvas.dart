@@ -43,15 +43,11 @@ int projectEditorRow({
   return math.max(0, (raw + 0.5).floor());
 }
 
-double editorMarkerSize({
-  required double rowSpacing,
-  required bool mobile,
-  required bool diamond,
-}) {
+double editorMarkerSize({required bool mobile, required bool diamond}) {
   if (diamond) {
-    return math.min(mobile ? 36 : 28, rowSpacing * 0.90).toDouble();
+    return mobile ? 36 : 28;
   }
-  return math.min(mobile ? 28 : 22, rowSpacing * 0.70).toDouble();
+  return mobile ? 28 : 22;
 }
 
 double editorMarkerFontSize({
@@ -63,8 +59,6 @@ double editorMarkerFontSize({
       .max(8, math.min(16, circleSize * 0.64 * math.min(1, 2.2 / length)))
       .toDouble();
 }
-
-bool editorMarkerNumbersVisible(double circleSize) => circleSize >= 18;
 
 final class EditorMarkerStyle {
   const EditorMarkerStyle({
@@ -1407,16 +1401,8 @@ class _EditorCanvasPainter extends CustomPainter {
     double spacing,
     double paintCurrentRow,
   ) {
-    final circleSize = editorMarkerSize(
-      rowSpacing: spacing,
-      mobile: mobile,
-      diamond: false,
-    );
-    final diamondSize = editorMarkerSize(
-      rowSpacing: spacing,
-      mobile: mobile,
-      diamond: true,
-    );
+    final circleSize = editorMarkerSize(mobile: mobile, diamond: false);
+    final diamondSize = editorMarkerSize(mobile: mobile, diamond: true);
     for (final marker in controller.markers) {
       final style = editorMarkerStyle(marker.type);
       final center = Offset(
@@ -1445,9 +1431,7 @@ class _EditorCanvasPainter extends CustomPainter {
       final number = marker.type == OTGY_CHART_MARKER_SHOWTIME_MOVE
           ? marker.showNCount
           : marker.ordinal;
-      if (style.showsNumber &&
-          number != null &&
-          editorMarkerNumbersVisible(circleSize)) {
+      if (style.showsNumber && number != null) {
         final text = '$number';
         final fontSize = editorMarkerFontSize(
           circleSize: circleSize,
