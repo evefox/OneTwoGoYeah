@@ -1583,6 +1583,28 @@ void main() {
     expect(controller.markers, isEmpty);
   });
 
+  testWidgets('centers desktop navigation rail in the editor canvas', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await pumpEditor(tester);
+
+      final canvas = tester.getRect(
+        find.byKey(const ValueKey('editor-canvas')),
+      );
+      final rail = tester.getRect(
+        find.byKey(const ValueKey('navigation-control-surface')),
+      );
+
+      expect(rail.center.dy, closeTo(canvas.center.dy, 0.01));
+      expect(rail.right, closeTo(canvas.right - 8, 0.01));
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+    }
+  });
+
   testWidgets('uses one flat surface style for canvas controls', (
     tester,
   ) async {

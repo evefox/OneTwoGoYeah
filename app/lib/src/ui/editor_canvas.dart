@@ -710,14 +710,28 @@ class _EditorCanvasState extends State<EditorCanvas>
                     ),
                   ),
                 ),
-                Positioned(
-                  right: 8,
-                  top: 40,
-                  child: _NavigationRail(
-                    controller: widget.controller,
-                    navigation: navigation,
+                if (_mobile)
+                  Positioned(
+                    right: 8,
+                    top: 40,
+                    child: _NavigationRail(
+                      controller: widget.controller,
+                      navigation: navigation,
+                    ),
+                  )
+                else
+                  Positioned(
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: _NavigationRail(
+                        controller: widget.controller,
+                        navigation: navigation,
+                      ),
+                    ),
                   ),
-                ),
                 Positioned(
                   left: 8,
                   bottom: 8,
