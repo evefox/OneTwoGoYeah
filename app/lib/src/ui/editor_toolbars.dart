@@ -156,7 +156,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
       onPressed: enabled ? onAnalyze : null,
       tooltip: '分析 BPM 与 Offset',
       style: _toolbarIconButtonStyle,
-      icon: const Icon(Icons.auto_graph_outlined, size: 20),
+      icon: const Icon(Icons.troubleshoot_outlined, size: 20),
     );
     final bpm = _ValueMenu(
       key: const ValueKey('bpm-menu'),

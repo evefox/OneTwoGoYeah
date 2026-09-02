@@ -406,6 +406,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('audio-picker')), findsOneWidget);
     expect(find.byKey(const ValueKey('analyze-audio')), findsOneWidget);
+    expect(find.byIcon(Icons.troubleshoot_outlined), findsOneWidget);
     expect(find.byKey(const ValueKey('export-audio')), findsOneWidget);
     expect(find.byKey(const ValueKey('save-chart')), findsOneWidget);
     expect(find.byKey(const ValueKey('export-slk')), findsOneWidget);
