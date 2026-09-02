@@ -202,6 +202,33 @@ class _AudioToolbarState extends State<_AudioToolbar> {
         }),
       ],
     );
+    final rhythmTest = IconButton(
+      key: const ValueKey('rhythm-test'),
+      onPressed:
+          controller.hasAudio &&
+              controller.bpm > 0 &&
+              !controller.isChartPlaying &&
+              (!controller.isBusy || controller.isRhythmTesting)
+          ? controller.toggleRhythmTest
+          : null,
+      tooltip: controller.isRhythmTesting
+          ? '暂停节奏测试'
+          : controller.isChartPlaying
+          ? '播放中'
+          : !controller.hasAudio
+          ? '请先加载音频'
+          : controller.bpm == 0
+          ? '请先设置 BPM'
+          : '节奏测试',
+      style: _toolbarIconButtonStyle,
+      icon: Icon(
+        controller.isRhythmTesting
+            ? Icons.pause_rounded
+            : Icons.av_timer_outlined,
+        size: 20,
+        color: controller.isRhythmTesting ? EditorColors.accent : null,
+      ),
+    );
     final export = IconButton(
       key: const ValueKey('export-audio'),
       onPressed: enabled ? onExportAudio : null,
@@ -245,6 +272,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                       Expanded(child: bpm),
                       const SizedBox(width: 4),
                       Expanded(child: offset),
+                      rhythmTest,
                     ],
                   ),
                 ],
@@ -263,7 +291,12 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                 const SizedBox(height: 2),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
-                  children: [bpm, offset],
+                  children: [
+                    Expanded(child: bpm),
+                    const SizedBox(width: 4),
+                    Expanded(child: offset),
+                    rhythmTest,
+                  ],
                 ),
               ],
             )
@@ -272,7 +305,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                 final targetFileWidth = (constraints.maxWidth * 0.38)
                     .clamp(240.0, 420.0)
                     .toDouble();
-                final availableFileWidth = constraints.maxWidth - 454;
+                final availableFileWidth = constraints.maxWidth - 494;
                 final fileWidth = targetFileWidth > availableFileWidth
                     ? availableFileWidth
                     : targetFileWidth;
@@ -284,6 +317,7 @@ class _AudioToolbarState extends State<_AudioToolbar> {
                     const Spacer(),
                     SizedBox(width: 176, child: bpm),
                     SizedBox(width: 176, child: offset),
+                    rhythmTest,
                     export,
                   ],
                 );

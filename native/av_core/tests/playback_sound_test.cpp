@@ -28,6 +28,7 @@ using otgy::core::PlaybackSoundBankError;
 using otgy::core::PlaybackSoundConfig;
 using otgy::core::PlaybackSoundId;
 using otgy::core::PlaybackSoundLanguage;
+using otgy::core::RhythmTestSoundConfig;
 
 void append_u16(std::vector<std::uint8_t>& output, std::uint16_t value) {
   output.push_back(static_cast<std::uint8_t>(value & 0xffU));
@@ -339,6 +340,77 @@ void test_missing_asset_and_language() {
   assert(rendered && sample(*rendered.pcm(), 0U) == 200);
 }
 
+void test_rhythm_test_measure_clicks_and_resume() {
+  const auto click = wav(
+      4U, {{{100, 100}}, {{200, 200}}, {{300, 300}}, {{400, 400}}});
+  const auto bank = bank_from({{PlaybackSoundId::SpaceBar, click}});
+  const auto song = silence(4U, 40U);
+  const RhythmTestSoundConfig rhythm_config{
+      PlaybackSoundLanguage::Chinese, {60.0, 0.0}};
+
+  auto rendered = otgy::core::render_rhythm_test_playback_pcm(
+      song, bank, rhythm_config, 0.0);
+  assert(rendered);
+  for (const auto frame : {0U, 16U, 32U}) {
+    assert(sample(*rendered.pcm(), frame) == 100);
+    assert(sample(*rendered.pcm(), frame + 1U) == 200);
+    assert(sample(*rendered.pcm(), frame + 2U) == 300);
+    assert(sample(*rendered.pcm(), frame + 3U) == 400);
+  }
+  assert(sample(*rendered.pcm(), 4U) == 0);
+  assert(song.channel_data(otgy::core::PcmChannel::Left)[0] == 0);
+
+  rendered = otgy::core::render_rhythm_test_playback_pcm(
+      song, bank, rhythm_config, 4.625);
+  assert(rendered);
+  assert(sample(*rendered.pcm(), 0U) == 400);
+  assert(sample(*rendered.pcm(), 1U) == 0);
+  assert(sample(*rendered.pcm(), 13U) == 100);
+}
+
+void test_rhythm_test_offsets_validation_and_saturation() {
+  const auto click = wav(4U, {{{100, 100}}});
+  const auto bank = bank_from({{PlaybackSoundId::SpaceBar, click}});
+  const auto song = silence(4U, 24U);
+
+  auto rendered = otgy::core::render_rhythm_test_playback_pcm(
+      song, bank,
+      {PlaybackSoundLanguage::Chinese, {60.0, 0.5}}, 0.0);
+  assert(rendered);
+  assert(sample(*rendered.pcm(), 0U) == 0);
+  assert(sample(*rendered.pcm(), 14U) == 100);
+
+  rendered = otgy::core::render_rhythm_test_playback_pcm(
+      song, bank,
+      {PlaybackSoundLanguage::Chinese, {60.0, -0.5}}, 0.0);
+  assert(rendered);
+  assert(sample(*rendered.pcm(), 2U) == 100);
+  assert(sample(*rendered.pcm(), 18U) == 100);
+
+  rendered = otgy::core::render_rhythm_test_playback_pcm(
+      song, bank,
+      {PlaybackSoundLanguage::Chinese, {0.0, 0.0}}, 0.0);
+  assert(!rendered &&
+         rendered.error() == otgy::core::PlaybackPcmError::SoundTimingFailure);
+
+  const auto empty_bank = bank_from({});
+  rendered = otgy::core::render_rhythm_test_playback_pcm(
+      song, empty_bank,
+      {PlaybackSoundLanguage::Chinese, {60.0, 0.0}}, 0.0);
+  assert(!rendered &&
+         rendered.error() == otgy::core::PlaybackPcmError::MissingSoundAsset);
+
+  auto loud_song_result = Pcm16::allocate(4U, 4U);
+  assert(loud_song_result);
+  auto loud_song = std::move(loud_song_result).take_pcm();
+  loud_song.mutable_channel_data(otgy::core::PcmChannel::Left)[0] = 32700;
+  loud_song.mutable_channel_data(otgy::core::PcmChannel::Right)[0] = 32700;
+  rendered = otgy::core::render_rhythm_test_playback_pcm(
+      loud_song, bank,
+      {PlaybackSoundLanguage::Chinese, {60.0, 0.0}}, 0.0);
+  assert(rendered && sample(*rendered.pcm(), 0U) == 32767);
+}
+
 }  // namespace
 
 int main() {
@@ -347,5 +419,7 @@ int main() {
   test_eight_key_range_and_incomplete_pairing();
   test_resampling_tail_and_saturation();
   test_missing_asset_and_language();
+  test_rhythm_test_measure_clicks_and_resume();
+  test_rhythm_test_offsets_validation_and_saturation();
   return 0;
 }

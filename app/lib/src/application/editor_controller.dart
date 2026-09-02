@@ -12,6 +12,8 @@ enum EditorNoticeKind { info, error }
 
 enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
 
+enum EditorPlaybackMode { idle, chartPreview, rhythmTest }
+
 bool mobileChartEditingEnabled(double rowSpacing) => rowSpacing >= 40;
 
 const double targetEditorRowSpacing = 46;
@@ -147,7 +149,7 @@ class EditorController extends ChangeNotifier {
   bool _isBusy = false;
   bool _isExportingAudio = false;
   bool _audioExportCancellationRequested = false;
-  bool _isPlaying = false;
+  EditorPlaybackMode _playbackMode = EditorPlaybackMode.idle;
   bool _isDirty = false;
   bool _waveformVisible = true;
   WaveformFilter _waveformFilter = WaveformFilter.none;
@@ -194,7 +196,7 @@ class EditorController extends ChangeNotifier {
   List<ShowtimeMove> get showtimeMoves => _showtimeMoves;
   List<WaveformBlock> get waveformBlocks => _waveformBlocks;
   List<WaveformBlock> get canvasWaveformBlocks {
-    if (_isPlaying &&
+    if (isPlaying &&
         playbackVisualPixelsPerSecond < _pixelsPerSecond &&
         _playbackWaveformBlocks.isNotEmpty) {
       return _playbackWaveformBlocks;
@@ -206,7 +208,7 @@ class EditorController extends ChangeNotifier {
     if (_waveformFilter == WaveformFilter.none) {
       return const [];
     }
-    if (_isPlaying &&
+    if (isPlaying &&
         playbackVisualPixelsPerSecond < _pixelsPerSecond &&
         _playbackFilteredWaveformBlocks.isNotEmpty) {
       return _playbackFilteredWaveformBlocks;
@@ -220,10 +222,12 @@ class EditorController extends ChangeNotifier {
   bool get audioExportCancellationRequested =>
       _audioExportCancellationRequested;
   AudioExportProgress? get audioExportProgress => _audioExportProgress;
-  bool get isPlaying => _isPlaying;
+  bool get isPlaying => _playbackMode != EditorPlaybackMode.idle;
+  bool get isChartPlaying => _playbackMode == EditorPlaybackMode.chartPreview;
+  bool get isRhythmTesting => _playbackMode == EditorPlaybackMode.rhythmTest;
   bool get generalActionsEnabled =>
       OtgyNative.coordinateApplicationOperation(
-        mode: _isPlaying
+        mode: isPlaying
             ? 1
             : _isExportingAudio
             ? 2
@@ -745,10 +749,32 @@ class EditorController extends ChangeNotifier {
       OtgyNative.defaultAudioExportBaseName(_audioFileName ?? 'audio');
 
   Future<void> togglePlayback() async {
-    if (_isPlaying) {
+    if (isChartPlaying) {
       await pausePlayback();
       return;
     }
+    if (isRhythmTesting) {
+      return;
+    }
+    await _startPlayback(EditorPlaybackMode.chartPreview);
+  }
+
+  Future<void> toggleRhythmTest() async {
+    if (isRhythmTesting) {
+      await pausePlayback();
+      return;
+    }
+    if (isChartPlaying) {
+      return;
+    }
+    if (_bpm == 0) {
+      showNotice('请先设置 BPM');
+      return;
+    }
+    await _startPlayback(EditorPlaybackMode.rhythmTest);
+  }
+
+  Future<void> _startPlayback(EditorPlaybackMode mode) async {
     final audio = _audio;
     if (audio == null || !generalActionsEnabled) {
       showNotice('请先加载音频');
@@ -771,9 +797,18 @@ class EditorController extends ChangeNotifier {
       if (!start.isPlaying) {
         return;
       }
-      final usesChartSounds = _markers.isNotEmpty;
       PlaybackPcm playback;
-      if (usesChartSounds) {
+      if (mode == EditorPlaybackMode.rhythmTest) {
+        _invalidatePlaybackSoundSession();
+        final soundBank = await _ensurePlaybackSoundBank();
+        playback = audio.renderRhythmTestPlayback(
+          soundBank: soundBank,
+          language: _playbackSoundLanguage,
+          bpm: _bpm,
+          offset: _offset,
+          timelineStartSeconds: start.timelineSeconds,
+        );
+      } else if (_markers.isNotEmpty) {
         final soundBank = await _ensurePlaybackSoundBank();
         final seed = _soundSeedForPlayback();
         playback = audio.renderChartPlayback(
@@ -809,7 +844,7 @@ class EditorController extends ChangeNotifier {
       _playbackSampleRate = playback.sampleRate;
       _playbackFrameCount = playback.frameCount;
       _playbackPlayedFrames = 0;
-      _isPlaying = true;
+      _playbackMode = mode;
       final generation = ++_playbackGeneration;
       _playbackTimer?.cancel();
       _playbackTimer = Timer.periodic(
@@ -819,17 +854,24 @@ class EditorController extends ChangeNotifier {
       notifyListeners();
     } on Object {
       _playbackGeneration++;
-      _isPlaying = false;
+      _playbackMode = EditorPlaybackMode.idle;
       _playbackStart = null;
       unawaited(_playbackOutput.dispose());
-      showNotice(_markers.isNotEmpty ? '无法加载或混合谱面音效' : '无法启动音频播放', error: true);
+      showNotice(
+        mode == EditorPlaybackMode.rhythmTest
+            ? '无法启动节奏测试'
+            : _markers.isNotEmpty
+            ? '无法加载或混合谱面音效'
+            : '无法启动音频播放',
+        error: true,
+      );
     } finally {
       _setBusy(false);
     }
   }
 
   Future<void> pausePlayback() async {
-    if (!_isPlaying) {
+    if (!isPlaying) {
       return;
     }
     final generation = _playbackGeneration;
@@ -848,7 +890,7 @@ class EditorController extends ChangeNotifier {
   }
 
   Future<void> _pollPlayback(int generation) async {
-    if (!_isPlaying ||
+    if (!isPlaying ||
         generation != _playbackGeneration ||
         _playbackPollActive) {
       return;
@@ -887,12 +929,14 @@ class EditorController extends ChangeNotifier {
     }
     _applyPlaybackPosition(position);
     if (!position.isPlaying || forcePause) {
+      final completedMode = _playbackMode;
       _playbackTimer?.cancel();
       _playbackTimer = null;
       _playbackStart = null;
-      _isPlaying = false;
+      _playbackMode = EditorPlaybackMode.idle;
       _playbackGeneration++;
-      if (_playbackSoundSeed != null &&
+      if (completedMode == EditorPlaybackMode.chartPreview &&
+          _playbackSoundSeed != null &&
           position.timelineSeconds < position.audioDurationSeconds) {
         _playbackSoundResumeRow = _currentRow;
       } else {
@@ -918,7 +962,7 @@ class EditorController extends ChangeNotifier {
 
   Future<void> setWaveformFilter(WaveformFilter value) async {
     if (!generalActionsEnabled ||
-        _isPlaying ||
+        isPlaying ||
         _isBusy ||
         value == _waveformFilter) {
       return;
@@ -930,7 +974,7 @@ class EditorController extends ChangeNotifier {
   Future<void> setWaveformFilterStrength(double value) async {
     final next = value.clamp(0.0, 1.0).toDouble();
     if (!generalActionsEnabled ||
-        _isPlaying ||
+        isPlaying ||
         _isBusy ||
         next == _waveformFilterStrength) {
       return;
@@ -945,7 +989,7 @@ class EditorController extends ChangeNotifier {
 
   void setWaveformOverlayOriginal(bool value) {
     if (!generalActionsEnabled ||
-        _isPlaying ||
+        isPlaying ||
         _isBusy ||
         value == _waveformOverlayOriginal) {
       return;
@@ -955,7 +999,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void setPlaybackSoundLanguage(PlaybackSoundLanguage value) {
-    if (_isPlaying || _isBusy || value == _playbackSoundLanguage) {
+    if (isPlaying || _isBusy || value == _playbackSoundLanguage) {
       return;
     }
     _playbackSoundLanguage = value;
@@ -964,7 +1008,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void setPlaybackDanceMode(PlaybackDanceMode value) {
-    if (_isPlaying || _isBusy || value == _playbackDanceMode) {
+    if (isPlaying || _isBusy || value == _playbackDanceMode) {
       return;
     }
     _playbackDanceMode = value;
@@ -973,7 +1017,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void setTransitionSoundsEnabled(bool value) {
-    if (_isPlaying || _isBusy || value == _transitionSoundsEnabled) {
+    if (isPlaying || _isBusy || value == _transitionSoundsEnabled) {
       return;
     }
     _transitionSoundsEnabled = value;

@@ -407,6 +407,13 @@ void main() {
     expect(find.byKey(const ValueKey('audio-picker')), findsOneWidget);
     expect(find.byKey(const ValueKey('analyze-audio')), findsOneWidget);
     expect(find.byIcon(Icons.troubleshoot_outlined), findsOneWidget);
+    expect(find.byKey(const ValueKey('rhythm-test')), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('rhythm-test')))
+          .onPressed,
+      isNull,
+    );
     expect(find.byKey(const ValueKey('export-audio')), findsOneWidget);
     expect(find.byKey(const ValueKey('save-chart')), findsOneWidget);
     expect(find.byKey(const ValueKey('export-slk')), findsOneWidget);
@@ -486,6 +493,9 @@ void main() {
       );
       final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
       final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
+      final rhythmTest = tester.getRect(
+        find.byKey(const ValueKey('rhythm-test')),
+      );
       final export = tester.getRect(find.byKey(const ValueKey('export-audio')));
       final toggle = tester.getRect(
         find.byKey(const ValueKey('toggle-timing-controls')),
@@ -504,6 +514,8 @@ void main() {
       expect(audio.width, greaterThan(180));
       expect(bpm.top, greaterThan(audio.bottom));
       expect(offset.center.dy, closeTo(bpm.center.dy, 1));
+      expect(rhythmTest.center.dy, closeTo(bpm.center.dy, 1));
+      expect(rhythmTest.left, greaterThanOrEqualTo(offset.right));
       expect(export.center.dy, closeTo(toggle.center.dy, 1));
       expect(export.left, greaterThan(toggle.right - 1));
       expect(bpm.width, greaterThan(120));
@@ -531,11 +543,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('toggle-timing-controls')));
       await tester.pump();
       expect(find.byKey(const ValueKey('bpm-menu')), findsNothing);
+      expect(find.byKey(const ValueKey('rhythm-test')), findsNothing);
       expect(find.byTooltip('展开 BPM 与 Offset'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('toggle-timing-controls')));
       await tester.pump();
       expect(find.byKey(const ValueKey('bpm-menu')), findsOneWidget);
+      expect(find.byKey(const ValueKey('rhythm-test')), findsOneWidget);
       expect(find.byTooltip('收起 BPM 与 Offset'), findsOneWidget);
     } finally {
       debugDefaultTargetPlatformOverride = previousPlatform;
@@ -570,6 +584,9 @@ void main() {
     final analyze = tester.getRect(find.byKey(const ValueKey('analyze-audio')));
     final bpm = tester.getRect(find.byKey(const ValueKey('bpm-menu')));
     final offset = tester.getRect(find.byKey(const ValueKey('offset-menu')));
+    final rhythmTest = tester.getRect(
+      find.byKey(const ValueKey('rhythm-test')),
+    );
     final bpmLabel = tester.getRect(find.text('BPM'));
     final bpmValue = tester.getRect(find.text('100.000'));
     final offsetLabel = tester.getRect(find.text('Offset'));
@@ -578,6 +595,8 @@ void main() {
     expect(audio.width, lessThan(400));
     expect(bpm.top, closeTo(audio.top, 1));
     expect(offset.top, closeTo(audio.top, 1));
+    expect(rhythmTest.center.dy, closeTo(offset.center.dy, 1));
+    expect(rhythmTest.left, greaterThanOrEqualTo(offset.right));
     expect(bpm.width, 176);
     expect(offset.width, 176);
     expect(bpm.left, greaterThan(analyze.right));
@@ -1814,6 +1833,101 @@ void main() {
       ),
     );
   });
+
+  testWidgets(
+    'rhythm test is mutually exclusive and ignores chart preview sounds',
+    (tester) async {
+      controller.dispose();
+      final output = _FakePlaybackOutput();
+      controller = EditorController(playbackOutput: output);
+      final audio = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).readAsBytesSync();
+      await controller.loadAudioBytes(audio, 'fixture.mp3');
+      await pumpEditor(tester);
+
+      controller.setBpm(0);
+      await tester.pump();
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('rhythm-test')))
+            .onPressed,
+        isNull,
+      );
+      await controller.toggleRhythmTest();
+      expect(controller.isPlaying, isFalse);
+      expect(controller.notice?.message, '请先设置 BPM');
+      controller.setBpm(100);
+      await tester.pump();
+
+      await controller.togglePlayback();
+      await tester.pump();
+      expect(controller.isChartPlaying, isTrue);
+      expect(controller.isRhythmTesting, isFalse);
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('rhythm-test')))
+            .onPressed,
+        isNull,
+      );
+      await controller.pausePlayback();
+      controller.moveToRow(0);
+
+      await controller.toggleRhythmTest();
+      await tester.pump();
+      expect(controller.isPlaying, isTrue);
+      expect(controller.isChartPlaying, isFalse);
+      expect(controller.isRhythmTesting, isTrue);
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('playback-button')))
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<IconButton>(find.byKey(const ValueKey('rhythm-test')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(
+        tester
+            .widget<TextButton>(find.byKey(const ValueKey('audio-picker')))
+            .onPressed,
+        isNull,
+      );
+      controller.setBpm(130);
+      expect(controller.bpm, 100);
+      await controller.togglePlayback();
+      expect(controller.isRhythmTesting, isTrue);
+
+      final waveformBefore = controller.waveformVisible;
+      controller.toggleWaveform();
+      expect(controller.waveformVisible, isNot(waveformBefore));
+      final unmarkedRhythm = Uint8List.fromList(output.bytes);
+
+      output.playedFrames = output.sampleRate ~/ 2;
+      await controller.toggleRhythmTest();
+      await tester.pump();
+      expect(controller.isPlaying, isFalse);
+      expect(
+        controller.currentRow,
+        OtgyNative.secondsToSixteenthRow(
+          bpm: 100,
+          offset: 0,
+          seconds: output.playedFrames / output.sampleRate,
+        ),
+      );
+
+      controller.moveToRow(0);
+      controller.clickCell(0, 0, mobile: false);
+      controller.setTransitionSoundsEnabled(true);
+      await controller.toggleRhythmTest();
+      expect(controller.isRhythmTesting, isTrue);
+      expect(output.bytes, unmarkedRhythm);
+      await controller.toggleRhythmTest();
+    },
+  );
 
   testWidgets(
     'playback painting interpolates by display frame without drifting past the device',

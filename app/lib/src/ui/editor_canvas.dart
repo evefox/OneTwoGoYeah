@@ -1026,22 +1026,26 @@ class _NavigationRailState extends State<_NavigationRail> {
               icon: const Icon(Icons.keyboard_arrow_up, size: 20),
             ),
             IconButton(
+              key: const ValueKey('playback-button'),
               onPressed:
                   controller.hasAudio &&
-                      (!controller.isBusy || controller.isPlaying)
+                      !controller.isRhythmTesting &&
+                      (!controller.isBusy || controller.isChartPlaying)
                   ? controller.togglePlayback
                   : null,
-              tooltip: controller.isPlaying
+              tooltip: controller.isChartPlaying
                   ? '暂停'
+                  : controller.isRhythmTesting
+                  ? '节奏测试中'
                   : controller.hasAudio
                   ? '播放'
                   : '请先加载音频',
               icon: Icon(
-                controller.isPlaying
+                controller.isChartPlaying
                     ? Icons.pause_rounded
                     : Icons.play_arrow_rounded,
                 size: 20,
-                color: controller.isPlaying ? EditorColors.accent : null,
+                color: controller.isChartPlaying ? EditorColors.accent : null,
               ),
             ),
             IconButton(

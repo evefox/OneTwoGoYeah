@@ -129,6 +129,25 @@ void main() {
     expect(playback.sampleRate, audio.sampleRate);
     expect(playback.frameCount, audio.frameCount);
     expect(playback.interleavedPcm16le.length, audio.frameCount * 4);
+    final soundBank = NativePlaybackSoundBank.decode([
+      PlaybackSoundAsset(
+        language: PlaybackSoundLanguage.chinese,
+        id: PlaybackSoundId.spaceBar,
+        wavBytes: File('../../assets/sounds/zh/space_bar.wav')
+            .readAsBytesSync(),
+      ),
+    ]);
+    addTearDown(soundBank.dispose);
+    final rhythmTest = audio.renderRhythmTestPlayback(
+      soundBank: soundBank,
+      language: PlaybackSoundLanguage.chinese,
+      bpm: 120,
+      offset: 0,
+      timelineStartSeconds: 0,
+    );
+    expect(rhythmTest.sampleRate, playback.sampleRate);
+    expect(rhythmTest.frameCount, playback.frameCount);
+    expect(rhythmTest.interleavedPcm16le, isNot(playback.interleavedPcm16le));
     final start = OtgyNative.startPlayback(
       audioDurationSeconds: audio.durationSeconds,
       cursorTimelineSeconds: 0,

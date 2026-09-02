@@ -516,6 +516,12 @@ typedef struct otgy_playback_sound_config {
   double offset_seconds;
 } otgy_playback_sound_config;
 
+typedef struct otgy_rhythm_test_sound_config {
+  uint32_t language;
+  double bpm;
+  double offset_seconds;
+} otgy_rhythm_test_sound_config;
+
 OTGY_C_API otgy_status otgy_playback_sound_bank_create(
     const otgy_playback_sound_asset* assets, uint64_t asset_count,
     otgy_playback_sound_bank** out_bank, otgy_error** out_error);
@@ -525,6 +531,10 @@ OTGY_C_API otgy_status otgy_render_chart_playback_pcm(
     const otgy_pcm* pcm, const otgy_chart* chart,
     const otgy_playback_sound_bank* sound_bank,
     otgy_playback_sound_config config, double timeline_start_seconds,
+    otgy_playback_pcm** out_playback_pcm, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_render_rhythm_test_playback_pcm(
+    const otgy_pcm* pcm, const otgy_playback_sound_bank* sound_bank,
+    otgy_rhythm_test_sound_config config, double timeline_start_seconds,
     otgy_playback_pcm** out_playback_pcm, otgy_error** out_error);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(

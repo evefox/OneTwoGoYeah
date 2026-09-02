@@ -131,11 +131,23 @@ struct PlaybackSoundConfig final {
   TimingParameters timing;
 };
 
+struct RhythmTestSoundConfig final {
+  PlaybackSoundLanguage language;
+  TimingParameters timing;
+};
+
 /// Renders song PCM and chart preview sounds into one interleaved PCM16LE
 /// device buffer. The source song, chart and sound bank are not modified.
 [[nodiscard]] PlaybackPcmResult render_chart_playback_pcm(
     const Pcm16& song, const ChartDraft& chart,
     const PlaybackSoundBank& sound_bank, PlaybackSoundConfig config,
     double timeline_start_seconds) noexcept;
+
+/// Renders song PCM with SpaceBar mixed at every four-beat measure boundary.
+/// Chart events are intentionally not accepted by this operation and therefore
+/// cannot affect its output. The source song and sound bank are not modified.
+[[nodiscard]] PlaybackPcmResult render_rhythm_test_playback_pcm(
+    const Pcm16& song, const PlaybackSoundBank& sound_bank,
+    RhythmTestSoundConfig config, double timeline_start_seconds) noexcept;
 
 }  // namespace otgy::core

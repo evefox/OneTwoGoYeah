@@ -434,6 +434,35 @@ otgy_status otgy_render_chart_playback_pcm(
   });
 }
 
+otgy_status otgy_render_rhythm_test_playback_pcm(
+    const otgy_pcm* pcm, const otgy_playback_sound_bank* sound_bank,
+    otgy_rhythm_test_sound_config config, double timeline_start_seconds,
+    otgy_playback_pcm** out_playback_pcm, otgy_error** out_error) {
+  if (out_playback_pcm != nullptr) {
+    *out_playback_pcm = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (pcm == nullptr || sound_bank == nullptr ||
+        out_playback_pcm == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const otgy::core::RhythmTestSoundConfig core_config{
+        static_cast<otgy::core::PlaybackSoundLanguage>(config.language),
+        {config.bpm, config.offset_seconds}};
+    auto result = otgy::core::render_rhythm_test_playback_pcm(
+        pcm->value, sound_bank->value, core_config, timeline_start_seconds);
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_PCM,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::playback_pcm_error_message(result.error()));
+    }
+    return make_handle<otgy_playback_pcm>(
+        otgy_playback_pcm{std::move(result).take_pcm()}, out_playback_pcm,
+        out_error);
+  });
+}
+
 otgy_status otgy_coordinate_application_operation(
     std::uint32_t mode, std::uint32_t operation, std::uint32_t* out_result,
     otgy_error** out_error) {

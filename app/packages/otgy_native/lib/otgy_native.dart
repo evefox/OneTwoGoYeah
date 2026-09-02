@@ -894,6 +894,52 @@ final class NativeAudio {
     });
   }
 
+  PlaybackPcm renderRhythmTestPlayback({
+    required NativePlaybackSoundBank soundBank,
+    required PlaybackSoundLanguage language,
+    required double bpm,
+    required double offset,
+    required double timelineStartSeconds,
+  }) {
+    return using((arena) {
+      final output = arena<Pointer<native.otgy_playback_pcm>>();
+      final error = arena<Pointer<native.otgy_error>>();
+      final config = arena<native.otgy_rhythm_test_sound_config>()
+        ..ref.language = language.index
+        ..ref.bpm = bpm
+        ..ref.offset_seconds = offset;
+      try {
+        _checkStatus(
+          native.otgy_render_rhythm_test_playback_pcm(
+            _requireHandle(),
+            soundBank._requireHandle(),
+            config.ref,
+            timelineStartSeconds,
+            output,
+            error,
+          ),
+          error,
+        );
+        final handle = output.value;
+        final bytes = native.otgy_playback_pcm_get_bytes(handle);
+        return PlaybackPcm(
+          sampleRate: native.otgy_playback_pcm_get_sample_rate(handle),
+          frameCount: native.otgy_playback_pcm_get_frame_count(handle),
+          interleavedPcm16le: bytes.length == 0
+              ? Uint8List(0)
+              : Uint8List.fromList(
+                  bytes.data.cast<Uint8>().asTypedList(bytes.length),
+                ),
+        );
+      } finally {
+        if (output.value != nullptr) {
+          native.otgy_playback_pcm_destroy(output.value);
+        }
+        _destroyError(error);
+      }
+    });
+  }
+
   void dispose() {
     if (_handle != nullptr) {
       native.otgy_pcm_destroy(_handle);

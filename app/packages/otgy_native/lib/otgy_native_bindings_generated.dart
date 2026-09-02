@@ -1096,6 +1096,25 @@ external int otgy_render_chart_playback_pcm(
 
 @ffi.Native<
   otgy_status Function(
+    ffi.Pointer<otgy_pcm>,
+    ffi.Pointer<otgy_playback_sound_bank>,
+    otgy_rhythm_test_sound_config,
+    ffi.Double,
+    ffi.Pointer<ffi.Pointer<otgy_playback_pcm>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_render_rhythm_test_playback_pcm(
+  ffi.Pointer<otgy_pcm> pcm,
+  ffi.Pointer<otgy_playback_sound_bank> sound_bank,
+  otgy_rhythm_test_sound_config config,
+  double timeline_start_seconds,
+  ffi.Pointer<ffi.Pointer<otgy_playback_pcm>> out_playback_pcm,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
     ffi.Uint32,
     ffi.Uint32,
     ffi.Pointer<ffi.Uint32>,
@@ -1965,6 +1984,17 @@ final class otgy_playback_sound_config extends ffi.Struct {
 
   @ffi.Uint64()
   external int random_seed;
+
+  @ffi.Double()
+  external double bpm;
+
+  @ffi.Double()
+  external double offset_seconds;
+}
+
+final class otgy_rhythm_test_sound_config extends ffi.Struct {
+  @ffi.Uint32()
+  external int language;
 
   @ffi.Double()
   external double bpm;

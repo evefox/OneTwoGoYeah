@@ -624,4 +624,73 @@ PlaybackPcmResult render_chart_playback_pcm(
   }
 }
 
+PlaybackPcmResult render_rhythm_test_playback_pcm(
+    const Pcm16& song, const PlaybackSoundBank& sound_bank,
+    RhythmTestSoundConfig config, double timeline_start_seconds) noexcept {
+  if (!valid_language(config.language)) {
+    return PlaybackPcmResult{PlaybackPcmError::InvalidSoundConfiguration};
+  }
+  auto rendered = render_playback_pcm(song, timeline_start_seconds);
+  if (!rendered) {
+    return rendered;
+  }
+  const auto* clip =
+      sound_bank.find(config.language, PlaybackSoundId::SpaceBar);
+  if (clip == nullptr) {
+    return PlaybackPcmResult{PlaybackPcmError::MissingSoundAsset};
+  }
+
+  const auto song_duration = static_cast<double>(song.frame_count()) /
+                             static_cast<double>(song.sample_rate());
+  const auto last_row_result =
+      seconds_to_sixteenth_row(config.timing, song_duration);
+  if (!last_row_result ||
+      *last_row_result.value() >=
+          static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+    return PlaybackPcmResult{PlaybackPcmError::SoundTimingFailure};
+  }
+  if (*last_row_result.value() < 0.0) {
+    return rendered;
+  }
+  constexpr std::uint64_t kRowsPerMeasure = 16U;
+  const auto last_row =
+      static_cast<std::uint64_t>(std::floor(*last_row_result.value()));
+  const auto last_measure_row =
+      last_row - (last_row % kRowsPerMeasure);
+
+  try {
+    const auto sample_rate = rendered.pcm()->sample_rate();
+    const auto rounded_start = std::round(
+        timeline_start_seconds * static_cast<double>(sample_rate));
+    const auto start_frame = static_cast<std::int64_t>(rounded_start);
+    auto pcm = std::move(rendered).take_pcm();
+    const auto output_frames = pcm.frame_count();
+    auto output = std::move(pcm).take_bytes();
+    for (std::uint64_t row = 0U;; row += kRowsPerMeasure) {
+      std::int64_t trigger_frame = 0;
+      if (!project_frame(row, sample_rate, config.timing, trigger_frame)) {
+        return PlaybackPcmResult{PlaybackPcmError::SoundTimingFailure};
+      }
+      std::int64_t destination = 0;
+      if (!subtract_frames(trigger_frame, start_frame, destination)) {
+        return PlaybackPcmResult{PlaybackPcmError::SoundTimingFailure};
+      }
+      const auto error = mix_trigger(output, output_frames, sample_rate,
+                                     destination, *clip);
+      if (error != PlaybackPcmError::None) {
+        return PlaybackPcmResult{error};
+      }
+      if (row == last_measure_row) {
+        break;
+      }
+    }
+    return PlaybackPcmResult{PlaybackPcm{
+        sample_rate, output_frames, std::move(output)}};
+  } catch (const std::bad_alloc&) {
+    return PlaybackPcmResult{PlaybackPcmError::AllocationFailure};
+  } catch (const std::length_error&) {
+    return PlaybackPcmResult{PlaybackPcmError::SizeOverflow};
+  }
+}
+
 }  // namespace otgy::core

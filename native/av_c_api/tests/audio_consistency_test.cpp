@@ -741,10 +741,20 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
                          direct.pcm()->bytes().size()) == 0,
          "playback PCM bytes differ");
 
+  const std::array<std::uint8_t, 46U> click_wav{{
+      'R', 'I', 'F', 'F', 38, 0, 0, 0, 'W', 'A', 'V', 'E',
+      'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+      4, 0, 0, 0, 8, 0, 0, 0, 2, 0, 16, 0,
+      'd', 'a', 't', 'a', 2, 0, 0, 0, 100, 0,
+  }};
+  const otgy::core::PlaybackSoundAsset direct_asset{
+      otgy::core::PlaybackSoundLanguage::Chinese,
+      otgy::core::PlaybackSoundId::SpaceBar, click_wav.data(),
+      click_wav.size()};
   auto direct_bank_result =
-      otgy::core::decode_playback_sound_bank(nullptr, 0U);
+      otgy::core::decode_playback_sound_bank(&direct_asset, 1U);
   expect(static_cast<bool>(direct_bank_result),
-         "direct empty sound bank failed");
+         "direct playback sound bank failed");
   auto direct_bank = std::move(direct_bank_result).take_bank();
   const otgy::core::ChartDraft empty_chart{{}, {}, {}, {}, {}, {}};
   const otgy::core::PlaybackSoundConfig direct_config{
@@ -755,9 +765,12 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
   expect(static_cast<bool>(direct_chart_pcm),
          "direct chart playback PCM failed");
   otgy_playback_sound_bank* raw_bank = nullptr;
-  expect(otgy_playback_sound_bank_create(nullptr, 0U, &raw_bank,
+  const otgy_playback_sound_asset abi_asset{
+      OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE, OTGY_PLAYBACK_SOUND_SPACE_BAR,
+      {click_wav.data(), click_wav.size()}};
+  expect(otgy_playback_sound_bank_create(&abi_asset, 1U, &raw_bank,
                                          &raw_error) == OTGY_STATUS_OK,
-         "C ABI empty sound bank failed");
+         "C ABI playback sound bank failed");
   auto bank = handle<otgy_playback_sound_bank,
                      otgy_playback_sound_bank_destroy>(raw_bank);
   otgy_chart* raw_chart = nullptr;
@@ -780,6 +793,29 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
                          direct_chart_pcm.pcm()->bytes().data(),
                          direct_chart_pcm.pcm()->bytes().size()) == 0,
          "C ABI chart playback PCM bytes differ");
+
+  const otgy::core::RhythmTestSoundConfig direct_rhythm_config{
+      otgy::core::PlaybackSoundLanguage::Chinese, {100.0, 0.0}};
+  const auto direct_rhythm_pcm =
+      otgy::core::render_rhythm_test_playback_pcm(
+          direct_pcm, direct_bank, direct_rhythm_config, kStart);
+  expect(static_cast<bool>(direct_rhythm_pcm),
+         "direct rhythm test playback PCM failed");
+  const otgy_rhythm_test_sound_config abi_rhythm_config{
+      OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE, 100.0, 0.0};
+  raw_pcm = nullptr;
+  expect(otgy_render_rhythm_test_playback_pcm(
+             abi_pcm, bank.get(), abi_rhythm_config, kStart, &raw_pcm,
+             &raw_error) == OTGY_STATUS_OK,
+         "C ABI rhythm test playback PCM failed");
+  auto rhythm_pcm =
+      handle<otgy_playback_pcm, otgy_playback_pcm_destroy>(raw_pcm);
+  const auto rhythm_bytes = otgy_playback_pcm_get_bytes(rhythm_pcm.get());
+  expect(rhythm_bytes.length == direct_rhythm_pcm.pcm()->bytes().size() &&
+             std::memcmp(rhythm_bytes.data,
+                         direct_rhythm_pcm.pcm()->bytes().data(),
+                         direct_rhythm_pcm.pcm()->bytes().size()) == 0,
+         "C ABI rhythm test playback PCM bytes differ");
   otgy_playback_sound_bank_destroy(nullptr);
 
   const auto direct_position = otgy::core::start_playback(
