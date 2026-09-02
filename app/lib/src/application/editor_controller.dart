@@ -235,6 +235,11 @@ class EditorController extends ChangeNotifier {
   double get zoom => _zoom;
   double get scale => _scale;
   double get currentRow => _currentRow;
+  double get currentSongSeconds => OtgyNative.sixteenthRowToSeconds(
+    bpm: projectedBpm,
+    offset: _offset,
+    row: _currentRow,
+  );
   int get pixelsPerSecond => _pixelsPerSecond;
   double? get audioDurationSeconds => _audio?.durationSeconds;
   double get playbackVisualPixelsPerSecond => math

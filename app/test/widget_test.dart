@@ -85,9 +85,25 @@ void main() {
     expect(find.byKey(const ValueKey('editor-canvas')), findsOneWidget);
     expect(find.text('100.000'), findsOneWidget);
     expect(find.text('0.000'), findsOneWidget);
+    expect(find.text('00:00.000'), findsOneWidget);
+    expect(find.text('行 0.00'), findsNothing);
     expect(find.bySemanticsLabel('NPC'), findsOneWidget);
     expect(find.bySemanticsLabel('玩家'), findsOneWidget);
     expect(find.bySemanticsLabel('Showtime'), findsOneWidget);
+
+    controller.moveToRow(4);
+    await tester.pump();
+    expect(find.text('00:00.600'), findsOneWidget);
+
+    controller.setOffset(0.75);
+    await tester.pump();
+    expect(find.text('-00:00.150'), findsOneWidget);
+
+    controller.setOffset(0);
+    controller.setBpm(0.1);
+    controller.moveToRow(64);
+    await tester.pump();
+    expect(find.text('160:00.000'), findsOneWidget);
   });
 
   testWidgets('keeps bottom info notices legible on their backgrounds', (

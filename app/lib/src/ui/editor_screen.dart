@@ -1195,7 +1195,7 @@ class _StatusBar extends StatelessWidget {
       child: Row(
         children: [
           Text(
-            '行 ${controller.currentRow.toStringAsFixed(2)}',
+            _formatSongTime(controller.currentSongSeconds),
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const Spacer(),
@@ -1214,6 +1214,18 @@ class _StatusBar extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatSongTime(double seconds) {
+  final totalMilliseconds = (seconds.abs() * 1000).truncate();
+  final milliseconds = totalMilliseconds % 1000;
+  final totalSeconds = totalMilliseconds ~/ 1000;
+  final displaySeconds = totalSeconds % 60;
+  final minutes = totalSeconds ~/ 60;
+  final sign = seconds.isNegative && totalMilliseconds != 0 ? '-' : '';
+  return '$sign${minutes.toString().padLeft(2, '0')}:'
+      '${displaySeconds.toString().padLeft(2, '0')}.'
+      '${milliseconds.toString().padLeft(3, '0')}';
 }
 
 enum _UnsavedChoice { save, discard, cancel }
