@@ -79,11 +79,12 @@ void main() {
 
   test('marker sizing follows row spacing and platform caps', () {
     expect(editorMarkerSize(rowSpacing: 20, mobile: false, diamond: false), 14);
+    expect(editorMarkerSize(rowSpacing: 20, mobile: false, diamond: true), 18);
     expect(
       editorMarkerSize(rowSpacing: 100, mobile: false, diamond: false),
       22,
     );
-    expect(editorMarkerSize(rowSpacing: 100, mobile: true, diamond: true), 32);
+    expect(editorMarkerSize(rowSpacing: 100, mobile: true, diamond: true), 36);
   });
 
   test('marker sizing has no Scale input', () {
@@ -99,6 +100,23 @@ void main() {
     );
     expect(after, before);
   });
+
+  test(
+    'marker numbers remain hidden when dense and are larger when visible',
+    () {
+      expect(editorMarkerNumbersVisible(17.999), isFalse);
+      expect(editorMarkerNumbersVisible(18), isTrue);
+      expect(
+        editorMarkerFontSize(circleSize: 22, textLength: 1),
+        closeTo(14.08, 1e-12),
+      );
+      expect(editorMarkerFontSize(circleSize: 28, textLength: 2), 16);
+      expect(
+        editorMarkerFontSize(circleSize: 22, textLength: 3),
+        closeTo(10.325333333333334, 1e-9),
+      );
+    },
+  );
 
   test('marker styles use the confirmed flat role palette', () {
     final npcC = editorMarkerStyle(OTGY_CHART_MARKER_NPC_BLOCK_START);
