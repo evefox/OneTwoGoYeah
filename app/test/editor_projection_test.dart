@@ -1,6 +1,9 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/ui/editor_canvas.dart';
+import 'package:one_two_go_yeah/src/ui/editor_theme.dart';
+import 'package:otgy_native/otgy_native.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -95,5 +98,44 @@ void main() {
       diamond: true,
     );
     expect(after, before);
+  });
+
+  test('marker styles use the confirmed flat role palette', () {
+    final npcC = editorMarkerStyle(OTGY_CHART_MARKER_NPC_BLOCK_START);
+    final npcN = editorMarkerStyle(OTGY_CHART_MARKER_NPC_NOTE);
+    final npcS = editorMarkerStyle(OTGY_CHART_MARKER_NPC_MOVE_END);
+    final playerC = editorMarkerStyle(OTGY_CHART_MARKER_PLAYER_BLOCK_START);
+    final playerN = editorMarkerStyle(OTGY_CHART_MARKER_PLAYER_NOTE);
+    final playerS = editorMarkerStyle(OTGY_CHART_MARKER_PLAYER_MOVE_END);
+    final showC = editorMarkerStyle(OTGY_CHART_MARKER_SHOWTIME_START);
+    final showD = editorMarkerStyle(OTGY_CHART_MARKER_SHOWTIME_MOVE);
+
+    expect(npcC.fill, EditorColors.markerNpc);
+    expect(npcN.fill, EditorColors.markerNpc);
+    expect(npcS.fill, EditorColors.markerS);
+    expect(playerC.fill, EditorColors.markerPlayer);
+    expect(playerN.fill, EditorColors.markerPlayer);
+    expect(playerS.fill, EditorColors.markerS);
+    expect(showC.fill, EditorColors.markerD);
+    expect(showD.fill, EditorColors.markerD);
+
+    expect(npcC.isDiamond, isTrue);
+    expect(playerC.isDiamond, isTrue);
+    expect(showC.isDiamond, isTrue);
+    expect(npcN.isDiamond, isFalse);
+    expect(npcS.isDiamond, isFalse);
+    expect(playerN.isDiamond, isFalse);
+    expect(playerS.isDiamond, isFalse);
+    expect(showD.isDiamond, isFalse);
+
+    expect(npcC.showsNumber, isFalse);
+    expect(npcN.showsNumber, isTrue);
+    expect(npcS.showsNumber, isFalse);
+    expect(playerC.showsNumber, isFalse);
+    expect(playerN.showsNumber, isTrue);
+    expect(playerS.showsNumber, isFalse);
+    expect(showC.showsNumber, isFalse);
+    expect(showD.showsNumber, isTrue);
+    expect(EditorColors.markerText, const Color(0xFFF8FBFF));
   });
 }

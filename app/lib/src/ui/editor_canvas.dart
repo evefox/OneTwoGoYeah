@@ -43,6 +43,66 @@ double editorMarkerSize({
   return math.min(mobile ? 28 : 22, rowSpacing * 0.70).toDouble();
 }
 
+final class EditorMarkerStyle {
+  const EditorMarkerStyle({
+    required this.fill,
+    required this.isDiamond,
+    required this.showsNumber,
+  });
+
+  final Color fill;
+  final bool isDiamond;
+  final bool showsNumber;
+}
+
+EditorMarkerStyle editorMarkerStyle(int type) => switch (type) {
+  OTGY_CHART_MARKER_NPC_BLOCK_START => const EditorMarkerStyle(
+    fill: EditorColors.markerNpc,
+    isDiamond: true,
+    showsNumber: false,
+  ),
+  OTGY_CHART_MARKER_NPC_NOTE => const EditorMarkerStyle(
+    fill: EditorColors.markerNpc,
+    isDiamond: false,
+    showsNumber: true,
+  ),
+  OTGY_CHART_MARKER_NPC_MOVE_END => const EditorMarkerStyle(
+    fill: EditorColors.markerS,
+    isDiamond: false,
+    showsNumber: false,
+  ),
+  OTGY_CHART_MARKER_PLAYER_BLOCK_START => const EditorMarkerStyle(
+    fill: EditorColors.markerPlayer,
+    isDiamond: true,
+    showsNumber: false,
+  ),
+  OTGY_CHART_MARKER_PLAYER_NOTE => const EditorMarkerStyle(
+    fill: EditorColors.markerPlayer,
+    isDiamond: false,
+    showsNumber: true,
+  ),
+  OTGY_CHART_MARKER_PLAYER_MOVE_END => const EditorMarkerStyle(
+    fill: EditorColors.markerS,
+    isDiamond: false,
+    showsNumber: false,
+  ),
+  OTGY_CHART_MARKER_SHOWTIME_START => const EditorMarkerStyle(
+    fill: EditorColors.markerD,
+    isDiamond: true,
+    showsNumber: false,
+  ),
+  OTGY_CHART_MARKER_SHOWTIME_MOVE => const EditorMarkerStyle(
+    fill: EditorColors.markerD,
+    isDiamond: false,
+    showsNumber: true,
+  ),
+  _ => const EditorMarkerStyle(
+    fill: EditorColors.markerD,
+    isDiamond: false,
+    showsNumber: false,
+  ),
+};
+
 int projectEditorColumn({
   required double x,
   required Rect chart,
@@ -1184,6 +1244,7 @@ class _EditorCanvasPainter extends CustomPainter {
       diamond: true,
     );
     for (final marker in controller.markers) {
+      final style = editorMarkerStyle(marker.type);
       final center = Offset(
         columnLayout.centerForColumn(marker.column),
         cursorY + (marker.row - paintCurrentRow) * spacing,
@@ -1192,8 +1253,7 @@ class _EditorCanvasPainter extends CustomPainter {
           center.dy > chart.bottom + diamondSize) {
         continue;
       }
-      final isDiamond = _isDiamondMarker(marker.type);
-      if (isDiamond) {
+      if (style.isDiamond) {
         final half = diamondSize / 2;
         final path = Path()
           ..moveTo(center.dx, center.dy - half)
@@ -1201,74 +1261,17 @@ class _EditorCanvasPainter extends CustomPainter {
           ..lineTo(center.dx, center.dy + half)
           ..lineTo(center.dx - half, center.dy)
           ..close();
-        canvas.drawPath(path, Paint()..color = EditorColors.markerC);
-        canvas.drawPath(
-          path,
-          Paint()
-            ..color = const Color(0xFF7D682C)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.6,
-        );
+        canvas.drawPath(path, Paint()..color = style.fill);
         continue;
       }
 
-      final color = switch (marker.type) {
-        OTGY_CHART_MARKER_NPC_NOTE ||
-        OTGY_CHART_MARKER_PLAYER_NOTE => EditorColors.markerN,
-        OTGY_CHART_MARKER_NPC_MOVE_END ||
-        OTGY_CHART_MARKER_PLAYER_MOVE_END => EditorColors.markerS,
-        _ => EditorColors.markerD,
-      };
       final radius = circleSize / 2;
-      canvas.drawCircle(center, radius, Paint()..color = color);
-      canvas.drawCircle(
-        center,
-        radius,
-        Paint()
-          ..color = EditorColors.canvas.withValues(alpha: 0.72)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.7,
-      );
-
-      if (marker.type == OTGY_CHART_MARKER_NPC_NOTE ||
-          marker.type == OTGY_CHART_MARKER_PLAYER_NOTE) {
-        canvas.drawCircle(
-          center,
-          math.max(1, radius - 3.5),
-          Paint()
-            ..color = EditorColors.canvas.withValues(alpha: 0.58)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1,
-        );
-      } else if (marker.type == OTGY_CHART_MARKER_NPC_MOVE_END ||
-          marker.type == OTGY_CHART_MARKER_PLAYER_MOVE_END) {
-        canvas.drawLine(
-          Offset(center.dx - radius * 0.55, center.dy + radius * 0.45),
-          Offset(center.dx + radius * 0.55, center.dy + radius * 0.45),
-          Paint()
-            ..color = EditorColors.canvas.withValues(alpha: 0.68)
-            ..strokeWidth = 1.5,
-        );
-      } else {
-        final cue = Paint()
-          ..color = EditorColors.text.withValues(alpha: 0.72)
-          ..strokeWidth = 1.2;
-        canvas.drawLine(
-          Offset(center.dx, center.dy - radius - 2),
-          Offset(center.dx, center.dy - radius + 1),
-          cue,
-        );
-        canvas.drawLine(
-          Offset(center.dx, center.dy + radius - 1),
-          Offset(center.dx, center.dy + radius + 2),
-          cue,
-        );
-      }
+      canvas.drawCircle(center, radius, Paint()..color = style.fill);
 
       final number = marker.type == OTGY_CHART_MARKER_SHOWTIME_MOVE
           ? marker.showNCount
           : marker.ordinal;
-      if (number != null && circleSize >= 18) {
+      if (style.showsNumber && number != null && circleSize >= 18) {
         final text = '$number';
         final fontSize = math
             .max(
@@ -1281,7 +1284,7 @@ class _EditorCanvasPainter extends CustomPainter {
           text,
           center,
           TextStyle(
-            color: EditorColors.canvas,
+            color: EditorColors.markerText,
             fontSize: fontSize,
             fontWeight: FontWeight.w700,
           ),
@@ -1371,8 +1374,3 @@ String _markerSemanticLabel(ChartMarker marker) {
   };
   return '$role $type，第 ${marker.row} 个十六分行';
 }
-
-bool _isDiamondMarker(int type) =>
-    type == OTGY_CHART_MARKER_NPC_BLOCK_START ||
-    type == OTGY_CHART_MARKER_PLAYER_BLOCK_START ||
-    type == OTGY_CHART_MARKER_SHOWTIME_START;

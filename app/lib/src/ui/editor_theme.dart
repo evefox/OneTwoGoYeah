@@ -10,10 +10,11 @@ abstract final class EditorColors {
   static const accent = Color(0xFF65B8C5);
   static const waveform = Color(0xFF5EABB8);
   static const judgement = Color(0xFFE6B75A);
-  static const markerC = Color(0xFFE4C45E);
-  static const markerN = Color(0xFF58A6D8);
+  static const markerNpc = Color(0xFF3D8FC6);
+  static const markerPlayer = Color(0xFF3BAA73);
   static const markerS = Color(0xFFD96C75);
   static const markerD = Color(0xFFA989C7);
+  static const markerText = Color(0xFFF8FBFF);
   static const danger = Color(0xFFE07B84);
 }
 
