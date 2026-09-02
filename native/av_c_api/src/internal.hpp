@@ -52,10 +52,17 @@ struct otgy_bytes final {
   std::vector<std::uint8_t> value;
 };
 
+struct otgy_waveform_filter_cache final {
+  otgy::core::WaveformFilter filter;
+  double strength;
+  otgy::core::Pcm16 pcm;
+};
+
 struct otgy_pcm final {
   otgy::core::Pcm16 value;
   bool has_source_info;
   otgy::core::AudioSourceInfo source_info;
+  mutable std::optional<otgy_waveform_filter_cache> waveform_filter_cache;
 };
 
 struct otgy_audio_export_snapshot final {

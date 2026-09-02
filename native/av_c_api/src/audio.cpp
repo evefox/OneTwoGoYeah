@@ -39,7 +39,7 @@ otgy_status decode_audio(otgy_byte_view input, otgy_pcm** out_pcm,
     }
     const auto source_info = *result.source_info();
     return make_handle<otgy_pcm>(
-        otgy_pcm{std::move(result).take_pcm(), true, source_info}, out_pcm,
+        otgy_pcm{std::move(result).take_pcm(), true, source_info, {}}, out_pcm,
         out_error);
   });
 }
@@ -143,7 +143,7 @@ otgy_status otgy_apply_pcm_offset(const otgy_pcm* pcm, double offset_seconds,
     }
     return make_handle<otgy_pcm>(
         otgy_pcm{std::move(result).take_pcm(), pcm->has_source_info,
-                 pcm->source_info},
+                 pcm->source_info, {}},
         out_pcm, out_error);
   });
 }

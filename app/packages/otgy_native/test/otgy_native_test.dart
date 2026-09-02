@@ -146,6 +146,22 @@ void main() {
     expect(OtgyNative.pausePlayback(advanced).isPlaying, isFalse);
     expect(OtgyNative.coordinateApplicationOperation(mode: 1, operation: 0), 1);
     expect(OtgyNative.coordinateApplicationOperation(mode: 1, operation: 2), 0);
+
+    final defaultWaveform = audio.generateWaveform(
+      zoom: 11,
+      scale: 4,
+      blockIndex: 1,
+    );
+    final avDefaultWaveform = audio.generateWaveform(
+      zoom: 11,
+      scale: 4,
+      blockIndex: 1,
+      shape: WaveformShape.rectified,
+      luminance: WaveformLuminance.uniform,
+      sampling: WaveformSampling.twoX,
+    );
+    expect(defaultWaveform.leftAlpha, avDefaultWaveform.leftAlpha);
+    expect(defaultWaveform.rightAlpha, avDefaultWaveform.rightAlpha);
   });
 
   test('audio export names use the shared normalization rules', () {

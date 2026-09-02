@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "av_core/audio/pcm16.hpp"
+#include "av_core/audio/pcm16_hash.hpp"
 #include "av_core/waveform/waveform_tile.hpp"
 
 #include <algorithm>
@@ -21,6 +22,10 @@ namespace {
 using otgy::core::Pcm16;
 using otgy::core::PcmChannel;
 using otgy::core::WaveformError;
+using otgy::core::WaveformFilter;
+using otgy::core::WaveformLuminance;
+using otgy::core::WaveformSampling;
+using otgy::core::WaveformShape;
 using otgy::core::WaveformTile;
 
 [[nodiscard]] std::vector<std::uint8_t> read_fixture(
@@ -74,6 +79,25 @@ using otgy::core::WaveformTile;
   const auto* begin = tile.channel_alpha(channel);
   return std::all_of(begin, begin + tile.channel_byte_size(),
                      [](std::uint8_t value) { return value == 0U; });
+}
+
+[[nodiscard]] bool tiles_equal(const WaveformTile& left,
+                               const WaveformTile& right) {
+  if (left.block_index() != right.block_index() ||
+      left.pixels_per_second() != right.pixels_per_second() ||
+      left.channel_width() != right.channel_width() ||
+      left.channel_spacing() != right.channel_spacing() ||
+      left.channel_byte_size() != right.channel_byte_size()) {
+    return false;
+  }
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto* left_alpha = left.channel_alpha(channel);
+    if (!std::equal(left_alpha, left_alpha + left.channel_byte_size(),
+                    right.channel_alpha(channel))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void assert_matches_golden(const WaveformTile& tile,
@@ -845,6 +869,164 @@ void test_terminal_rounding_is_bounded() {
   assert(channel_is_zero(*three_x_past_end.tile(), PcmChannel::Right));
 }
 
+void test_configurable_entry_point_and_filters() {
+  const auto pcm = load_stereo_pcm_fixture();
+  std::array<std::vector<Pcm16::Sample>, Pcm16::kChannelCount> original;
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto index = static_cast<std::size_t>(channel);
+    const auto* begin = pcm.channel_data(channel);
+    original[index].assign(begin, begin + pcm.frame_count());
+  }
+
+  auto configured = otgy::core::generate_waveform_tile(
+      pcm, 11.0, 4.0, 1U, WaveformShape::Signed, WaveformLuminance::Amplitude,
+      WaveformSampling::TwoX, WaveformFilter::None, 0.75);
+  auto legacy = otgy::core::generate_signed_amplitude_waveform_tile_2x(
+      pcm, 11.0, 4.0, 1U);
+  assert(configured);
+  assert(legacy);
+  assert(tiles_equal(*configured.tile(), *legacy.tile()));
+
+  auto rectified = otgy::core::generate_waveform_tile(
+      pcm, 11.0, 4.0, 1U, WaveformShape::Rectified,
+      WaveformLuminance::Amplitude, WaveformSampling::TwoX,
+      WaveformFilter::None, 0.75);
+  auto uniform = otgy::core::generate_waveform_tile(
+      pcm, 11.0, 4.0, 1U, WaveformShape::Signed, WaveformLuminance::Uniform,
+      WaveformSampling::TwoX, WaveformFilter::None, 0.75);
+  assert(rectified);
+  assert(uniform);
+  assert(!tiles_equal(*configured.tile(), *rectified.tile()));
+  assert(!tiles_equal(*configured.tile(), *uniform.tile()));
+
+  std::array<otgy::core::WaveformTileResult, 4> sampling{
+      otgy::core::generate_waveform_tile(
+          pcm, 11.0, 4.0, 1U, WaveformShape::Signed,
+          WaveformLuminance::Amplitude, WaveformSampling::OneX,
+          WaveformFilter::None, 0.75),
+      otgy::core::generate_waveform_tile(
+          pcm, 11.0, 4.0, 1U, WaveformShape::Signed,
+          WaveformLuminance::Amplitude, WaveformSampling::TwoX,
+          WaveformFilter::None, 0.75),
+      otgy::core::generate_waveform_tile(
+          pcm, 11.0, 4.0, 1U, WaveformShape::Signed,
+          WaveformLuminance::Amplitude, WaveformSampling::ThreeX,
+          WaveformFilter::None, 0.75),
+      otgy::core::generate_waveform_tile(
+          pcm, 11.0, 4.0, 1U, WaveformShape::Signed,
+          WaveformLuminance::Amplitude, WaveformSampling::FourX,
+          WaveformFilter::None, 0.75),
+  };
+  for (const auto& result : sampling) {
+    assert(result);
+  }
+  for (std::size_t index = 1U; index < sampling.size(); ++index) {
+    assert(!tiles_equal(*sampling[index - 1U].tile(), *sampling[index].tile()));
+  }
+
+  auto high_pass = otgy::core::generate_waveform_tile(
+      pcm, 11.0, 4.0, 1U, WaveformShape::Signed, WaveformLuminance::Amplitude,
+      WaveformSampling::TwoX, WaveformFilter::HighPass, 0.75);
+  auto low_pass = otgy::core::generate_waveform_tile(
+      pcm, 11.0, 4.0, 1U, WaveformShape::Signed, WaveformLuminance::Amplitude,
+      WaveformSampling::TwoX, WaveformFilter::LowPass, 0.75);
+  assert(high_pass);
+  assert(low_pass);
+  assert(!tiles_equal(*configured.tile(), *high_pass.tile()));
+  assert(!tiles_equal(*configured.tile(), *low_pass.tile()));
+  assert(!tiles_equal(*high_pass.tile(), *low_pass.tile()));
+  assert_matches_golden(*high_pass.tile(),
+                        "generated_stereo_11025.ui_zoom11.scale4.block1.signed_"
+                        "amplitude_2x.high_pass_strength075.alpha");
+  assert_matches_golden(*low_pass.tile(),
+                        "generated_stereo_11025.ui_zoom11.scale4.block1.signed_"
+                        "amplitude_2x.low_pass_strength075.alpha");
+
+  auto high_pass_pcm =
+      otgy::core::filter_waveform_pcm(pcm, WaveformFilter::HighPass, 0.75);
+  auto low_pass_pcm =
+      otgy::core::filter_waveform_pcm(pcm, WaveformFilter::LowPass, 0.75);
+  assert(high_pass_pcm);
+  assert(low_pass_pcm);
+  const auto high_pass_hash =
+      otgy::core::pcm16le_sha256_hex(*high_pass_pcm.pcm());
+  const auto low_pass_hash =
+      otgy::core::pcm16le_sha256_hex(*low_pass_pcm.pcm());
+  assert(std::string_view(high_pass_hash.data(), high_pass_hash.size()) ==
+         "e046a52aee510667a6009cd74a94f98c77c9ad40abf7178fed80dad4e845943d");
+  assert(std::string_view(low_pass_hash.data(), low_pass_hash.size()) ==
+         "28790ffd999e777ffd4e753f8c9132437429a5227d18360a70e93a8394fa5548");
+
+  auto unfiltered_copy =
+      otgy::core::filter_waveform_pcm(pcm, WaveformFilter::None, 0.75);
+  assert(unfiltered_copy);
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    assert(unfiltered_copy.pcm()->channel_data(channel) !=
+           pcm.channel_data(channel));
+    assert(std::equal(pcm.channel_data(channel),
+                      pcm.channel_data(channel) + pcm.frame_count(),
+                      unfiltered_copy.pcm()->channel_data(channel)));
+  }
+
+  for (const auto strength : {0.0, 0.75, 1.0}) {
+    auto result = otgy::core::generate_waveform_tile(
+        pcm, 11.0, 4.0, 1U, WaveformShape::Signed, WaveformLuminance::Amplitude,
+        WaveformSampling::TwoX, WaveformFilter::HighPass, strength);
+    assert(result);
+  }
+
+  for (const auto channel : {PcmChannel::Left, PcmChannel::Right}) {
+    const auto index = static_cast<std::size_t>(channel);
+    assert(std::equal(original[index].begin(), original[index].end(),
+                      pcm.channel_data(channel)));
+  }
+}
+
+void test_configurable_entry_point_errors() {
+  auto pcm_result = Pcm16::copy_from_channels(8'000U, nullptr, 0U, nullptr, 0U);
+  assert(pcm_result);
+  const auto& pcm = *pcm_result.pcm();
+  const auto call = [&](WaveformShape shape, WaveformLuminance luminance,
+                        WaveformSampling sampling, WaveformFilter filter,
+                        double strength) {
+    return otgy::core::generate_waveform_tile(
+        pcm, 11.0, 4.0, 0U, shape, luminance, sampling, filter, strength);
+  };
+  for (const auto strength : {
+           -0.001,
+           1.001,
+           std::numeric_limits<double>::quiet_NaN(),
+           std::numeric_limits<double>::infinity(),
+       }) {
+    auto result =
+        call(WaveformShape::Signed, WaveformLuminance::Amplitude,
+             WaveformSampling::TwoX, WaveformFilter::HighPass, strength);
+    assert(!result);
+    assert(result.error() == WaveformError::InvalidFilterStrength);
+    auto filtered = otgy::core::filter_waveform_pcm(
+        pcm, WaveformFilter::HighPass, strength);
+    assert(!filtered);
+    assert(filtered.error() == WaveformError::InvalidFilterStrength);
+  }
+  for (auto result : {
+           call(static_cast<WaveformShape>(255), WaveformLuminance::Amplitude,
+                WaveformSampling::TwoX, WaveformFilter::None, 0.75),
+           call(WaveformShape::Signed, static_cast<WaveformLuminance>(255),
+                WaveformSampling::TwoX, WaveformFilter::None, 0.75),
+           call(WaveformShape::Signed, WaveformLuminance::Amplitude,
+                static_cast<WaveformSampling>(255), WaveformFilter::None, 0.75),
+           call(WaveformShape::Signed, WaveformLuminance::Amplitude,
+                WaveformSampling::TwoX, static_cast<WaveformFilter>(255), 0.75),
+       }) {
+    assert(!result);
+    assert(result.error() == WaveformError::InvalidOption);
+  }
+  auto invalid_filter = otgy::core::filter_waveform_pcm(
+      pcm, static_cast<WaveformFilter>(255), 0.75);
+  assert(!invalid_filter);
+  assert(invalid_filter.error() == WaveformError::InvalidOption);
+}
+
 void assert_error(double ui_zoom, double scale, WaveformError expected) {
   auto pcm_result =
       Pcm16::copy_from_channels(8'000U, nullptr, 0U, nullptr, 0U);
@@ -986,6 +1168,8 @@ int main() {
   test_rectified_amplitude_2x_reference_golden_tile();
   test_rectified_amplitude_reference_golden_tile();
   test_terminal_rounding_is_bounded();
+  test_configurable_entry_point_and_filters();
+  test_configurable_entry_point_errors();
   test_stable_errors();
   return 0;
 }

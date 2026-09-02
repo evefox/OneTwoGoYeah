@@ -18,6 +18,8 @@ enum class WaveformError : std::uint8_t {
   InvalidUiZoom = 1,
   InvalidScale = 2,
   AllocationFailure = 3,
+  InvalidOption = 4,
+  InvalidFilterStrength = 5,
 };
 
 [[nodiscard]] constexpr std::string_view waveform_error_message(
@@ -31,11 +33,75 @@ enum class WaveformError : std::uint8_t {
       return "waveform Scale must be finite and within 1..10";
     case WaveformError::AllocationFailure:
       return "unable to allocate waveform Alpha samples";
+    case WaveformError::InvalidOption:
+      return "waveform option is invalid";
+    case WaveformError::InvalidFilterStrength:
+      return "waveform filter strength must be finite and within 0..1";
   }
   return "unknown waveform error";
 }
 
 class WaveformTileResult;
+class WaveformPcmResult;
+
+/// Display options used by the configurable waveform entry point. The integer
+/// values are part of the C ABI contract.
+enum class WaveformShape : std::uint32_t {
+  Signed = 0,
+  Rectified = 1,
+};
+
+enum class WaveformLuminance : std::uint32_t {
+  Uniform = 0,
+  Amplitude = 1,
+};
+
+enum class WaveformSampling : std::uint32_t {
+  OneX = 0,
+  TwoX = 1,
+  ThreeX = 2,
+  FourX = 3,
+};
+
+enum class WaveformFilter : std::uint32_t {
+  None = 0,
+  HighPass = 1,
+  LowPass = 2,
+};
+
+/// Validates every option used by the configurable waveform entry point.
+/// Keeping this query in av_core lets adapters prepare and cache filtered PCM
+/// without reproducing option validation or its error ordering.
+[[nodiscard]] WaveformError validate_waveform_configuration(
+    double ui_zoom, double scale, WaveformShape shape,
+    WaveformLuminance luminance, WaveformSampling sampling,
+    WaveformFilter filter, double filter_strength) noexcept;
+
+/// Applies ArrowVortex's complete-channel waveform filter to canonical PCM.
+///
+/// The filter state starts at frame zero and each channel is normalized only
+/// after the complete channel has been processed, matching the reference
+/// WaveFilter path. `None` returns an independent PCM copy.
+[[nodiscard]] WaveformPcmResult
+filter_waveform_pcm(const Pcm16& pcm, WaveformFilter filter,
+                    double filter_strength) noexcept;
+
+class WaveformPcmResult final {
+ public:
+  explicit WaveformPcmResult(Pcm16 pcm) noexcept;
+  explicit WaveformPcmResult(WaveformError error) noexcept;
+
+  [[nodiscard]] bool has_value() const noexcept;
+  [[nodiscard]] explicit operator bool() const noexcept { return has_value(); }
+
+  [[nodiscard]] const Pcm16* pcm() const noexcept;
+  [[nodiscard]] Pcm16* pcm() noexcept;
+  [[nodiscard]] WaveformError error() const noexcept;
+  [[nodiscard]] Pcm16 take_pcm() &&;
+
+ private:
+  std::variant<Pcm16, WaveformError> storage_;
+};
 
 /// One 128-row Alpha tile.
 ///
@@ -113,23 +179,16 @@ class WaveformTile final {
   friend WaveformTileResult generate_rectified_amplitude_waveform_tile_4x(
       const Pcm16&, double, double, std::uint64_t) noexcept;
 
-  enum class Variant : std::uint8_t {
-    SignedUniform,
-    RectifiedUniform,
-    SignedAmplitude,
-    RectifiedAmplitude,
-  };
-
-  enum class Sampling : std::uint8_t {
-    OneX,
-    TwoX,
-    ThreeX,
-    FourX,
-  };
+  friend WaveformTileResult
+  generate_waveform_tile(const Pcm16&, double, double, std::uint64_t,
+                         WaveformShape, WaveformLuminance, WaveformSampling,
+                         WaveformFilter, double) noexcept;
 
   [[nodiscard]] static WaveformTileResult generate_waveform_tile(
       const Pcm16& pcm, double ui_zoom, double scale,
-      std::uint64_t block_index, Variant variant, Sampling sampling) noexcept;
+      std::uint64_t block_index, WaveformShape shape,
+      WaveformLuminance luminance, WaveformSampling sampling,
+      WaveformFilter filter, double filter_strength) noexcept;
 
   WaveformTile(std::uint64_t block_index, std::uint32_t pixels_per_second,
                std::uint16_t channel_width, std::uint16_t channel_spacing,
@@ -164,6 +223,15 @@ class WaveformTileResult final {
  private:
   std::variant<WaveformTile, WaveformError> storage_;
 };
+
+/// Generates a waveform tile using the complete ArrowVortex display option
+/// set. `filter_strength` is interpreted as 0..1 and is ignored visually when
+/// `filter` is None, but is still validated for deterministic diagnostics.
+[[nodiscard]] WaveformTileResult
+generate_waveform_tile(const Pcm16& pcm, double ui_zoom, double scale,
+                       std::uint64_t block_index, WaveformShape shape,
+                       WaveformLuminance luminance, WaveformSampling sampling,
+                       WaveformFilter filter, double filter_strength) noexcept;
 
 /// Generates the signed ArrowVortex-compatible waveform slice.
 ///

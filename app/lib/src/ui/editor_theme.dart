@@ -9,6 +9,7 @@ abstract final class EditorColors {
   static const textMuted = Color(0xFF92A1AD);
   static const accent = Color(0xFF65B8C5);
   static const waveform = Color(0xFF5EABB8);
+  static const waveformFilter = Color(0xFFA7BDC2);
   static const judgement = Color(0xFFE6B75A);
   static const markerNpc = Color(0xFF3D8FC6);
   static const markerPlayer = Color(0xFF3BAA73);

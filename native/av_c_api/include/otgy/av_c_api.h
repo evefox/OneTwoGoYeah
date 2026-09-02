@@ -116,6 +116,19 @@ typedef struct otgy_slk_document otgy_slk_document;
 typedef struct otgy_playback_pcm otgy_playback_pcm;
 typedef struct otgy_playback_sound_bank otgy_playback_sound_bank;
 
+/* Values accepted by otgy_generate_waveform_tile. */
+#define OTGY_WAVEFORM_SHAPE_SIGNED UINT32_C(0)
+#define OTGY_WAVEFORM_SHAPE_RECTIFIED UINT32_C(1)
+#define OTGY_WAVEFORM_LUMINANCE_UNIFORM UINT32_C(0)
+#define OTGY_WAVEFORM_LUMINANCE_AMPLITUDE UINT32_C(1)
+#define OTGY_WAVEFORM_ANTIALIAS_NONE UINT32_C(0)
+#define OTGY_WAVEFORM_ANTIALIAS_2X UINT32_C(1)
+#define OTGY_WAVEFORM_ANTIALIAS_3X UINT32_C(2)
+#define OTGY_WAVEFORM_ANTIALIAS_4X UINT32_C(3)
+#define OTGY_WAVEFORM_FILTER_NONE UINT32_C(0)
+#define OTGY_WAVEFORM_FILTER_HIGH_PASS UINT32_C(1)
+#define OTGY_WAVEFORM_FILTER_LOW_PASS UINT32_C(2)
+
 OTGY_C_API uint32_t otgy_c_api_version(void);
 OTGY_C_API otgy_string_view otgy_core_version(void);
 
@@ -261,6 +274,12 @@ OTGY_C_API otgy_byte_view otgy_waveform_tile_get_left(
     const otgy_waveform_tile* tile);
 OTGY_C_API otgy_byte_view otgy_waveform_tile_get_right(
     const otgy_waveform_tile* tile);
+
+OTGY_C_API otgy_status otgy_generate_waveform_tile(
+    const otgy_pcm* pcm, double ui_zoom, double scale, uint64_t block_index,
+    uint32_t shape, uint32_t luminance, uint32_t anti_aliasing, uint32_t filter,
+    double filter_strength, otgy_waveform_tile** out_tile,
+    otgy_error** out_error);
 
 #define OTGY_DECLARE_WAVEFORM(name)                                           \
   OTGY_C_API otgy_status otgy_generate_##name##_waveform_tile(                \

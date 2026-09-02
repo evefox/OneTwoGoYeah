@@ -15,6 +15,17 @@ const double editorCursorViewportFraction = 0.25;
 const double mobileEditorContentRightInset = 24;
 const Duration playbackVisualPredictionLimit = Duration(milliseconds: 50);
 
+enum EditorWaveformLayer { original, overlayOriginal, filtered }
+
+double editorWaveformRowOpacity(int alpha, EditorWaveformLayer layer) {
+  final normalized = alpha.clamp(0, 255) / 255;
+  return switch (layer) {
+    EditorWaveformLayer.original => 0.12 + normalized * 0.40,
+    EditorWaveformLayer.overlayOriginal => 0.06 + normalized * 0.18,
+    EditorWaveformLayer.filtered => 0.08 + normalized * 0.28,
+  };
+}
+
 final BoxDecoration _canvasControlSurfaceDecoration = BoxDecoration(
   color: EditorColors.surface.withValues(alpha: 0.92),
   borderRadius: BorderRadius.circular(6),
@@ -765,6 +776,7 @@ class _NavigationRail extends StatefulWidget {
 
 class _NavigationRailState extends State<_NavigationRail> {
   final _soundMenu = MenuController();
+  final _waveformMenu = MenuController();
 
   @override
   void initState() {
@@ -791,6 +803,9 @@ class _NavigationRailState extends State<_NavigationRail> {
     if (widget.controller.isPlaying && _soundMenu.isOpen) {
       _soundMenu.close();
     }
+    if (widget.controller.isPlaying && _waveformMenu.isOpen) {
+      _waveformMenu.close();
+    }
   }
 
   @override
@@ -805,16 +820,118 @@ class _NavigationRailState extends State<_NavigationRail> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              key: const ValueKey('waveform-toggle-button'),
-              onPressed: controller.toggleWaveform,
-              tooltip: controller.waveformVisible ? '隐藏波形' : '显示波形',
-              icon: Icon(
-                controller.waveformVisible
-                    ? Icons.graphic_eq
-                    : Icons.hide_source_outlined,
-                size: 20,
-                color: controller.waveformVisible ? EditorColors.accent : null,
+            MenuAnchor(
+              controller: _waveformMenu,
+              alignmentOffset: const Offset(-266, -36),
+              menuChildren: [
+                SizedBox(
+                  key: const ValueKey('waveform-settings-menu'),
+                  width: 252,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '波形设置',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile.adaptive(
+                          key: const ValueKey('waveform-visible'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('显示波形'),
+                          value: controller.waveformVisible,
+                          onChanged: (_) => controller.toggleWaveform(),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          '滤波',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        SegmentedButton<WaveformFilter>(
+                          key: const ValueKey('waveform-filter'),
+                          segments: const [
+                            ButtonSegment(
+                              value: WaveformFilter.none,
+                              label: Text('关闭'),
+                            ),
+                            ButtonSegment(
+                              value: WaveformFilter.highPass,
+                              label: Text('高通'),
+                            ),
+                            ButtonSegment(
+                              value: WaveformFilter.lowPass,
+                              label: Text('低通'),
+                            ),
+                          ],
+                          selected: {controller.waveformFilter},
+                          showSelectedIcon: false,
+                          onSelectionChanged: controller.isPlaying
+                              ? null
+                              : (value) =>
+                                    controller.setWaveformFilter(value.single),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Text('滤波强度'),
+                            const Spacer(),
+                            Text(
+                              '${(controller.waveformFilterStrength * 100).round()}%',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          key: const ValueKey('waveform-filter-strength'),
+                          value: controller.waveformFilterStrength,
+                          onChanged:
+                              controller.isPlaying ||
+                                  !controller.waveformFilterEnabled
+                              ? null
+                              : controller.setWaveformFilterStrength,
+                        ),
+                        SwitchListTile.adaptive(
+                          key: const ValueKey('waveform-overlay-original'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('叠加原始波形'),
+                          value: controller.waveformOverlayOriginal,
+                          onChanged:
+                              controller.isPlaying ||
+                                  !controller.waveformFilterEnabled
+                              ? null
+                              : controller.setWaveformOverlayOriginal,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              builder: (context, menu, child) => IconButton(
+                key: const ValueKey('waveform-toggle-button'),
+                onPressed: controller.isPlaying
+                    ? controller.toggleWaveform
+                    : controller.isBusy
+                    ? null
+                    : () => menu.isOpen ? menu.close() : menu.open(),
+                tooltip: controller.isPlaying
+                    ? controller.waveformVisible
+                          ? '隐藏波形'
+                          : '显示波形'
+                    : '波形设置',
+                icon: Icon(
+                  controller.waveformVisible
+                      ? Icons.graphic_eq
+                      : Icons.hide_source_outlined,
+                  size: 20,
+                  color: controller.waveformVisible
+                      ? EditorColors.accent
+                      : null,
+                ),
               ),
             ),
             MenuAnchor(
@@ -1015,15 +1132,38 @@ class _EditorCanvasPainter extends CustomPainter {
     );
 
     _drawColumnBackgrounds(canvas, columnLayout);
-    if (controller.waveformVisible && controller.waveformBlocks.isNotEmpty) {
-      _drawWaveform(
-        canvas,
-        chart,
-        columnLayout,
-        cursorY,
-        spacing,
-        paintCurrentRow,
-      );
+    if (controller.waveformVisible &&
+        controller.canvasWaveformBlocks.isNotEmpty) {
+      if (!controller.waveformFilterEnabled ||
+          controller.waveformOverlayOriginal) {
+        _drawWaveform(
+          canvas,
+          chart,
+          columnLayout,
+          cursorY,
+          spacing,
+          paintCurrentRow,
+          controller.canvasWaveformBlocks,
+          EditorColors.waveform,
+          controller.waveformFilterEnabled
+              ? EditorWaveformLayer.overlayOriginal
+              : EditorWaveformLayer.original,
+        );
+      }
+      if (controller.waveformFilterEnabled &&
+          controller.canvasFilteredWaveformBlocks.isNotEmpty) {
+        _drawWaveform(
+          canvas,
+          chart,
+          columnLayout,
+          cursorY,
+          spacing,
+          paintCurrentRow,
+          controller.canvasFilteredWaveformBlocks,
+          EditorColors.waveformFilter,
+          EditorWaveformLayer.filtered,
+        );
+      }
     }
     _drawShowtimeRanges(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawGrid(canvas, chart, cursorY, spacing, paintCurrentRow);
@@ -1053,10 +1193,12 @@ class _EditorCanvasPainter extends CustomPainter {
     double cursorY,
     double spacing,
     double paintCurrentRow,
+    List<WaveformBlock> blocks,
+    Color color,
+    EditorWaveformLayer layer,
   ) {
-    final blocks = controller.canvasWaveformBlocks;
     final first = blocks.first;
-    final waveformPaint = Paint()..color = EditorColors.waveform;
+    final waveformPaint = Paint()..color = color;
 
     for (
       var screenY = chart.top.floor();
@@ -1088,6 +1230,8 @@ class _EditorCanvasPainter extends CustomPainter {
         screenY.toDouble(),
         columnLayout.waveformFit,
         waveformPaint,
+        color,
+        layer,
       );
       _drawAlphaRow(
         canvas,
@@ -1098,6 +1242,8 @@ class _EditorCanvasPainter extends CustomPainter {
         screenY.toDouble(),
         columnLayout.waveformFit,
         waveformPaint,
+        color,
+        layer,
       );
     }
   }
@@ -1111,6 +1257,8 @@ class _EditorCanvasPainter extends CustomPainter {
     double y,
     double fit,
     Paint paint,
+    Color color,
+    EditorWaveformLayer layer,
   ) {
     final offset = row * width;
     var start = -1;
@@ -1127,8 +1275,8 @@ class _EditorCanvasPainter extends CustomPainter {
     if (start < 0) {
       return;
     }
-    paint.color = EditorColors.waveform.withValues(
-      alpha: 0.16 + maximum / 255 * 0.44,
+    paint.color = color.withValues(
+      alpha: editorWaveformRowOpacity(maximum, layer),
     );
     canvas.drawRect(
       Rect.fromLTRB(xOrigin + start * fit, y, xOrigin + (end + 1) * fit, y + 1),

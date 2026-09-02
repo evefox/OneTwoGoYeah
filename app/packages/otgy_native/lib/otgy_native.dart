@@ -145,6 +145,45 @@ final class WaveformBlock {
   final Uint8List rightAlpha;
 }
 
+/// Display shape used by the waveform renderer.
+enum WaveformShape {
+  signed(0),
+  rectified(1);
+
+  const WaveformShape(this.value);
+  final int value;
+}
+
+/// Alpha/luminance policy used by the waveform renderer.
+enum WaveformLuminance {
+  uniform(0),
+  amplitude(1);
+
+  const WaveformLuminance(this.value);
+  final int value;
+}
+
+/// Supersampling factor used before the final tile is reduced to display size.
+enum WaveformSampling {
+  oneX(0),
+  twoX(1),
+  threeX(2),
+  fourX(3);
+
+  const WaveformSampling(this.value);
+  final int value;
+}
+
+/// Optional ArrowVortex-compatible display filter.
+enum WaveformFilter {
+  none(0),
+  highPass(1),
+  lowPass(2);
+
+  const WaveformFilter(this.value);
+  final int value;
+}
+
 final class AudioSourceInfo {
   const AudioSourceInfo({
     required this.codec,
@@ -526,15 +565,25 @@ final class NativeAudio {
     required double zoom,
     required double scale,
     required int blockIndex,
+    WaveformShape shape = WaveformShape.rectified,
+    WaveformLuminance luminance = WaveformLuminance.uniform,
+    WaveformSampling sampling = WaveformSampling.twoX,
+    WaveformFilter filter = WaveformFilter.none,
+    double filterStrength = 0.75,
   }) {
     final outTile = calloc<Pointer<native.otgy_waveform_tile>>();
     final outError = calloc<Pointer<native.otgy_error>>();
     try {
-      final status = native.otgy_generate_signed_amplitude_2x_waveform_tile(
+      final status = native.otgy_generate_waveform_tile(
         _requireHandle(),
         zoom,
         scale,
         blockIndex,
+        shape.value,
+        luminance.value,
+        sampling.value,
+        filter.value,
+        filterStrength,
         outTile,
         outError,
       );

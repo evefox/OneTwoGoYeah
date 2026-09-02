@@ -71,7 +71,7 @@ otgy_status otgy_pcm_copy_from_channels(
     }
     return make_handle<otgy_pcm>(
         otgy_pcm{std::move(result).take_pcm(), false,
-                 {otgy::core::AudioSourceCodec::Mp3, 0U, 0U}},
+                 {otgy::core::AudioSourceCodec::Mp3, 0U, 0U}, {}},
         out_pcm, out_error);
   });
 }

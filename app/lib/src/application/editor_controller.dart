@@ -141,6 +141,8 @@ class EditorController extends ChangeNotifier {
   List<ShowtimeMove> _showtimeMoves = const [];
   List<WaveformBlock> _waveformBlocks = const [];
   List<WaveformBlock> _playbackWaveformBlocks = const [];
+  List<WaveformBlock> _filteredWaveformBlocks = const [];
+  List<WaveformBlock> _playbackFilteredWaveformBlocks = const [];
   EditorNotice? _notice;
   bool _isBusy = false;
   bool _isExportingAudio = false;
@@ -148,6 +150,9 @@ class EditorController extends ChangeNotifier {
   bool _isPlaying = false;
   bool _isDirty = false;
   bool _waveformVisible = true;
+  WaveformFilter _waveformFilter = WaveformFilter.none;
+  double _waveformFilterStrength = 0.75;
+  bool _waveformOverlayOriginal = true;
   PlaybackSoundLanguage _playbackSoundLanguage = PlaybackSoundLanguage.chinese;
   PlaybackDanceMode _playbackDanceMode = PlaybackDanceMode.fourKey;
   bool _transitionSoundsEnabled = false;
@@ -197,6 +202,18 @@ class EditorController extends ChangeNotifier {
     return _waveformBlocks;
   }
 
+  List<WaveformBlock> get canvasFilteredWaveformBlocks {
+    if (_waveformFilter == WaveformFilter.none) {
+      return const [];
+    }
+    if (_isPlaying &&
+        playbackVisualPixelsPerSecond < _pixelsPerSecond &&
+        _playbackFilteredWaveformBlocks.isNotEmpty) {
+      return _playbackFilteredWaveformBlocks;
+    }
+    return _filteredWaveformBlocks;
+  }
+
   EditorNotice? get notice => _notice;
   bool get isBusy => _isBusy;
   bool get isExportingAudio => _isExportingAudio;
@@ -216,6 +233,10 @@ class EditorController extends ChangeNotifier {
       0;
   bool get isDirty => _isDirty;
   bool get waveformVisible => _waveformVisible;
+  WaveformFilter get waveformFilter => _waveformFilter;
+  double get waveformFilterStrength => _waveformFilterStrength;
+  bool get waveformOverlayOriginal => _waveformOverlayOriginal;
+  bool get waveformFilterEnabled => _waveformFilter != WaveformFilter.none;
   PlaybackSoundLanguage get playbackSoundLanguage => _playbackSoundLanguage;
   PlaybackDanceMode get playbackDanceMode => _playbackDanceMode;
   bool get transitionSoundsEnabled => _transitionSoundsEnabled;
@@ -296,9 +317,31 @@ class EditorController extends ChangeNotifier {
       final extension = dot < 0 ? '' : fileName.substring(dot);
       pending = OtgyNative.decodeAudio(bytes, extension);
       final editWaveform = _generateWaveformProjection(pending, pendingZoom);
+      final editFilteredWaveform = _waveformFilter == WaveformFilter.none
+          ? (
+              blocks: const <WaveformBlock>[],
+              pixelsPerSecond: editWaveform.pixelsPerSecond,
+            )
+          : _generateWaveformProjection(
+              pending,
+              pendingZoom,
+              filter: _waveformFilter,
+            );
       final playbackWaveform = pendingZoom == playbackVisualZoom
           ? editWaveform
           : _generateWaveformProjection(pending, playbackVisualZoom);
+      final playbackFilteredWaveform = _waveformFilter == WaveformFilter.none
+          ? (
+              blocks: const <WaveformBlock>[],
+              pixelsPerSecond: playbackWaveform.pixelsPerSecond,
+            )
+          : pendingZoom == playbackVisualZoom
+          ? editFilteredWaveform
+          : _generateWaveformProjection(
+              pending,
+              playbackVisualZoom,
+              filter: _waveformFilter,
+            );
 
       _audio?.dispose();
       _audio = pending;
@@ -313,6 +356,8 @@ class EditorController extends ChangeNotifier {
       _audioVersion++;
       _waveformBlocks = editWaveform.blocks;
       _playbackWaveformBlocks = playbackWaveform.blocks;
+      _filteredWaveformBlocks = editFilteredWaveform.blocks;
+      _playbackFilteredWaveformBlocks = playbackFilteredWaveform.blocks;
       _pixelsPerSecond = editWaveform.pixelsPerSecond;
       _zoom = pendingZoom;
       _editZoomAutomatic = true;
@@ -871,6 +916,44 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setWaveformFilter(WaveformFilter value) async {
+    if (!generalActionsEnabled ||
+        _isPlaying ||
+        _isBusy ||
+        value == _waveformFilter) {
+      return;
+    }
+    _waveformFilter = value;
+    await _regenerateWaveform(includePlayback: true);
+  }
+
+  Future<void> setWaveformFilterStrength(double value) async {
+    final next = value.clamp(0.0, 1.0).toDouble();
+    if (!generalActionsEnabled ||
+        _isPlaying ||
+        _isBusy ||
+        next == _waveformFilterStrength) {
+      return;
+    }
+    _waveformFilterStrength = next;
+    if (_waveformFilter != WaveformFilter.none) {
+      await _regenerateWaveform(includePlayback: true);
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void setWaveformOverlayOriginal(bool value) {
+    if (!generalActionsEnabled ||
+        _isPlaying ||
+        _isBusy ||
+        value == _waveformOverlayOriginal) {
+      return;
+    }
+    _waveformOverlayOriginal = value;
+    notifyListeners();
+  }
+
   void setPlaybackSoundLanguage(PlaybackSoundLanguage value) {
     if (_isPlaying || _isBusy || value == _playbackSoundLanguage) {
       return;
@@ -982,15 +1065,39 @@ class EditorController extends ChangeNotifier {
         _refreshViewMetrics();
       } else {
         final editWaveform = _generateWaveformProjection(audio, _zoom);
+        final editFilteredWaveform = _waveformFilter == WaveformFilter.none
+            ? (
+                blocks: const <WaveformBlock>[],
+                pixelsPerSecond: editWaveform.pixelsPerSecond,
+              )
+            : _generateWaveformProjection(
+                audio,
+                _zoom,
+                filter: _waveformFilter,
+              );
         final playbackWaveform = includePlayback
             ? _zoom == playbackVisualZoom
                   ? editWaveform
                   : _generateWaveformProjection(audio, playbackVisualZoom)
             : null;
+        final playbackFilteredWaveform =
+            includePlayback && _waveformFilter != WaveformFilter.none
+            ? _zoom == playbackVisualZoom
+                  ? editFilteredWaveform
+                  : _generateWaveformProjection(
+                      audio,
+                      playbackVisualZoom,
+                      filter: _waveformFilter,
+                    )
+            : null;
         _waveformBlocks = editWaveform.blocks;
+        _filteredWaveformBlocks = editFilteredWaveform.blocks;
         _pixelsPerSecond = editWaveform.pixelsPerSecond;
         if (playbackWaveform != null) {
           _playbackWaveformBlocks = playbackWaveform.blocks;
+        }
+        if (playbackFilteredWaveform != null) {
+          _playbackFilteredWaveformBlocks = playbackFilteredWaveform.blocks;
         }
       }
       notifyListeners();
@@ -1004,11 +1111,20 @@ class EditorController extends ChangeNotifier {
   }
 
   ({List<WaveformBlock> blocks, int pixelsPerSecond})
-  _generateWaveformProjection(NativeAudio audio, double zoom) {
+  _generateWaveformProjection(
+    NativeAudio audio,
+    double zoom, {
+    WaveformFilter filter = WaveformFilter.none,
+  }) {
     final first = audio.generateWaveform(
       zoom: zoom,
       scale: _effectiveScale,
       blockIndex: 0,
+      shape: WaveformShape.rectified,
+      luminance: WaveformLuminance.uniform,
+      sampling: WaveformSampling.twoX,
+      filter: filter,
+      filterStrength: _waveformFilterStrength,
     );
     final count = math.max(
       1,
@@ -1021,6 +1137,11 @@ class EditorController extends ChangeNotifier {
           zoom: zoom,
           scale: _effectiveScale,
           blockIndex: index,
+          shape: WaveformShape.rectified,
+          luminance: WaveformLuminance.uniform,
+          sampling: WaveformSampling.twoX,
+          filter: filter,
+          filterStrength: _waveformFilterStrength,
         ),
       );
     }

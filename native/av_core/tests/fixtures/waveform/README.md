@@ -4,7 +4,7 @@
 
 This directory contains the first isolated ArrowVortex waveform compatibility
 fixtures. The Alpha bytes were captured once per combination between
-2026-08-30 and 2026-08-31 from the generated CC0 stereo PCM fixture and are
+2026-08-30 and 2026-09-02 from the generated CC0 stereo PCM fixture and are
 released under CC0-1.0. Ordinary builds and tests read the committed bytes and
 never regenerate them.
 
@@ -19,6 +19,8 @@ were:
 |---|---|
 | `src/Editor/Waveform.cpp` | `7cff67c1e16d948d2e6ca8ed0677d7500a0af7a92e0975a0dcf017f0414628fc` |
 | `src/Editor/View.cpp` | `8b5e3546208d684c8598e14dfc972b6ef229b8596fd270d8bf9c8b3fafac7e41` |
+| `src/Editor/Butterworth.cpp` | `2e8dbf36826fa6c6472d2c4b64c26f6961f2199672ce9cdbd52962b2828fa2c0` |
+| `src/Editor/Butterworth.h` | `ca8003fba956682b91f0b78a7e288af1c5992c2ae84e06de7d66da4415fdc446` |
 
 Capture parameters:
 
@@ -50,6 +52,19 @@ channel width = 256
 channel spacing = 24
 tile height = 128
 ```
+
+The high-pass and low-pass captures additionally compiled the checked
+ArrowVortex `Butterworth.cpp` and `Butterworth.h` directly into the standalone
+harness. Both use strength `0.75`, which maps to normalized cutoffs `0.70` and
+`0.035` respectively. Filtering starts at frame zero, processes each complete
+channel, and then normalizes that channel using the reference maximum-positive
+sample and 32-bit integer arithmetic. The complete planar filtered PCM
+SHA-256 values are:
+
+| Filter | Complete PCM SHA-256 |
+|---|---|
+| High-pass, strength 0.75 | `e046a52aee510667a6009cd74a94f98c77c9ad40abf7178fed80dad4e845943d` |
+| Low-pass, strength 0.75 | `28790ffd999e777ffd4e753f8c9132437429a5227d18360a70e93a8394fa5548` |
 
 The output stores the complete row-major Left Alpha plane followed by the
 complete row-major Right Alpha plane. Each plane is `256 * 128` bytes, so every
@@ -93,6 +108,8 @@ before the 4x4 integer average.
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_uniform_4x.alpha` | `241130adba788392aebb91d3f6dbbca4e465045fe32bdce8a69c07a3dc7d07f6` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_4x.alpha` | `de0fc96e7b8eaff68ffbff35af5cf378867bd1f176c83aa2c29a9e1a34a3268f` |
 | `generated_stereo_11025.ui_zoom11.scale4.block1.rectified_amplitude_4x.alpha` | `8928312aca9acae6dd462238fbeb1838006e80c9524bb6c81828b5de2fd44a43` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_2x.high_pass_strength075.alpha` | `41935f8b37100f47db6e7620262d4255d69649bcbfe2c8407e18543967145f78` |
+| `generated_stereo_11025.ui_zoom11.scale4.block1.signed_amplitude_2x.low_pass_strength075.alpha` | `c338ce4ff4e8ad54f07cc407e9f525b78a738ace522110aa8e547a59fa417007` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.

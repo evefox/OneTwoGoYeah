@@ -348,6 +348,35 @@ external otgy_byte_view otgy_waveform_tile_get_right(
     ffi.Double,
     ffi.Double,
     ffi.Uint64,
+    ffi.Uint32,
+    ffi.Uint32,
+    ffi.Uint32,
+    ffi.Uint32,
+    ffi.Double,
+    ffi.Pointer<ffi.Pointer<otgy_waveform_tile>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_generate_waveform_tile(
+  ffi.Pointer<otgy_pcm> pcm,
+  double ui_zoom,
+  double scale,
+  int block_index,
+  int shape,
+  int luminance,
+  int anti_aliasing,
+  int filter,
+  double filter_strength,
+  ffi.Pointer<ffi.Pointer<otgy_waveform_tile>> out_tile,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_pcm>,
+    ffi.Double,
+    ffi.Double,
+    ffi.Uint64,
     ffi.Pointer<ffi.Pointer<otgy_waveform_tile>>,
     ffi.Pointer<ffi.Pointer<otgy_error>>,
   )
@@ -2208,6 +2237,28 @@ const int OTGY_ABI_ERROR_INVALID_BOOLEAN = 3;
 const int OTGY_ABI_ERROR_RESULT_NOT_AVAILABLE = 4;
 
 const int OTGY_ABI_ERROR_UNEXPECTED_EXCEPTION = 5;
+
+const int OTGY_WAVEFORM_SHAPE_SIGNED = 0;
+
+const int OTGY_WAVEFORM_SHAPE_RECTIFIED = 1;
+
+const int OTGY_WAVEFORM_LUMINANCE_UNIFORM = 0;
+
+const int OTGY_WAVEFORM_LUMINANCE_AMPLITUDE = 1;
+
+const int OTGY_WAVEFORM_ANTIALIAS_NONE = 0;
+
+const int OTGY_WAVEFORM_ANTIALIAS_2X = 1;
+
+const int OTGY_WAVEFORM_ANTIALIAS_3X = 2;
+
+const int OTGY_WAVEFORM_ANTIALIAS_4X = 3;
+
+const int OTGY_WAVEFORM_FILTER_NONE = 0;
+
+const int OTGY_WAVEFORM_FILTER_HIGH_PASS = 1;
+
+const int OTGY_WAVEFORM_FILTER_LOW_PASS = 2;
 
 const int OTGY_AUDIO_SOURCE_CODEC_MP3 = 1;
 

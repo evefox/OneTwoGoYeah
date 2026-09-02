@@ -75,6 +75,27 @@ void main() {
     expect(hasSupportedAudioFileExtension('track.wav'), isFalse);
   });
 
+  test('keeps filtered waveform layers subordinate to chart markers', () {
+    expect(
+      editorWaveformRowOpacity(255, EditorWaveformLayer.original),
+      closeTo(0.52, 1e-12),
+    );
+    expect(
+      editorWaveformRowOpacity(255, EditorWaveformLayer.overlayOriginal),
+      closeTo(0.24, 1e-12),
+    );
+    expect(
+      editorWaveformRowOpacity(255, EditorWaveformLayer.filtered),
+      closeTo(0.36, 1e-12),
+    );
+    expect(EditorColors.waveformFilter, const Color(0xFFA7BDC2));
+    expect(EditorColors.waveformFilter, isNot(EditorColors.judgement));
+    expect(EditorColors.waveformFilter, isNot(EditorColors.markerNpc));
+    expect(EditorColors.waveformFilter, isNot(EditorColors.markerPlayer));
+    expect(EditorColors.waveformFilter, isNot(EditorColors.markerS));
+    expect(EditorColors.waveformFilter, isNot(EditorColors.markerD));
+  });
+
   testWidgets('shows the three editor regions and precise timing summaries', (
     tester,
   ) async {
@@ -1577,10 +1598,81 @@ void main() {
     expect(controller.waveformVisible, isTrue);
     await mouse.down(tester.getCenter(waveform));
     await mouse.up();
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(controller.waveformVisible, isFalse);
-    expect(controller.markers, isEmpty);
+    expect(controller.waveformVisible, isTrue);
+    expect(
+      find.byKey(const ValueKey('waveform-settings-menu')),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.undo));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('waveform-settings-menu')), findsNothing);
+  });
+
+  testWidgets(
+    'configures supported waveform options in an outside-dismiss menu',
+    (tester) async {
+      await pumpEditor(tester);
+
+      expect(controller.waveformFilter, WaveformFilter.none);
+      expect(controller.waveformOverlayOriginal, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('waveform-toggle-button')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('waveform-settings-menu')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('waveform-shape')), findsNothing);
+      expect(find.byKey(const ValueKey('waveform-luminance')), findsNothing);
+      expect(find.byKey(const ValueKey('waveform-antialiasing')), findsNothing);
+
+      await tester.tap(find.text('高通'));
+      await tester.pumpAndSettle();
+
+      expect(controller.waveformFilter, WaveformFilter.highPass);
+      expect(controller.waveformFilterEnabled, isTrue);
+
+      final slider = tester.widget<Slider>(
+        find.byKey(const ValueKey('waveform-filter-strength')),
+      );
+      expect(slider.onChanged, isNotNull);
+      await tester.tap(find.byKey(const ValueKey('waveform-overlay-original')));
+      await tester.pump();
+      expect(controller.waveformOverlayOriginal, isFalse);
+
+      await tester.tap(find.text('关闭'));
+      await tester.pumpAndSettle();
+      expect(controller.waveformFilter, WaveformFilter.none);
+      final disabledSlider = tester.widget<Slider>(
+        find.byKey(const ValueKey('waveform-filter-strength')),
+      );
+      expect(disabledSlider.onChanged, isNull);
+
+      await tester.tapAt(const Offset(20, 400));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('waveform-settings-menu')),
+        findsNothing,
+      );
+    },
+  );
+
+  test('generates a filtered waveform projection through the generic FFI entry point', () async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    expect(controller.waveformFilterEnabled, isFalse);
+    final original = controller.waveformBlocks.first.leftAlpha;
+    await controller.setWaveformFilter(WaveformFilter.highPass);
+    expect(controller.waveformFilterEnabled, isTrue);
+    expect(controller.canvasFilteredWaveformBlocks, isNotEmpty);
+    expect(
+      controller.canvasFilteredWaveformBlocks.first.leftAlpha,
+      isNot(equals(original)),
+    );
   });
 
   testWidgets('centers desktop navigation rail in the editor canvas', (
@@ -1696,7 +1788,8 @@ void main() {
     controller.setBpm(130);
     expect(controller.bpm, 100);
     final waveformBefore = controller.waveformVisible;
-    controller.toggleWaveform();
+    await tester.tap(find.byKey(const ValueKey('waveform-toggle-button')));
+    await tester.pump();
     expect(controller.waveformVisible, isNot(waveformBefore));
 
     output.playedFrames = output.sampleRate ~/ 2;

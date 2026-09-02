@@ -504,6 +504,111 @@ void test_waveforms(const otgy::core::Pcm16& direct_pcm,
            "waveform Alpha differs");
   }
 
+  const auto direct_generic = otgy::core::generate_waveform_tile(
+      direct_pcm, 11.0, 4.0, 1U, otgy::core::WaveformShape::Signed,
+      otgy::core::WaveformLuminance::Amplitude,
+      otgy::core::WaveformSampling::TwoX, otgy::core::WaveformFilter::None,
+      0.75);
+  expect(static_cast<bool>(direct_generic), "direct generic waveform failed");
+  otgy_waveform_tile* generic_raw_tile = nullptr;
+  otgy_error* generic_raw_error = nullptr;
+  expect(otgy_generate_waveform_tile(
+             abi_pcm, 11.0, 4.0, 1U, OTGY_WAVEFORM_SHAPE_SIGNED,
+             OTGY_WAVEFORM_LUMINANCE_AMPLITUDE, OTGY_WAVEFORM_ANTIALIAS_2X,
+             OTGY_WAVEFORM_FILTER_NONE, 0.75, &generic_raw_tile,
+             &generic_raw_error) == OTGY_STATUS_OK,
+         "C ABI generic waveform failed");
+  auto generic_tile =
+      handle<otgy_waveform_tile, otgy_waveform_tile_destroy>(generic_raw_tile);
+  auto generic_error =
+      handle<otgy_error, otgy_error_destroy>(generic_raw_error);
+  expect(generic_error == nullptr, "generic waveform returned an error");
+  const auto generic_left = otgy_waveform_tile_get_left(generic_tile.get());
+  const auto generic_right = otgy_waveform_tile_get_right(generic_tile.get());
+  expect(generic_left.length == direct_generic.tile()->channel_byte_size() &&
+             std::memcmp(generic_left.data,
+                         direct_generic.tile()->channel_alpha(
+                             otgy::core::PcmChannel::Left),
+                         static_cast<std::size_t>(generic_left.length)) == 0 &&
+             generic_right.length ==
+                 direct_generic.tile()->channel_byte_size() &&
+             std::memcmp(generic_right.data,
+                         direct_generic.tile()->channel_alpha(
+                             otgy::core::PcmChannel::Right),
+                         static_cast<std::size_t>(generic_right.length)) == 0,
+         "generic waveform Alpha differs");
+
+  otgy_waveform_tile* invalid_option_tile = nullptr;
+  otgy_error* invalid_option_raw_error = nullptr;
+  expect(otgy_generate_waveform_tile(
+             abi_pcm, 11.0, 4.0, 1U,
+             std::numeric_limits<std::uint32_t>::max(),
+             OTGY_WAVEFORM_LUMINANCE_UNIFORM, OTGY_WAVEFORM_ANTIALIAS_2X,
+             OTGY_WAVEFORM_FILTER_NONE, 0.75, &invalid_option_tile,
+             &invalid_option_raw_error) == OTGY_STATUS_CORE_ERROR,
+         "C ABI accepted an invalid waveform option");
+  auto invalid_option_error =
+      handle<otgy_error, otgy_error_destroy>(invalid_option_raw_error);
+  expect(invalid_option_tile == nullptr,
+         "invalid waveform option exposed a tile");
+  expect_error(invalid_option_error.get(), OTGY_ERROR_DOMAIN_WAVEFORM,
+               static_cast<std::uint32_t>(
+                   otgy::core::WaveformError::InvalidOption),
+               otgy::core::waveform_error_message(
+                   otgy::core::WaveformError::InvalidOption));
+
+  const auto expect_filtered_tile =
+      [&](otgy::core::WaveformFilter direct_filter, std::uint32_t abi_filter,
+          std::uint64_t block_index) {
+        const auto direct = otgy::core::generate_waveform_tile(
+            direct_pcm, 11.0, 4.0, block_index,
+            otgy::core::WaveformShape::Signed,
+            otgy::core::WaveformLuminance::Amplitude,
+            otgy::core::WaveformSampling::TwoX, direct_filter, 0.75);
+        expect(static_cast<bool>(direct), "direct filtered waveform failed");
+
+        otgy_waveform_tile* raw_filtered_tile = nullptr;
+        otgy_error* raw_filtered_error = nullptr;
+        expect(otgy_generate_waveform_tile(
+                   abi_pcm, 11.0, 4.0, block_index, OTGY_WAVEFORM_SHAPE_SIGNED,
+                   OTGY_WAVEFORM_LUMINANCE_AMPLITUDE,
+                   OTGY_WAVEFORM_ANTIALIAS_2X, abi_filter, 0.75,
+                   &raw_filtered_tile, &raw_filtered_error) == OTGY_STATUS_OK,
+               "C ABI filtered waveform failed");
+        auto filtered_tile =
+            handle<otgy_waveform_tile, otgy_waveform_tile_destroy>(
+                raw_filtered_tile);
+        auto filtered_error =
+            handle<otgy_error, otgy_error_destroy>(raw_filtered_error);
+        expect(filtered_error == nullptr,
+               "filtered waveform returned an error");
+
+        const auto left = otgy_waveform_tile_get_left(filtered_tile.get());
+        const auto right = otgy_waveform_tile_get_right(filtered_tile.get());
+        expect(left.length == direct.tile()->channel_byte_size() &&
+                   right.length == direct.tile()->channel_byte_size() &&
+                   std::memcmp(left.data,
+                               direct.tile()->channel_alpha(
+                                   otgy::core::PcmChannel::Left),
+                               static_cast<std::size_t>(left.length)) == 0 &&
+                   std::memcmp(right.data,
+                               direct.tile()->channel_alpha(
+                                   otgy::core::PcmChannel::Right),
+                               static_cast<std::size_t>(right.length)) == 0,
+               "filtered waveform Alpha differs");
+      };
+
+  // The second adjacent tile for each filter reuses the C ABI's complete-PCM
+  // cache and must remain byte-identical to a direct av_core call.
+  for (const auto block_index : {1U, 2U}) {
+    expect_filtered_tile(otgy::core::WaveformFilter::HighPass,
+                         OTGY_WAVEFORM_FILTER_HIGH_PASS, block_index);
+  }
+  for (const auto block_index : {1U, 2U}) {
+    expect_filtered_tile(otgy::core::WaveformFilter::LowPass,
+                         OTGY_WAVEFORM_FILTER_LOW_PASS, block_index);
+  }
+
   const auto direct_error = direct_functions[0](direct_pcm, 0.0, 4.0, 0U);
   otgy_waveform_tile* raw_tile = nullptr;
   otgy_error* raw_error = nullptr;
