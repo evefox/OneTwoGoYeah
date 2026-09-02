@@ -22,6 +22,21 @@ bool hasSlkFileExtension(String fileName) =>
     fileName.toLowerCase().endsWith('.slk');
 
 @visibleForTesting
+String? normalizeAndroidSlkFileName(String fileName, String? mimeType) {
+  if (hasSlkFileExtension(fileName)) {
+    return fileName;
+  }
+  final normalizedMimeType = mimeType?.split(';').first.trim().toLowerCase();
+  if (normalizedMimeType != 'application/octet-stream') {
+    return null;
+  }
+  final slash = math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf(r'\'));
+  final dot = fileName.lastIndexOf('.');
+  final baseName = dot > slash ? fileName.substring(0, dot) : fileName;
+  return '${baseName.isEmpty ? 'chart' : baseName}.slk';
+}
+
+@visibleForTesting
 bool hasSupportedAudioFileExtension(String fileName) {
   final lower = fileName.toLowerCase();
   return lower.endsWith('.mp3') || lower.endsWith('.ogg');
@@ -559,12 +574,17 @@ class _EditorScreenState extends State<EditorScreen>
     if (file == null) {
       return;
     }
-    if (!hasSlkFileExtension(file.name)) {
+    final normalizedFileName = defaultTargetPlatform == TargetPlatform.android
+        ? normalizeAndroidSlkFileName(file.name, file.mimeType)
+        : hasSlkFileExtension(file.name)
+        ? file.name
+        : null;
+    if (normalizedFileName == null) {
       _controller.showNotice('SLK 导入失败：请选择 .slk 文件。', error: true);
       return;
     }
     try {
-      _controller.importSlkBytes(await file.readAsBytes(), file.name);
+      _controller.importSlkBytes(await file.readAsBytes(), normalizedFileName);
       _controller.showNotice('SLK 已导入');
     } on Object {
       _controller.showNotice('SLK 导入失败：文件不是完整有效的成品谱面。', error: true);

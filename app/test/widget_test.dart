@@ -67,6 +67,25 @@ void main() {
     expect(hasSlkFileExtension('chart.txt'), isFalse);
   });
 
+  test('normalizes Android provider cache names for generic SLK documents', () {
+    expect(
+      normalizeAndroidSlkFileName('chart.bin', 'application/octet-stream'),
+      'chart.slk',
+    );
+    expect(
+      normalizeAndroidSlkFileName(
+        'file_selector',
+        'application/octet-stream; charset=binary',
+      ),
+      'file_selector.slk',
+    );
+    expect(
+      normalizeAndroidSlkFileName('chart.SLK', 'application/octet-stream'),
+      'chart.SLK',
+    );
+    expect(normalizeAndroidSlkFileName('chart.bin', 'text/plain'), isNull);
+  });
+
   test('recognizes supported audio extensions without case sensitivity', () {
     expect(hasSupportedAudioFileExtension('track.mp3'), isTrue);
     expect(hasSupportedAudioFileExtension('track.MP3'), isTrue);
