@@ -33,6 +33,27 @@ void main() {
     expect(controller.zoom, 8.25);
   });
 
+  test('song-time jumps use core timing and timeline bounds', () {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+
+    controller.moveToSongSeconds(5.25);
+    final expectedRow = OtgyNative.secondsToSixteenthRow(
+      bpm: controller.projectedBpm,
+      offset: controller.offset,
+      seconds: 5.25,
+    );
+    expect(controller.currentRow, closeTo(expectedRow, 1e-12));
+
+    final unchanged = controller.currentRow;
+    controller.moveToSongSeconds(double.nan);
+    controller.moveToSongSeconds(-1);
+    expect(controller.currentRow, unchanged);
+
+    controller.moveToSongSeconds(1000);
+    expect(controller.currentRow, controller.timelineRange.endRow);
+  });
+
   test(
     'playback visual density gives five seconds a stable maximum length',
     () async {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
@@ -213,6 +214,76 @@ class _EditorScreenState extends State<EditorScreen>
     } on Object {
       _controller.showNotice('无法读取所选音频文件。', error: true);
     }
+  }
+
+  Future<void> _jumpToSongTime() async {
+    final current = _controller.currentSongSeconds;
+    final initialSeconds = current.isFinite ? math.max(0, current) : 0.0;
+    final initialMinutes = initialSeconds ~/ 60;
+    var minuteText = '$initialMinutes';
+    var secondText = (initialSeconds - initialMinutes * 60).toStringAsFixed(3);
+    final formKey = GlobalKey<FormState>();
+    final result = await showDialog<({int minutes, double seconds})>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('跳转到歌曲时间'),
+        content: Form(
+          key: formKey,
+          child: Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  key: const ValueKey('jump-time-minutes'),
+                  initialValue: minuteText,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: '分钟'),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
+                  validator: _validateSongMinutes,
+                  onChanged: (value) => minuteText = value,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  key: const ValueKey('jump-time-seconds'),
+                  initialValue: secondText,
+                  decoration: const InputDecoration(labelText: '秒'),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  textInputAction: TextInputAction.done,
+                  validator: _validateSongSeconds,
+                  onChanged: (value) => secondText = value,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (!formKey.currentState!.validate()) {
+                return;
+              }
+              Navigator.pop(dialogContext, (
+                minutes: int.parse(minuteText.trim()),
+                seconds: double.parse(secondText.trim()),
+              ));
+            },
+            child: const Text('跳转'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || result == null) {
+      return;
+    }
+    _controller.moveToSongSeconds(result.minutes * 60 + result.seconds);
   }
 
   Future<void> _analyzeAudio() async {
@@ -929,7 +1000,10 @@ class _EditorScreenState extends State<EditorScreen>
                         onExportSlk: _exportSlk,
                       ),
                       Expanded(child: EditorCanvas(controller: _controller)),
-                      _StatusBar(controller: _controller),
+                      _StatusBar(
+                        controller: _controller,
+                        onJumpToTime: _jumpToSongTime,
+                      ),
                     ],
                   ),
                 ),
@@ -1179,9 +1253,10 @@ class _AnalysisCandidates extends StatelessWidget {
 }
 
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.controller});
+  const _StatusBar({required this.controller, required this.onJumpToTime});
 
   final EditorController controller;
+  final VoidCallback onJumpToTime;
 
   @override
   Widget build(BuildContext context) {
@@ -1194,9 +1269,20 @@ class _StatusBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(
-            _formatSongTime(controller.currentSongSeconds),
-            style: Theme.of(context).textTheme.bodySmall,
+          Tooltip(
+            message: '点击跳转到歌曲时间',
+            child: TextButton(
+              key: const ValueKey('song-time'),
+              onPressed: controller.generalActionsEnabled ? onJumpToTime : null,
+              style: TextButton.styleFrom(
+                foregroundColor: EditorColors.text,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: Theme.of(context).textTheme.bodySmall,
+              ),
+              child: Text(_formatSongTime(controller.currentSongSeconds)),
+            ),
           ),
           const Spacer(),
           Text(
@@ -1226,6 +1312,22 @@ String _formatSongTime(double seconds) {
   return '$sign${minutes.toString().padLeft(2, '0')}:'
       '${displaySeconds.toString().padLeft(2, '0')}.'
       '${milliseconds.toString().padLeft(3, '0')}';
+}
+
+String? _validateSongMinutes(String? value) {
+  final minutes = int.tryParse(value?.trim() ?? '');
+  if (minutes == null || minutes < 0) {
+    return '请输入非负整数';
+  }
+  return null;
+}
+
+String? _validateSongSeconds(String? value) {
+  final seconds = double.tryParse(value?.trim() ?? '');
+  if (seconds == null || !seconds.isFinite || seconds < 0 || seconds >= 60) {
+    return '请输入 0 到 60 秒以内';
+  }
+  return null;
 }
 
 enum _UnsavedChoice { save, discard, cancel }

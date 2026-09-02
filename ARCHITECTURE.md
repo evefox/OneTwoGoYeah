@@ -982,7 +982,7 @@ Flutter 的移动端画布为右侧纵向控制栏保留 `24` 逻辑像素投影
 
 播放位置由固定的当前时间光标/播放判定线表示。该线的绘制和行命中共享同一 Flutter 投影，并固定在编辑画布高度 `25%` 处。开始播放时使用该光标时间；暂停时保留精确播放位置。平台适配层约每 `33ms` 查询一次实际播放帧，`EditorController.currentRow` 只由这些设备帧更新，并继续作为暂停、自然结束和输出中断位置的唯一权威来源。
 
-Flutter 底部状态栏把 `EditorController.currentRow` 通过共享核心 `sixteenth_row_to_seconds` 换算为播放光标对应的歌曲时间，只在展示层按 ArrowVortex 的 `mm:ss.SSS`、累计分钟、负号和毫秒截断规则格式化；不得在 Flutter 复制 BPM/Offset 换算公式。BPM 为零时使用与画布行命中相同的非持久化 `100` BPM 投影，不能改变权威 BPM。
+Flutter 底部状态栏把 `EditorController.currentRow` 通过共享核心 `sixteenth_row_to_seconds` 换算为播放光标对应的歌曲时间，只在展示层按 ArrowVortex 的 `mm:ss.SSS`、累计分钟、负号和毫秒截断规则格式化；不得在 Flutter 复制 BPM/Offset 换算公式。BPM 为零时使用与画布行命中相同的非持久化 `100` BPM 投影，不能改变权威 BPM。未播放时点击歌曲时间由 Flutter 收集非负整数分钟和 `[0, 60)` 秒数，`EditorController.moveToSongSeconds` 再调用共享核心 `seconds_to_sixteenth_row`，最后复用统一的 `moveToRow` 时间线边界；取消、校验失败或播放门控拒绝均不改变当前位置。
 
 播放期间，Flutter 视图层以最后确认的设备行作为锚点，使用屏幕 `Ticker` 按显示刷新帧投影仅供绘制的连续行，让波形、时序网格、Showtime 范围和标记在固定判定线下同步移动。视觉投影最多前推 `50ms`，且重复收到同一设备帧不能重置这个窗口；新的有效设备位置重新校准锚点，暂停、自然结束或输出中断则立即停止 `Ticker` 并把绘制行恢复为 `EditorController.currentRow`。该投影不得写回控制器、核心、项目或音频输出。逐帧更新只通知画布 `CustomPainter` 并限制在其 `RepaintBoundary` 内，不能按屏幕帧率重建整个编辑界面。到达音频末尾时暂停并保留末尾位置；从末尾再次开始播放时，先跳到开头。
 

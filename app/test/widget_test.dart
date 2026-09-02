@@ -106,6 +106,50 @@ void main() {
     expect(find.text('160:00.000'), findsOneWidget);
   });
 
+  testWidgets('jumps to a song time from the status bar', (tester) async {
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('song-time')));
+    await tester.pumpAndSettle();
+    expect(find.text('跳转到歌曲时间'), findsOneWidget);
+    expect(find.byKey(const ValueKey('jump-time-minutes')), findsOneWidget);
+    expect(find.byKey(const ValueKey('jump-time-seconds')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('jump-time-minutes')),
+      '0',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('jump-time-seconds')),
+      '5.250',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '跳转'));
+    await tester.pumpAndSettle();
+
+    final expectedRow = OtgyNative.secondsToSixteenthRow(
+      bpm: controller.projectedBpm,
+      offset: controller.offset,
+      seconds: 5.25,
+    );
+    expect(controller.currentRow, closeTo(expectedRow, 1e-12));
+    expect(find.text('00:05.250'), findsOneWidget);
+
+    final unchanged = controller.currentRow;
+    await tester.tap(find.byKey(const ValueKey('song-time')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('jump-time-seconds')),
+      '60',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, '跳转'));
+    await tester.pump();
+    expect(find.text('请输入 0 到 60 秒以内'), findsOneWidget);
+    expect(controller.currentRow, unchanged);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
+    await tester.pumpAndSettle();
+    expect(controller.currentRow, unchanged);
+  });
+
   testWidgets('keeps bottom info notices legible on their backgrounds', (
     tester,
   ) async {
@@ -1609,6 +1653,12 @@ void main() {
     await controller.togglePlayback();
     await tester.pump();
     expect(controller.isPlaying, isTrue);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('song-time')))
+          .onPressed,
+      isNull,
+    );
     expect(
       tester
           .widget<IconButton>(

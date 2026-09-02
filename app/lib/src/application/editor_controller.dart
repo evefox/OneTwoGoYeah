@@ -912,6 +912,18 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void moveToSongSeconds(double seconds) {
+    if (!seconds.isFinite || seconds < 0 || !generalActionsEnabled) {
+      return;
+    }
+    final row = OtgyNative.secondsToSixteenthRow(
+      bpm: projectedBpm,
+      offset: _offset,
+      seconds: seconds,
+    );
+    moveToRow(row);
+  }
+
   void moveByPixels(double pixels) {
     if (rowSpacing <= 0) {
       return;
