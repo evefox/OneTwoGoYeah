@@ -75,6 +75,32 @@ void main() {
     expect(hasSupportedAudioFileExtension('track.wav'), isFalse);
   });
 
+  test(
+    'normalizes Android provider cache names from trusted audio MIME types',
+    () {
+      expect(
+        normalizeAndroidAudioFileName('exported-track.oga', 'audio/ogg'),
+        'exported-track.ogg',
+      );
+      expect(
+        normalizeAndroidAudioFileName('file_selector', 'application/ogg'),
+        'file_selector.ogg',
+      );
+      expect(
+        normalizeAndroidAudioFileName(
+          'track.bin',
+          'audio/mpeg; charset=binary',
+        ),
+        'track.mp3',
+      );
+      expect(normalizeAndroidAudioFileName('track.wav', 'audio/wav'), isNull);
+      expect(
+        normalizeAndroidAudioFileName('track.OGG', 'application/octet-stream'),
+        'track.OGG',
+      );
+    },
+  );
+
   test('keeps filtered waveform layers subordinate to chart markers', () {
     expect(
       editorWaveformRowOpacity(255, EditorWaveformLayer.original),

@@ -375,6 +375,8 @@ iOS `AVAudioEngine` 连接只接受引擎标准的 Float32 非交错格式。iOS
 
 iOS 文件提供器可能把未知 `.slk` 文件报告为只遵循 `public.data` 的动态 UTI，因此 Flutter 在 iOS 请求 `public.data`，并在文件返回后、读取前强制校验 `.slk` 扩展名。该平台兼容处理只负责选择范围与输入门控，不解析或改写 SLK；严格解析和语义校验仍只调用共享核心。
 
+Android `file_selector` 会把授权的 `content://` 输入复制到 App 缓存，并可能依据系统 MIME 把原始 `.ogg` 名称改成 `.oga` 或无扩展名。Flutter 只在系统 MIME 明确属于 Ogg Vorbis 或 MP3 时，把送入核心分派器的缓存名称规范化为 `.ogg` 或 `.mp3`；未知 MIME 和不受支持的显式扩展名仍在读取前拒绝。该适配不嗅探或解析音频内容，最终容器及字节有效性仍只由 `av_core` 的对应解码器决定。
+
 Flutter 与 Runner 使用三个轻量 MethodChannel：`io.onetwogoyeah/playback` 只传递采样率、交错 PCM16LE 和已播放帧数；`io.onetwogoyeah/files` 对路径型目标在同目录把完整临时文件以原子、不替换硬链接发布到目标，macOS 再以 `renameatx_np(RENAME_EXCL)` 作为硬链接不可用时的原子回退，并在用户选定路径不允许创建临时兄弟文件时使用原生 `O_EXCL` 写入和失败清理；Android 同一文件通道额外负责发起 `ACTION_CREATE_DOCUMENT`、持有 `content://` 写入会话、原样分块写入以及失败删除；`io.onetwogoyeah/lifecycle` 只用于 Windows/macOS 窗口关闭前请求 Flutter 完成未保存确认。Android 使用 `AudioTrack`/`ContentResolver`，iOS 和 macOS 使用 `AVAudioEngine`/POSIX 文件操作，Windows 使用 `waveOut`/`CreateHardLinkW`。这些适配层不得解释音频时序、文件名或项目语义。
 
 ## 音频兼容契约

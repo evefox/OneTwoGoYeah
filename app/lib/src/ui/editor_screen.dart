@@ -27,6 +27,29 @@ bool hasSupportedAudioFileExtension(String fileName) {
   return lower.endsWith('.mp3') || lower.endsWith('.ogg');
 }
 
+@visibleForTesting
+String? normalizeAndroidAudioFileName(String fileName, String? mimeType) {
+  if (hasSupportedAudioFileExtension(fileName)) {
+    return fileName;
+  }
+  final normalizedMimeType = mimeType?.split(';').first.trim().toLowerCase();
+  final extension = switch (normalizedMimeType) {
+    'audio/mpeg' || 'audio/mp3' || 'audio/x-mp3' => '.mp3',
+    'audio/ogg' ||
+    'audio/x-ogg' ||
+    'application/ogg' ||
+    'application/x-ogg' => '.ogg',
+    _ => null,
+  };
+  if (extension == null) {
+    return null;
+  }
+  final slash = math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf(r'\'));
+  final dot = fileName.lastIndexOf('.');
+  final baseName = dot > slash ? fileName.substring(0, dot) : fileName;
+  return '${baseName.isEmpty ? 'audio' : baseName}$extension';
+}
+
 class EditorScreen extends StatefulWidget {
   const EditorScreen({super.key, this.controller, this.storeFactory});
 
@@ -205,12 +228,20 @@ class _EditorScreenState extends State<EditorScreen>
     if (file == null) {
       return;
     }
-    if (!hasSupportedAudioFileExtension(file.name)) {
+    final normalizedFileName = defaultTargetPlatform == TargetPlatform.android
+        ? normalizeAndroidAudioFileName(file.name, file.mimeType)
+        : hasSupportedAudioFileExtension(file.name)
+        ? file.name
+        : null;
+    if (normalizedFileName == null) {
       _controller.showNotice('音频加载失败：请选择 .mp3 或 .ogg 文件。', error: true);
       return;
     }
     try {
-      await _controller.loadAudioBytes(await file.readAsBytes(), file.name);
+      await _controller.loadAudioBytes(
+        await file.readAsBytes(),
+        normalizedFileName,
+      );
     } on Object {
       _controller.showNotice('无法读取所选音频文件。', error: true);
     }
