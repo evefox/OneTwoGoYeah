@@ -161,6 +161,7 @@ private class DocumentWriter(private val context: Context) {
             "openDocumentWrite" -> open(call, result)
             "writeDocumentChunk" -> write(call, result)
             "finishDocumentWrite" -> finish(call, result)
+            "commitDocument" -> result.success(null)
             "abortDocumentWrite" -> abort(call, result)
             "deleteDocument" -> delete(call, result)
             else -> result.notImplemented()

@@ -7,6 +7,7 @@ import UIKit
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var playback: PcmPlaybackOutput?
   private var fileChannel: FlutterMethodChannel?
+  private var documentWriter: IOSDocumentWriter?
 
   override func application(
     _ application: UIApplication,
@@ -21,6 +22,7 @@ import UIKit
       return
     }
     playback = PcmPlaybackOutput(messenger: registrar.messenger())
+    documentWriter = IOSDocumentWriter(presenterProvider: { registrar.viewController })
     fileChannel = FlutterMethodChannel(
       name: "io.onetwogoyeah/files",
       binaryMessenger: registrar.messenger()
@@ -30,7 +32,11 @@ import UIKit
 
   private func handleFileCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     guard call.method == "linkNoReplace" else {
-      result(FlutterMethodNotImplemented)
+      guard let documentWriter else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      documentWriter.handle(call, result: result)
       return
     }
     guard
@@ -59,6 +65,366 @@ import UIKit
         message: String(cString: strerror(code)),
         details: code
       ))
+    }
+  }
+
+  override func applicationWillTerminate(_ application: UIApplication) {
+    documentWriter?.dispose()
+    super.applicationWillTerminate(application)
+  }
+}
+
+final class DocumentWriteSession {
+  private var handle: FileHandle?
+
+  init(url: URL) throws {
+    let handle = try FileHandle(forWritingTo: url)
+    do {
+      try handle.truncate(atOffset: 0)
+    } catch {
+      try? handle.close()
+      throw error
+    }
+    self.handle = handle
+  }
+
+  func write(_ data: Data) throws {
+    guard let handle else {
+      throw DocumentSaveError.closedSession
+    }
+    try handle.write(contentsOf: data)
+  }
+
+  func finish() throws {
+    guard let handle else {
+      throw DocumentSaveError.closedSession
+    }
+    self.handle = nil
+    do {
+      try handle.synchronize()
+      try handle.close()
+    } catch {
+      try? handle.close()
+      throw error
+    }
+  }
+
+  func close() {
+    guard let handle else {
+      return
+    }
+    self.handle = nil
+    try? handle.close()
+  }
+
+  deinit {
+    close()
+  }
+}
+
+final class IOSDocumentWriter: NSObject, UIDocumentPickerDelegate {
+  private struct PendingPicker {
+    let result: FlutterResult
+    let placeholderDirectory: URL
+  }
+
+  private struct AuthorizedDocument {
+    let url: URL
+    let securityScoped: Bool
+  }
+
+  private struct ActiveSession {
+    let documentKey: String
+    let writer: DocumentWriteSession
+  }
+
+  private let presenterProvider: () -> UIViewController?
+  private var pendingPicker: PendingPicker?
+  private var authorizedDocuments: [String: AuthorizedDocument] = [:]
+  private var sessions: [Int: ActiveSession] = [:]
+  private var nextSession = 1
+
+  init(presenterProvider: @escaping () -> UIViewController?) {
+    self.presenterProvider = presenterProvider
+  }
+
+  func resolvePresenter() -> UIViewController? {
+    presenterProvider()
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    do {
+      switch call.method {
+      case "createDocument":
+        try createDocument(call, result: result)
+      case "openDocumentWrite":
+        try openDocumentWrite(call, result: result)
+      case "writeDocumentChunk":
+        try writeDocumentChunk(call, result: result)
+      case "finishDocumentWrite":
+        try finishDocumentWrite(call, result: result)
+      case "commitDocument":
+        try commitDocument(call, result: result)
+      case "abortDocumentWrite":
+        try abortDocumentWrite(call, result: result)
+      case "deleteDocument":
+        try deleteDocument(call, result: result)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    } catch {
+      result(flutterError(for: error, method: call.method))
+    }
+  }
+
+  private func createDocument(_ call: FlutterMethodCall, result: @escaping FlutterResult) throws {
+    guard pendingPicker == nil else {
+      throw DocumentSaveError.pickerAlreadyActive
+    }
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let suggestedName = arguments["suggestedName"] as? String,
+      !suggestedName.isEmpty,
+      URL(fileURLWithPath: suggestedName).lastPathComponent == suggestedName,
+      let mimeType = arguments["mimeType"] as? String,
+      !mimeType.isEmpty
+    else {
+      throw DocumentSaveError.invalidArguments
+    }
+    guard let presenter = resolvePresenter() else {
+      throw DocumentSaveError.noViewController
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("otgy-document-export-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(
+      at: directory,
+      withIntermediateDirectories: false
+    )
+    let placeholder = directory.appendingPathComponent(suggestedName, isDirectory: false)
+    guard FileManager.default.createFile(atPath: placeholder.path, contents: Data()) else {
+      try? FileManager.default.removeItem(at: directory)
+      throw DocumentSaveError.placeholderCreationFailed
+    }
+
+    let picker = UIDocumentPickerViewController(forExporting: [placeholder], asCopy: true)
+    picker.delegate = self
+    pendingPicker = PendingPicker(result: result, placeholderDirectory: directory)
+    presenter.present(picker, animated: true)
+  }
+
+  func documentPicker(
+    _ controller: UIDocumentPickerViewController,
+    didPickDocumentsAt urls: [URL]
+  ) {
+    guard let pending = takePendingPicker() else {
+      return
+    }
+    guard let url = urls.first else {
+      pending.result(nil)
+      return
+    }
+    let key = url.absoluteString
+    let securityScoped = url.startAccessingSecurityScopedResource()
+    authorizedDocuments[key] = AuthorizedDocument(
+      url: url,
+      securityScoped: securityScoped
+    )
+    pending.result(key)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    takePendingPicker()?.result(nil)
+  }
+
+  private func openDocumentWrite(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) throws {
+    let key = try requiredDocumentKey(call)
+    guard let document = authorizedDocuments[key] else {
+      throw DocumentSaveError.unauthorizedDocument
+    }
+    let id = nextSession
+    nextSession += 1
+    sessions[id] = ActiveSession(
+      documentKey: key,
+      writer: try DocumentWriteSession(url: document.url)
+    )
+    result(id)
+  }
+
+  private func writeDocumentChunk(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) throws {
+    let session = try requiredSession(call)
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let bytes = arguments["bytes"] as? FlutterStandardTypedData
+    else {
+      throw DocumentSaveError.invalidArguments
+    }
+    try session.writer.write(bytes.data)
+    result(nil)
+  }
+
+  private func finishDocumentWrite(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) throws {
+    let id = try requiredSessionID(call)
+    guard let session = sessions.removeValue(forKey: id) else {
+      throw DocumentSaveError.unknownSession
+    }
+    do {
+      try session.writer.finish()
+      result(nil)
+    } catch {
+      session.writer.close()
+      throw error
+    }
+  }
+  private func commitDocument(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) throws {
+    releaseDocument(try requiredDocumentKey(call))
+    result(nil)
+  }
+
+  private func abortDocumentWrite(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) throws {
+    let id = try requiredSessionID(call)
+    let session = sessions.removeValue(forKey: id)
+    session?.writer.close()
+    let key: String
+    if let session {
+      key = session.documentKey
+    } else {
+      key = try requiredDocumentKey(call)
+    }
+    try removeDocument(key)
+    result(nil)
+  }
+
+  private func deleteDocument(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) throws {
+    try removeDocument(try requiredDocumentKey(call))
+    result(nil)
+  }
+
+  private func requiredSession(_ call: FlutterMethodCall) throws -> ActiveSession {
+    let id = try requiredSessionID(call)
+    guard let session = sessions[id] else {
+      throw DocumentSaveError.unknownSession
+    }
+    return session
+  }
+
+  private func requiredSessionID(_ call: FlutterMethodCall) throws -> Int {
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let id = arguments["session"] as? Int
+    else {
+      throw DocumentSaveError.invalidArguments
+    }
+    return id
+  }
+
+  private func requiredDocumentKey(_ call: FlutterMethodCall) throws -> String {
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let key = arguments["uri"] as? String,
+      let url = URL(string: key),
+      url.isFileURL
+    else {
+      throw DocumentSaveError.invalidArguments
+    }
+    return key
+  }
+
+  private func takePendingPicker() -> PendingPicker? {
+    guard let pending = pendingPicker else {
+      return nil
+    }
+    pendingPicker = nil
+    try? FileManager.default.removeItem(at: pending.placeholderDirectory)
+    return pending
+  }
+
+  private func removeDocument(_ key: String) throws {
+    guard let document = authorizedDocuments[key] else {
+      return
+    }
+    defer { releaseDocument(key) }
+    do {
+      try FileManager.default.removeItem(at: document.url)
+    } catch let error as CocoaError where error.code == .fileNoSuchFile {
+      return
+    }
+  }
+
+  private func releaseDocument(_ key: String) {
+    guard let document = authorizedDocuments.removeValue(forKey: key) else {
+      return
+    }
+    if document.securityScoped {
+      document.url.stopAccessingSecurityScopedResource()
+    }
+  }
+
+  func dispose() {
+    for session in sessions.values {
+      session.writer.close()
+    }
+    sessions.removeAll()
+    for key in Array(authorizedDocuments.keys) {
+      try? removeDocument(key)
+    }
+    if let pending = takePendingPicker() {
+      pending.result(nil)
+    }
+  }
+
+  private func flutterError(for error: Error, method: String) -> FlutterError {
+    let nsError = error as NSError
+    return FlutterError(
+      code: "document-save-error",
+      message: error.localizedDescription,
+      details: [
+        "method": method,
+        "exception": String(reflecting: type(of: error)),
+        "domain": nsError.domain,
+        "code": nsError.code,
+        "description": String(describing: error),
+      ]
+    )
+  }
+}
+
+private enum DocumentSaveError: LocalizedError {
+  case invalidArguments
+  case pickerAlreadyActive
+  case noViewController
+  case placeholderCreationFailed
+  case unauthorizedDocument
+  case unknownSession
+  case closedSession
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidArguments: return "Invalid document save arguments."
+    case .pickerAlreadyActive: return "Another document picker is already active."
+    case .noViewController: return "No view controller is available for the document picker."
+    case .placeholderCreationFailed: return "Unable to create the export placeholder."
+    case .unauthorizedDocument: return "The selected document is no longer authorized."
+    case .unknownSession: return "The document write session does not exist."
+    case .closedSession: return "The document write session is already closed."
     }
   }
 }

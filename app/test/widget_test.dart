@@ -1090,6 +1090,45 @@ void main() {
     },
   );
 
+  testWidgets('iOS audio export uses the system document channel', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    const channel = MethodChannel('io.onetwogoyeah/files');
+    var createDocumentCalls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'createDocument');
+          final arguments = call.arguments as Map<Object?, Object?>;
+          expect(arguments['mimeType'], 'audio/ogg');
+          expect(arguments['suggestedName'], startsWith('fixture_'));
+          expect(arguments['suggestedName'], endsWith('.ogg'));
+          createDocumentCalls++;
+          return null;
+        });
+    try {
+      final audio = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).readAsBytesSync();
+      await controller.loadAudioBytes(audio, 'fixture.mp3');
+      await pumpEditor(tester, size: const Size(390, 844));
+
+      await tester.tap(find.byKey(const ValueKey('export-audio')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '选择保存位置'));
+      await tester.pumpAndSettle();
+
+      expect(createDocumentCalls, 1);
+      expect(controller.isExportingAudio, isFalse);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    }
+  });
+
   testWidgets('BPM long press previews and commits once on release', (
     tester,
   ) async {

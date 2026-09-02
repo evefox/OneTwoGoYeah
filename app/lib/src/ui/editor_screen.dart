@@ -454,16 +454,19 @@ class _EditorScreenState extends State<EditorScreen>
       mimeTypes: ['audio/ogg'],
       uniformTypeIdentifiers: ['org.xiph.ogg-audio'],
     );
-    String? androidDocumentUri;
+    String? platformDocumentUri;
     String? selectedPath;
     var exportCompleted = false;
     try {
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        androidDocumentUri = await AudioExportPublisher.selectAndroidDocument(
+      final usesPlatformDocument =
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS;
+      if (usesPlatformDocument) {
+        platformDocumentUri = await AudioExportPublisher.selectPlatformDocument(
           suggestedName: suggestedName,
           mimeType: 'audio/ogg',
         );
-        if (androidDocumentUri == null) {
+        if (platformDocumentUri == null) {
           return;
         }
       } else {
@@ -480,8 +483,8 @@ class _EditorScreenState extends State<EditorScreen>
         quality: settings.quality,
         baseName: settings.baseName,
         save: (result, isCancelled, onProgress) async {
-          if (androidDocumentUri case final documentUri?) {
-            await AudioExportPublisher.publishAndroidDocument(
+          if (platformDocumentUri case final documentUri?) {
+            await AudioExportPublisher.publishPlatformDocument(
               bytes: result.bytes,
               documentUri: documentUri,
               isCancelled: isCancelled,
@@ -499,6 +502,11 @@ class _EditorScreenState extends State<EditorScreen>
           }
         },
       );
+      if (platformDocumentUri case final documentUri?) {
+        await AudioExportPublisher.commitPlatformDocument(
+          documentUri: documentUri,
+        );
+      }
       exportCompleted = true;
       _controller.showNotice('音频已导出');
     } on AudioExportCancelled {
@@ -508,10 +516,10 @@ class _EditorScreenState extends State<EditorScreen>
         await _showAudioExportError(error, stackTrace);
       }
     } finally {
-      if (!exportCompleted && androidDocumentUri != null) {
+      if (!exportCompleted && platformDocumentUri != null) {
         try {
-          await AudioExportPublisher.discardAndroidDocument(
-            documentUri: androidDocumentUri,
+          await AudioExportPublisher.discardPlatformDocument(
+            documentUri: platformDocumentUri,
           );
         } on Object catch (error, stackTrace) {
           if (mounted) {

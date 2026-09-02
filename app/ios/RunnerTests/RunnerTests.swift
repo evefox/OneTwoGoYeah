@@ -39,4 +39,29 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  func testDocumentWriteSessionTruncatesAndWritesChunks() throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("otgy-ios-document-test-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let target = directory.appendingPathComponent("export.ogg")
+    try Data([9, 9, 9, 9]).write(to: target)
+
+    let writer = try DocumentWriteSession(url: target)
+    try writer.write(Data([1, 2]))
+    try writer.write(Data([3, 4, 5]))
+    try writer.finish()
+
+    XCTAssertEqual(try Data(contentsOf: target), Data([1, 2, 3, 4, 5]))
+  }
+
+  func testDocumentWriterResolvesPresenterWhenDocumentPickerIsRequested() {
+    var presenter: UIViewController?
+    let writer = IOSDocumentWriter(presenterProvider: { presenter })
+
+    XCTAssertNil(writer.resolvePresenter())
+    presenter = UIViewController()
+    XCTAssertIdentical(writer.resolvePresenter(), presenter)
+  }
+
 }

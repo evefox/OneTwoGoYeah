@@ -377,7 +377,7 @@ iOS 文件提供器可能把未知 `.slk` 文件报告为只遵循 `public.data`
 
 Android `file_selector` 会把授权的 `content://` 输入复制到 App 缓存，并可能依据系统 MIME 把原始 `.ogg` 名称改成 `.oga` 或无扩展名。Flutter 只在系统 MIME 明确属于 Ogg Vorbis 或 MP3 时，把送入核心分派器的缓存名称规范化为 `.ogg` 或 `.mp3`；未知 MIME 和不受支持的显式扩展名仍在读取前拒绝。该适配不嗅探或解析音频内容，最终容器及字节有效性仍只由 `av_core` 的对应解码器决定。
 
-Flutter 与 Runner 使用三个轻量 MethodChannel：`io.onetwogoyeah/playback` 只传递采样率、交错 PCM16LE 和已播放帧数；`io.onetwogoyeah/files` 对路径型目标在同目录把完整临时文件以原子、不替换硬链接发布到目标，macOS 再以 `renameatx_np(RENAME_EXCL)` 作为硬链接不可用时的原子回退，并在用户选定路径不允许创建临时兄弟文件时使用原生 `O_EXCL` 写入和失败清理；Android 同一文件通道额外负责发起 `ACTION_CREATE_DOCUMENT`、持有 `content://` 写入会话、原样分块写入以及失败删除；`io.onetwogoyeah/lifecycle` 只用于 Windows/macOS 窗口关闭前请求 Flutter 完成未保存确认。Android 使用 `AudioTrack`/`ContentResolver`，iOS 和 macOS 使用 `AVAudioEngine`/POSIX 文件操作，Windows 使用 `waveOut`/`CreateHardLinkW`。这些适配层不得解释音频时序、文件名或项目语义。
+Flutter 与 Runner 使用三个轻量 MethodChannel：`io.onetwogoyeah/playback` 只传递采样率、交错 PCM16LE 和已播放帧数；`io.onetwogoyeah/files` 对路径型目标在同目录把完整临时文件以原子、不替换硬链接发布到目标，macOS 再以 `renameatx_np(RENAME_EXCL)` 作为硬链接不可用时的原子回退，并在用户选定路径不允许创建临时兄弟文件时使用原生 `O_EXCL` 写入和失败清理；Android 通过同一文件通道发起 `ACTION_CREATE_DOCUMENT`、持有 `content://` 写入会话、原样分块写入以及失败删除，iOS 通过该通道导出空占位文档取得安全作用域 URL、持有文件句柄、原样分块覆盖以及完成释放或失败删除；`io.onetwogoyeah/lifecycle` 只用于 Windows/macOS 窗口关闭前请求 Flutter 完成未保存确认。Android 使用 `AudioTrack`/`ContentResolver`，iOS 使用 `AVAudioEngine`/安全作用域文件 URL，macOS 使用 `AVAudioEngine`/POSIX 文件操作，Windows 使用 `waveOut`/`CreateHardLinkW`。这些适配层不得解释音频时序、文件名或项目语义。
 
 ## 音频兼容契约
 
@@ -497,11 +497,11 @@ Offset 到帧的量化只是导出投影，绝不能覆盖权威 binary64 Offset
 
 核心导出器接收显式品质和输出接收器，或返回拥有所有权的字节；它不打开文件选择器，也不选择平台路径。平台适配层获取授权目标，并保存核心生成的字节。导出不得修改已加载音频、项目时序、波形缓存或分析缓存。
 
-导出任务在确认时捕获不可变 PCM 所有权或稳定 PCM 快照、采样率、Offset、品质、文件名和元数据。任务开始后绝不能读取可变的实时项目值。核心编码器接受协作取消信号，并报告阶段与进度。路径型平台保存过程先写入临时目标，只在成功时原子发布最终文件；Android SAF 目标由系统先预留空文档，成功编码后通过内容解析器写入，受控取消或失败时删除该文档。任何平台都不能保留已知失败的临时或最终输出。如果负 Offset 会删除全部输入帧，必须在编码前拒绝。
+导出任务在确认时捕获不可变 PCM 所有权或稳定 PCM 快照、采样率、Offset、品质、文件名和元数据。任务开始后绝不能读取可变的实时项目值。核心编码器接受协作取消信号，并报告阶段与进度。路径型平台保存过程先写入临时目标，只在成功时原子发布最终文件；iOS/Android 文档目标由系统先预留空文档，成功编码后由平台文件层分块覆盖，受控取消或失败时删除该文档。任何平台都不能保留已知失败的临时或最终输出。如果负 Offset 会删除全部输入帧，必须在编码前拒绝。
 
-可移植文件基础名规范化由共享核心纯函数实现。默认输入为来源音频去除扩展名后的名称，缺失时为 `audio`。合法 Unicode 保留；Unicode 控制字符以及 Windows、macOS 和常用文档提供器不接受的 `<>:"/\\|?*` 替换为 `_`；去除首尾空白和末尾句点；大小写不敏感匹配 `CON`、`PRN`、`AUX`、`NUL`、`COM1..COM9` 或 `LPT1..LPT9` 时在前方添加 `_`；结果为空时回退为 `audio`。平台层传入设备本地时间，生成 `<base>_<yyyyMMdd_HHmmss>.ogg`。路径型目标已存在时不得覆盖，依次尝试在扩展名前追加 `_2`、`_3` 等最小可用序号；Android 目标冲突由系统文档提供器以不覆盖语义处理，并以系统界面最终确认的名称为准。
+可移植文件基础名规范化由共享核心纯函数实现。默认输入为来源音频去除扩展名后的名称，缺失时为 `audio`。合法 Unicode 保留；Unicode 控制字符以及 Windows、macOS 和常用文档提供器不接受的 `<>:"/\\|?*` 替换为 `_`；去除首尾空白和末尾句点；大小写不敏感匹配 `CON`、`PRN`、`AUX`、`NUL`、`COM1..COM9` 或 `LPT1..LPT9` 时在前方添加 `_`；结果为空时回退为 `audio`。平台层传入设备本地时间，生成 `<base>_<yyyyMMdd_HHmmss>.ogg`。路径型目标已存在时不得覆盖，依次尝试在扩展名前追加 `_2`、`_3` 等最小可用序号；iOS/Android 目标冲突由系统文档提供器以不覆盖语义处理，并以系统界面最终确认的名称为准。
 
-桌面平台通过原生保存界面取得目标授权，移动平台通过系统文档保存界面取得目标授权，二者都使用核心生成的规范建议名称。Android 不调用未实现路径保存的通用插件接口，而由 Runner 发起 `ACTION_CREATE_DOCUMENT` 并返回仅供平台文件层使用的 `content://` URI；URI 不能传给 `dart:io File`。用户取消目标选择时不得启动编码。导出期间应用进入后台或平台撤销继续执行资格时，应用协调层发送取消信号并等待任务停止，平台层删除临时输出或已预留的 Android 文档且不保留半成品；恢复前台后不自动重试。任何保存失败都必须保留原始异常类型、消息、平台错误码/详情和堆栈，Flutter 错误弹窗展示完整诊断并提供复制到系统剪贴板的操作，不得只显示无法定位原因的泛化文案。
+桌面平台通过原生保存界面取得目标授权，移动平台通过系统文档保存界面取得目标授权，二者都使用核心生成的规范建议名称。Android 不调用未实现路径保存的通用插件接口，而由 Runner 发起 `ACTION_CREATE_DOCUMENT` 并返回仅供平台文件层使用的 `content://` URI；iOS 同样不调用该接口，由 Runner 通过 `UIDocumentPicker` 导出同名空占位文档并保留返回 URL 的安全作用域授权。iOS 隐式 Flutter 引擎初始化可能早于视图控制器就绪，因此 Runner 必须在用户实际请求保存界面时解析当前视图控制器，不能在引擎初始化时快照并长期保存空引用。两种移动文档标识都不能传给 `dart:io File`。用户取消目标选择时不得启动编码。导出期间应用进入后台或平台撤销继续执行资格时，应用协调层发送取消信号并等待任务停止，平台层删除临时输出或已预留的移动文档且不保留半成品；恢复前台后不自动重试。任何保存失败都必须保留原始异常类型、消息、平台错误码/详情和堆栈，Flutter 错误弹窗展示完整诊断并提供复制到系统剪贴板的操作，不得只显示无法定位原因的泛化文案。
 
 Vorbis 注释不是文件正确性的必要条件。存在有效 UTF-8 来源元数据时，按固定、确定的顺序写入支持字段。缺失、格式错误或不支持的元数据应省略，并且元数据处理绝不能使 Ogg 流无效。
 
@@ -518,7 +518,7 @@ Vorbis 注释不是文件正确性的必要条件。存在有效 UTF-8 来源元
 进度，协作取消时不返回部分字节。所有成功字节拥有独立生命周期；来源容器类型
 不进入编码分支。
 
-C ABI 的 `otgy_audio_export_cancel_flag` 是线程安全原子取消句柄，可创建、请求、查询并销毁。Dart 在主 isolate 持有拥有句柄，把地址借给编码 isolate；原生编码回调只查询该句柄。编码完成后文件保存仍保持 `ExportingAudio` 全局门控，并在每个写入块之间查询同一取消状态。路径型平台文件层优先把完整临时文件以不替换硬链接原子发布，macOS 在硬链接不可用时改用 `renameatx_np(RENAME_EXCL)`；若沙盒只授权了用户选定的最终路径而拒绝临时兄弟文件，则使用原生 `O_EXCL` 写入、`fsync` 和失败清理。路径型目标在发布瞬间已存在时不触碰旧文件，并继续调用核心命名规则尝试最小 `_2/_3` 后缀。Android SAF 由系统提供器以不覆盖语义创建目标文档；Flutter 以 `256 KiB` 块把核心字节发送给 Runner，Runner 只负责按序写入、刷新、关闭或中止删除，不能解释 Ogg 内容。
+C ABI 的 `otgy_audio_export_cancel_flag` 是线程安全原子取消句柄，可创建、请求、查询并销毁。Dart 在主 isolate 持有拥有句柄，把地址借给编码 isolate；原生编码回调只查询该句柄。编码完成后文件保存仍保持 `ExportingAudio` 全局门控，并在每个写入块之间查询同一取消状态。路径型平台文件层优先把完整临时文件以不替换硬链接原子发布，macOS 在硬链接不可用时改用 `renameatx_np(RENAME_EXCL)`；若沙盒只授权了用户选定的最终路径而拒绝临时兄弟文件，则使用原生 `O_EXCL` 写入、`fsync` 和失败清理。路径型目标在发布瞬间已存在时不触碰旧文件，并继续调用核心命名规则尝试最小 `_2/_3` 后缀。iOS/Android 文档提供器以不覆盖语义创建目标文档；Flutter 以 `256 KiB` 块把核心字节发送给 Runner，Runner 只负责按序写入、刷新和关闭。控制器确认导出完整结束后再发送提交以释放 iOS 安全作用域；此前任何失败都发送中止删除，Runner 不能解释 Ogg 内容。
 
 当前 `avtool export-audio` 的严格参数形态为
 `avtool export-audio <audio> --offset <seconds> --quality <q> --output <file.ogg>`。

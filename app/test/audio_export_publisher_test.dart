@@ -167,7 +167,7 @@ void main() {
       String? method;
       Map<String, Object?>? arguments;
 
-      final uri = await AudioExportPublisher.selectAndroidDocument(
+      final uri = await AudioExportPublisher.selectPlatformDocument(
         suggestedName: '曲目_20260902_120000.ogg',
         mimeType: 'audio/ogg',
         invokeMethod: (nextMethod, nextArguments) async {
@@ -187,7 +187,7 @@ void main() {
   );
 
   test('Android document picker cancellation returns no destination', () async {
-    final uri = await AudioExportPublisher.selectAndroidDocument(
+    final uri = await AudioExportPublisher.selectPlatformDocument(
       suggestedName: 'cancelled.ogg',
       mimeType: 'audio/ogg',
       invokeMethod: (_, _) async => null,
@@ -206,7 +206,7 @@ void main() {
       final methods = <String>[];
       final progress = <(int, int)>[];
 
-      await AudioExportPublisher.publishAndroidDocument(
+      await AudioExportPublisher.publishPlatformDocument(
         bytes: bytes,
         documentUri: 'content://documents/export.ogg',
         isCancelled: () => false,
@@ -253,7 +253,7 @@ void main() {
       final methods = <String>[];
 
       await expectLater(
-        AudioExportPublisher.publishAndroidDocument(
+        AudioExportPublisher.publishPlatformDocument(
           bytes: Uint8List(300000),
           documentUri: 'content://documents/cancelled.ogg',
           isCancelled: () => cancelled,
@@ -291,7 +291,7 @@ void main() {
       final methods = <String>[];
 
       await expectLater(
-        AudioExportPublisher.publishAndroidDocument(
+        AudioExportPublisher.publishPlatformDocument(
           bytes: Uint8List.fromList([1, 2, 3]),
           documentUri: 'content://documents/failed.ogg',
           isCancelled: () => false,
@@ -312,6 +312,23 @@ void main() {
       expect(methods, ['openDocumentWrite', 'deleteDocument']);
     },
   );
+
+  test('platform document commit releases the selected destination', () async {
+    String? method;
+    Map<String, Object?>? arguments;
+
+    await AudioExportPublisher.commitPlatformDocument(
+      documentUri: 'file:///selected/export.ogg',
+      invokeMethod: (nextMethod, nextArguments) async {
+        method = nextMethod;
+        arguments = nextArguments;
+        return null;
+      },
+    );
+
+    expect(method, 'commitDocument');
+    expect(arguments, <String, Object?>{'uri': 'file:///selected/export.ogg'});
+  });
 }
 
 Future<bool> _linkForTest(String source, String target) async {

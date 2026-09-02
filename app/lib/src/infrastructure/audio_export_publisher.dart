@@ -28,7 +28,7 @@ abstract final class AudioExportPublisher {
   static const _chunkSize = 256 * 1024;
   static const _filesChannel = MethodChannel('io.onetwogoyeah/files');
 
-  static Future<String?> selectAndroidDocument({
+  static Future<String?> selectPlatformDocument({
     required String suggestedName,
     required String mimeType,
     FilesMethodInvoker invokeMethod = _invokeFilesMethod,
@@ -42,13 +42,13 @@ abstract final class AudioExportPublisher {
     }
     if (uri is! String || uri.isEmpty) {
       throw const FileSystemException(
-        'Android document picker returned an invalid URI.',
+        'Platform document picker returned an invalid URI.',
       );
     }
     return uri;
   }
 
-  static Future<void> publishAndroidDocument({
+  static Future<void> publishPlatformDocument({
     required Uint8List bytes,
     required String documentUri,
     required bool Function() isCancelled,
@@ -66,7 +66,7 @@ abstract final class AudioExportPublisher {
       });
       if (opened is! int) {
         throw const FileSystemException(
-          'Android document writer returned an invalid session.',
+          'Platform document writer returned an invalid session.',
         );
       }
       session = opened;
@@ -99,7 +99,7 @@ abstract final class AudioExportPublisher {
             'uri': documentUri,
           });
         } else {
-          await discardAndroidDocument(
+          await discardPlatformDocument(
             documentUri: documentUri,
             invokeMethod: invokeMethod,
           );
@@ -108,11 +108,18 @@ abstract final class AudioExportPublisher {
     }
   }
 
-  static Future<void> discardAndroidDocument({
+  static Future<void> discardPlatformDocument({
     required String documentUri,
     FilesMethodInvoker invokeMethod = _invokeFilesMethod,
   }) async {
     await invokeMethod('deleteDocument', <String, Object?>{'uri': documentUri});
+  }
+
+  static Future<void> commitPlatformDocument({
+    required String documentUri,
+    FilesMethodInvoker invokeMethod = _invokeFilesMethod,
+  }) async {
+    await invokeMethod('commitDocument', <String, Object?>{'uri': documentUri});
   }
 
   static Future<File> publish({
