@@ -582,16 +582,19 @@ class _EditorCanvasState extends State<EditorCanvas>
           final y =
               _cursorY(size) +
               (marker.row - widget.controller.currentRow) * spacing;
-          if (y < rect.top - spacing || y > rect.bottom + spacing) {
+          final markerTop = math.max(rect.top, y - spacing / 2).toDouble();
+          final markerBottom =
+              math.min(rect.bottom, y + spacing / 2).toDouble();
+          if (markerBottom <= markerTop) {
             continue;
           }
           final lane = columnLayout.laneForColumn(marker.column);
           markerSemantics.add(
             Positioned(
               left: lane.left,
-              top: y - spacing / 2,
+              top: markerTop,
               width: lane.width,
-              height: spacing,
+              height: markerBottom - markerTop,
               child: Semantics(
                 button: true,
                 label: _markerSemanticLabel(marker),
@@ -1129,6 +1132,12 @@ class _EditorCanvasPainter extends CustomPainter {
       rightInset: mobile ? mobileEditorContentRightInset : 0,
     );
 
+    // Everything that follows is timeline content. Keep it below the column
+    // header even when a fixed-size marker overlaps the first visible rows.
+    // Headers are painted after restoring the canvas so they remain a stable
+    // chrome layer rather than an accidental overflow mask.
+    canvas.save();
+    canvas.clipRect(chart);
     _drawColumnBackgrounds(canvas, columnLayout);
     if (controller.waveformVisible &&
         controller.canvasWaveformBlocks.isNotEmpty) {
@@ -1174,6 +1183,7 @@ class _EditorCanvasPainter extends CustomPainter {
       paintCurrentRow,
     );
     _drawCursor(canvas, chart, cursorY);
+    canvas.restore();
     _drawHeaders(canvas, chart, columnLayout);
   }
 

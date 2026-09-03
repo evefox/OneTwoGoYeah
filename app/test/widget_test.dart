@@ -454,6 +454,13 @@ void main() {
     expect(find.byIcon(Icons.troubleshoot_outlined), findsOneWidget);
     expect(find.byKey(const ValueKey('rhythm-test')), findsOneWidget);
     expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('rhythm-test')),
+        matching: find.byType(CustomPaint),
+      ),
+      findsOneWidget,
+    );
+    expect(
       tester
           .widget<IconButton>(find.byKey(const ValueKey('rhythm-test')))
           .onPressed,
@@ -1410,6 +1417,43 @@ void main() {
     }
     expect(inkAbove, greaterThan(0));
     expect(inkBelow, 0);
+  });
+
+  testWidgets('clips timeline markers below the column header', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0, mobile: false);
+    final canvasSize = tester.getSize(
+      find.byKey(const ValueKey('editor-canvas-paint')),
+    );
+    final cursorY = editorCursorY(canvasSize);
+    // Place the row-0 diamond just above the chart boundary. Before the
+    // painter clip this pixel was painted with the NPC marker color.
+    final currentRow = (cursorY - 24) / controller.rowSpacing;
+    controller.moveToRow(currentRow);
+    await tester.pump();
+
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const ValueKey('editor-canvas-repaint')),
+    );
+    final image = await tester.runAsync(() => boundary.toImage(pixelRatio: 1));
+    expect(image, isNotNull);
+    final captured = image!;
+    addTearDown(captured.dispose);
+    final bytes = await tester.runAsync(
+      () => captured.toByteData(format: ui.ImageByteFormat.rawRgba),
+    );
+    expect(bytes, isNotNull);
+
+    List<int> pixel(int x, int y) {
+      final offset = (y * captured.width + x) * 4;
+      return List.generate(4, (channel) => bytes!.getUint8(offset + channel));
+    }
+
+    final headerBackground = pixel(100, 24);
+    final npcCenterX = (canvasSize.width / 6).round();
+    expect(pixel(npcCenterX, 24), headerBackground);
   });
 
   testWidgets('audio and SLK export buttons share the export icon', (

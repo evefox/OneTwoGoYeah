@@ -22,6 +22,56 @@ const ButtonStyle _toolbarIconButtonStyle = ButtonStyle(
   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
 );
 
+/// A compact beat grid with a play cue. It reads as “play the measure pulse”
+/// more directly than a generic timer icon while staying consistent with the
+/// flat toolbar icon language on every platform.
+class _RhythmTestIcon extends StatelessWidget {
+  const _RhythmTestIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = IconTheme.of(context).color ?? EditorColors.text;
+    return CustomPaint(
+      size: const Size.square(20),
+      painter: _RhythmTestIconPainter(color),
+    );
+  }
+}
+
+class _RhythmTestIconPainter extends CustomPainter {
+  const _RhythmTestIconPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final baseline = size.height * 0.78;
+    final barPaint = Paint()
+      ..color = color
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    const heights = <double>[5, 8, 11, 8];
+    const xPositions = <double>[2.5, 6, 9.5, 13];
+    for (var index = 0; index < xPositions.length; index++) {
+      canvas.drawLine(
+        Offset(xPositions[index], baseline - heights[index]),
+        Offset(xPositions[index], baseline),
+        barPaint,
+      );
+    }
+    final play = Path()
+      ..moveTo(size.width * 0.72, size.height * 0.26)
+      ..lineTo(size.width * 0.72, size.height * 0.74)
+      ..lineTo(size.width * 0.98, size.height * 0.5)
+      ..close();
+    canvas.drawPath(play, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RhythmTestIconPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
 class EditorToolbars extends StatelessWidget {
   const EditorToolbars({
     super.key,
@@ -221,13 +271,9 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           ? '请先设置 BPM'
           : '节奏测试',
       style: _toolbarIconButtonStyle,
-      icon: Icon(
-        controller.isRhythmTesting
-            ? Icons.pause_rounded
-            : Icons.av_timer_outlined,
-        size: 20,
-        color: controller.isRhythmTesting ? EditorColors.accent : null,
-      ),
+      icon: controller.isRhythmTesting
+          ? const Icon(Icons.pause_rounded, size: 20, color: EditorColors.accent)
+          : const _RhythmTestIcon(),
     );
     final export = IconButton(
       key: const ValueKey('export-audio'),
