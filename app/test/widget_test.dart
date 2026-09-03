@@ -456,7 +456,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('rhythm-test')),
-        matching: find.byType(CustomPaint),
+        matching: find.byKey(const ValueKey('rhythm-test-icon')),
       ),
       findsOneWidget,
     );
@@ -1298,6 +1298,69 @@ void main() {
     expect(controller.offset, 12.345);
     expect(controllerNotifications, 1);
     expect(tester.widget<TextField>(input).controller!.text, '12.345');
+  });
+
+  testWidgets('BPM menu focus loss preserves analyzed precision', (
+    tester,
+  ) async {
+    const analyzedBpm = 127.8878685355244;
+    const analyzedOffset = -0.43331065759637188;
+    controller.applyAnalysisCandidate(
+      const AudioAnalysisCandidate(
+        bpm: analyzedBpm,
+        detectorOffsetSeconds: -analyzedOffset,
+        appOffsetSeconds: analyzedOffset,
+        fitness: 1,
+      ),
+    );
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('bpm-menu')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('bpm-input')))
+          .controller!
+          .text,
+      '127.888',
+    );
+    tester.binding.focusManager.primaryFocus?.unfocus();
+    await tester.pump();
+    expect(controller.bpm, analyzedBpm);
+  });
+
+  testWidgets('Offset beat nudges preserve analyzed precision', (tester) async {
+    const analyzedBpm = 127.8878685355244;
+    const analyzedOffset = -0.43331065759637188;
+    controller.applyAnalysisCandidate(
+      const AudioAnalysisCandidate(
+        bpm: analyzedBpm,
+        detectorOffsetSeconds: -analyzedOffset,
+        appOffsetSeconds: analyzedOffset,
+        fitness: 1,
+      ),
+    );
+    await pumpEditor(tester);
+
+    await tester.tap(find.byKey(const ValueKey('offset-menu')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('offset-input')))
+          .controller!
+          .text,
+      '-0.433',
+    );
+
+    var expectedOffset = analyzedOffset;
+    for (var index = 0; index < 2; index++) {
+      await tester.tap(find.byTooltip('往后一拍'));
+      await tester.pump();
+      expectedOffset += 60 / analyzedBpm * -1;
+      expect(controller.offset, expectedOffset);
+    }
+    expect(controller.offset.toStringAsFixed(3), '-1.372');
+    expect(controller.bpm, analyzedBpm);
   });
 
   testWidgets('dragging the canvas does not send a tap edit command', (

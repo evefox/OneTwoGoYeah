@@ -32,6 +32,7 @@ class _RhythmTestIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = IconTheme.of(context).color ?? EditorColors.text;
     return CustomPaint(
+      key: const ValueKey('rhythm-test-icon'),
       size: const Size.square(20),
       painter: _RhythmTestIconPainter(color),
     );
@@ -591,6 +592,7 @@ class _ValueMenuState extends State<_ValueMenu> {
   Timer? _repeatTimer;
   double? _repeatValue;
   bool _suppressNextTap = false;
+  bool _textWasEdited = false;
 
   @override
   void initState() {
@@ -605,6 +607,7 @@ class _ValueMenuState extends State<_ValueMenu> {
         (!_controller.selection.isValid || oldWidget.value != widget.value) &&
         _controller.text != widget.value.toStringAsFixed(3)) {
       _controller.text = widget.value.toStringAsFixed(3);
+      _textWasEdited = false;
     }
   }
 
@@ -709,6 +712,7 @@ class _ValueMenuState extends State<_ValueMenu> {
   }
 
   void _handleTextChanged(String text) {
+    _textWasEdited = true;
     if (widget.commitTextOnEditingComplete) {
       return;
     }
@@ -719,7 +723,9 @@ class _ValueMenuState extends State<_ValueMenu> {
   }
 
   void _commitText() {
-    final value = widget.enabled ? _parse(_controller.text) : null;
+    final value = widget.enabled && _textWasEdited
+        ? _parse(_controller.text)
+        : null;
     if (value != null) {
       widget.onChanged(value);
     }
@@ -729,6 +735,7 @@ class _ValueMenuState extends State<_ValueMenu> {
       text: displayText,
       selection: TextSelection.collapsed(offset: displayText.length),
     );
+    _textWasEdited = false;
   }
 
   @override
@@ -807,6 +814,7 @@ class _ValueMenuState extends State<_ValueMenu> {
         onPressed: widget.enabled
             ? () {
                 _controller.text = widget.value.toStringAsFixed(3);
+                _textWasEdited = false;
                 _controller.selection = TextSelection.collapsed(
                   offset: _controller.text.length,
                 );
