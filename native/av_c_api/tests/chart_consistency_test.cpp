@@ -334,6 +334,14 @@ void test_timing_and_coordination() {
              same_double(abi_beat_row, *direct_row_beat.value()),
          "row-to-beat differs");
 
+  const auto direct_offset =
+      otgy::core::adjust_offset_by_beats(direct_timing, -2.0);
+  double abi_offset = 0.0;
+  expect(otgy_adjust_offset_by_beats(abi_timing, -2.0, &abi_offset,
+                                     &raw_error) == OTGY_STATUS_OK &&
+             same_double(abi_offset, *direct_offset.value()),
+         "Offset beat adjustment differs");
+
   const auto direct_no_grid =
       otgy::core::seconds_to_beat({0.0, 0.0}, 1.0);
   expect(otgy_seconds_to_beat({0.0, 0.0}, 1.0, &abi_beat_row, &raw_error) ==

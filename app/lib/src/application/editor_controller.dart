@@ -174,6 +174,8 @@ class EditorController extends ChangeNotifier {
   int _projectRevision = 0;
   double _bpm = 100;
   double _offset = 0;
+  double _offsetBeatBaseline = 0;
+  double _offsetBeatAdjustment = 0;
   double _zoom = 10;
   double _scale = 4;
   double _currentRow = 0;
@@ -367,6 +369,7 @@ class EditorController extends ChangeNotifier {
       _editZoomAutomatic = true;
       _bpm = 100;
       _offset = 0;
+      _resetOffsetBeatAdjustment();
       _currentRow = 0;
       _invalidatePlaybackSoundSession();
       _notice = const EditorNotice('音频已加载');
@@ -392,6 +395,7 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _bpm = value;
+    _resetOffsetBeatAdjustment();
     _synchronizeAutomaticEditZoom();
     _updateDirty();
   }
@@ -409,14 +413,30 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _offset = value;
+    _resetOffsetBeatAdjustment();
     _updateDirty();
   }
 
   void nudgeOffsetByBeat(double beats) {
-    if (_bpm == 0) {
+    if (!generalActionsEnabled || _bpm == 0 || !beats.isFinite) {
       return;
     }
-    setOffset((_offset + 60 / _bpm * beats).clamp(-30, 30).toDouble());
+    final cumulativeBeats = _offsetBeatAdjustment + beats;
+    final value = OtgyNative.adjustOffsetByBeats(
+      bpm: _bpm,
+      baselineOffset: _offsetBeatBaseline,
+      cumulativeBeats: cumulativeBeats,
+    );
+    if (value == _offset) {
+      return;
+    }
+    _offset = value;
+    if (value == -30 || value == 30) {
+      _resetOffsetBeatAdjustment();
+    } else {
+      _offsetBeatAdjustment = cumulativeBeats;
+    }
+    _updateDirty();
   }
 
   void clickCell(int column, int row, {required bool mobile}) {
@@ -532,6 +552,7 @@ class EditorController extends ChangeNotifier {
     }
     _bpm = candidate.bpm;
     _offset = candidate.appOffsetSeconds;
+    _resetOffsetBeatAdjustment();
     _synchronizeAutomaticEditZoom();
     _updateDirty();
   }
@@ -688,6 +709,7 @@ class EditorController extends ChangeNotifier {
     _replaceEditor(decoded.editor);
     _bpm = decoded.bpm;
     _offset = decoded.offset;
+    _resetOffsetBeatAdjustment();
     _sourceKind = WorkspaceSourceKind.savedDraft;
     _sourceName = draftName;
     _draftId = draftId;
@@ -1217,6 +1239,11 @@ class EditorController extends ChangeNotifier {
       }
     }
     return bestZoom;
+  }
+
+  void _resetOffsetBeatAdjustment() {
+    _offsetBeatBaseline = _offset;
+    _offsetBeatAdjustment = 0;
   }
 
   void _synchronizeAutomaticEditZoom() {

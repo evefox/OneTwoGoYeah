@@ -91,4 +91,9 @@ class TimingConversionResult final {
 [[nodiscard]] TimingConversionResult sixteenth_row_to_beat(
     double sixteenth_row) noexcept;
 
+/// Applies a cumulative signed beat adjustment to an unmodified baseline
+/// Offset. The result is clamped to the supported Offset range.
+[[nodiscard]] TimingConversionResult adjust_offset_by_beats(
+    TimingParameters baseline, double cumulative_beats) noexcept;
+
 }  // namespace otgy::core

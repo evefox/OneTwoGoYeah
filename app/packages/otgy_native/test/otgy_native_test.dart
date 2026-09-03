@@ -54,6 +54,19 @@ void main() {
     expect(restored.markers().single.type, OTGY_CHART_MARKER_NPC_BLOCK_START);
   });
 
+  test('Offset beat adjustments use one unrounded baseline', () {
+    const bpm = 127.8878685355244;
+    const offset = -0.43331065759637188;
+    final adjusted = OtgyNative.adjustOffsetByBeats(
+      bpm: bpm,
+      baselineOffset: offset,
+      cumulativeBeats: -2,
+    );
+
+    expect(adjusted, offset + (60 / bpm * -2));
+    expect(adjusted.toStringAsFixed(3), '-1.372');
+  });
+
   test(
     'SLK import and export remain byte compatible with the canonical file',
     () {

@@ -894,6 +894,21 @@ external int otgy_sixteenth_row_to_beat(
   otgy_status Function(
     otgy_timing_parameters,
     ffi.Double,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_adjust_offset_by_beats(
+  otgy_timing_parameters baseline,
+  double cumulative_beats,
+  ffi.Pointer<ffi.Double> out_value,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    otgy_timing_parameters,
+    ffi.Double,
     ffi.Double,
     ffi.Pointer<ffi.Pointer<otgy_timing_grid>>,
     ffi.Pointer<ffi.Pointer<otgy_error>>,

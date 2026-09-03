@@ -2,6 +2,7 @@
 
 #include "av_core/timing/timing_conversion.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace otgy::core {
@@ -148,6 +149,31 @@ TimingConversionResult sixteenth_row_to_beat(
         TimingConversionError::NonFinitePosition};
   }
   return TimingConversionResult{sixteenth_row / kSixteenthRowsPerBeat};
+}
+
+TimingConversionResult adjust_offset_by_beats(
+    TimingParameters baseline, double cumulative_beats) noexcept {
+  const auto error = validate_time_projection(baseline, cumulative_beats);
+  if (error != TimingConversionError::None) {
+    return TimingConversionResult{error};
+  }
+  const double seconds_per_beat = kSecondsPerMinute / baseline.bpm;
+  if (!std::isfinite(seconds_per_beat)) {
+    return TimingConversionResult{
+        TimingConversionError::ResultOutOfRange};
+  }
+  const double adjustment_seconds = seconds_per_beat * cumulative_beats;
+  if (!std::isfinite(adjustment_seconds)) {
+    return TimingConversionResult{
+        TimingConversionError::ResultOutOfRange};
+  }
+  const double adjusted_offset = baseline.offset_seconds + adjustment_seconds;
+  if (!std::isfinite(adjusted_offset)) {
+    return TimingConversionResult{
+        TimingConversionError::ResultOutOfRange};
+  }
+  return TimingConversionResult{std::clamp(
+      adjusted_offset, -kMaximumOffsetSeconds, kMaximumOffsetSeconds)};
 }
 
 }  // namespace otgy::core

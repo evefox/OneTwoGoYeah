@@ -1508,6 +1508,34 @@ abstract final class OtgyNative {
     }
   }
 
+  static double adjustOffsetByBeats({
+    required double bpm,
+    required double baselineOffset,
+    required double cumulativeBeats,
+  }) {
+    return using((arena) {
+      final baseline = arena<native.otgy_timing_parameters>()
+        ..ref.bpm = bpm
+        ..ref.offset_seconds = baselineOffset;
+      final result = arena<Double>();
+      final error = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(
+          native.otgy_adjust_offset_by_beats(
+            baseline.ref,
+            cumulativeBeats,
+            result,
+            error,
+          ),
+          error,
+        );
+        return result.value;
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
   static double sixteenthRowToSeconds({
     required double bpm,
     required double offset,

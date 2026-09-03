@@ -1352,15 +1352,80 @@ void main() {
       '-0.433',
     );
 
-    var expectedOffset = analyzedOffset;
     for (var index = 0; index < 2; index++) {
       await tester.tap(find.byTooltip('往后一拍'));
       await tester.pump();
-      expectedOffset += 60 / analyzedBpm * -1;
+      final expectedOffset = OtgyNative.adjustOffsetByBeats(
+        bpm: analyzedBpm,
+        baselineOffset: analyzedOffset,
+        cumulativeBeats: -(index + 1).toDouble(),
+      );
       expect(controller.offset, expectedOffset);
     }
     expect(controller.offset.toStringAsFixed(3), '-1.372');
     expect(controller.bpm, analyzedBpm);
+  });
+
+  test('audio export uses the unrounded beat-adjusted Offset', () async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    const analyzedBpm = 127.8878685355244;
+    const analyzedOffset = -0.43331065759637188;
+    controller.applyAnalysisCandidate(
+      const AudioAnalysisCandidate(
+        bpm: analyzedBpm,
+        detectorOffsetSeconds: -analyzedOffset,
+        appOffsetSeconds: analyzedOffset,
+        fitness: 1,
+      ),
+    );
+    controller.nudgeOffsetByBeat(1);
+    expect(controller.offset.toStringAsFixed(3), '0.036');
+
+    AudioExportResult? exported;
+    await controller.exportAudio(
+      quality: 1,
+      baseName: 'fixture',
+      save: (result, isCancelled, onProgress) async {
+        exported = result;
+      },
+    );
+
+    expect(exported?.signedShiftFrames, 395);
+  });
+
+  test('Offset beat adjustment rebases after BPM changes and boundaries', () {
+    const analyzedBpm = 127.8878685355244;
+    const analyzedOffset = -0.43331065759637188;
+    controller.applyAnalysisCandidate(
+      const AudioAnalysisCandidate(
+        bpm: analyzedBpm,
+        detectorOffsetSeconds: -analyzedOffset,
+        appOffsetSeconds: analyzedOffset,
+        fitness: 1,
+      ),
+    );
+    controller.nudgeOffsetByBeat(-1);
+    final beforeBpmChange = controller.offset;
+
+    controller.setBpm(100);
+    controller.nudgeOffsetByBeat(-1);
+    expect(
+      controller.offset,
+      OtgyNative.adjustOffsetByBeats(
+        bpm: 100,
+        baselineOffset: beforeBpmChange,
+        cumulativeBeats: -1,
+      ),
+    );
+
+    controller.setOffset(29.8);
+    controller.nudgeOffsetByBeat(1);
+    expect(controller.offset, 30);
+    controller.nudgeOffsetByBeat(-0.5);
+    expect(controller.offset, 29.7);
   });
 
   testWidgets('dragging the canvas does not send a tap edit command', (

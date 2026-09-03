@@ -122,6 +122,20 @@ otgy_status otgy_sixteenth_row_to_beat(double row, double* out_value,
   });
 }
 
+otgy_status otgy_adjust_offset_by_beats(
+    otgy_timing_parameters baseline, double cumulative_beats,
+    double* out_value, otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_value == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_timing_result(
+        otgy::core::adjust_offset_by_beats(
+            otgy::c_api::to_core(baseline), cumulative_beats),
+        out_value, out_error);
+  });
+}
+
 otgy_status otgy_generate_timing_grid(
     otgy_timing_parameters timing, double begin_seconds, double end_seconds,
     otgy_timing_grid** out_grid, otgy_error** out_error) {

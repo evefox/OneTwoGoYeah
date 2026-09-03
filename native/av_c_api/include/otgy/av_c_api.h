@@ -389,6 +389,9 @@ OTGY_C_API otgy_status otgy_beat_to_sixteenth_row(
     double beat, double* out_value, otgy_error** out_error);
 OTGY_C_API otgy_status otgy_sixteenth_row_to_beat(
     double row, double* out_value, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_adjust_offset_by_beats(
+    otgy_timing_parameters baseline, double cumulative_beats,
+    double* out_value, otgy_error** out_error);
 
 typedef struct otgy_timing_grid_line {
   uint64_t sixteenth_row;

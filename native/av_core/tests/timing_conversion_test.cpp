@@ -78,6 +78,38 @@ void test_app_offset_sign_and_unrounded_values() {
   assert(bits_of(kTiming.offset_seconds) == offset_bits);
 }
 
+void test_offset_beat_adjustment_uses_the_original_baseline() {
+  constexpr double kBpm = 127.8878685355244;
+  constexpr double kOffset = -0.43331065759637188;
+  constexpr TimingParameters kBaseline{kBpm, kOffset};
+  const auto bpm_bits = bits_of(kBaseline.bpm);
+  const auto offset_bits = bits_of(kBaseline.offset_seconds);
+
+  const double two_beats =
+      value_of(otgy::core::adjust_offset_by_beats(kBaseline, -2.0));
+  const double seconds_per_beat = 60.0 / kBpm;
+  const double adjustment_seconds = seconds_per_beat * -2.0;
+  assert(two_beats == kOffset + adjustment_seconds);
+
+  const double one_beat =
+      value_of(otgy::core::adjust_offset_by_beats(kBaseline, -1.0));
+  const double accumulated = value_of(otgy::core::adjust_offset_by_beats(
+      {kBpm, one_beat}, -1.0));
+  assert(bits_of(two_beats) != bits_of(accumulated));
+  assert(bits_of(kBaseline.bpm) == bpm_bits);
+  assert(bits_of(kBaseline.offset_seconds) == offset_bits);
+
+  assert(value_of(otgy::core::adjust_offset_by_beats(
+             {100.0, 29.8}, 1.0)) == 30.0);
+  assert(value_of(otgy::core::adjust_offset_by_beats(
+             {100.0, -29.8}, -1.0)) == -30.0);
+  assert_error(otgy::core::adjust_offset_by_beats({0.0, 0.0}, 1.0),
+               TimingConversionError::NoGrid);
+  assert_error(otgy::core::adjust_offset_by_beats(
+                   kBaseline, std::numeric_limits<double>::infinity()),
+               TimingConversionError::NonFinitePosition);
+}
+
 void test_zero_bpm_has_no_time_grid() {
   for (const double bpm : {0.0, -0.0}) {
     const TimingParameters timing{bpm, 0.125};
@@ -192,6 +224,7 @@ void test_error_messages_and_result_state() {
 int main() {
   test_default_timing_and_chart_coordinates();
   test_app_offset_sign_and_unrounded_values();
+  test_offset_beat_adjustment_uses_the_original_baseline();
   test_zero_bpm_has_no_time_grid();
   test_parameter_and_position_errors();
   test_finite_overflow_errors();
