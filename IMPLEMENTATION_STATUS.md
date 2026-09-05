@@ -355,8 +355,9 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 2026-09-05 在 arm64 macOS 上运行：
 
 ```text
-cmake --build build/stage8-native --parallel
-ctest --test-dir build/stage8-native --output-on-failure
+cmake -S native -B build/stage9-native -DBUILD_TESTING=ON
+cmake --build build/stage9-native --parallel
+ctest --test-dir build/stage9-native --output-on-failure
 
 cd app/packages/otgy_native
 ../../../build/flutter-sdk/bin/dart analyze
