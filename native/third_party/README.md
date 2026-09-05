@@ -18,7 +18,7 @@ Pinned inputs:
 The retained source/header set has this deterministic content digest:
 
 ```text
-d4e1715267b23503c51bd73e42f4ccfd0523aa070d980c780c692f1f2a75a422
+6c46bb3c55c2e5b3d433e4b2654e33c8b1eb14177695bc1cd754158fbdcd52fc
 ```
 
 To verify it from the repository root (the command intentionally excludes the

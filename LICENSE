@@ -9,9 +9,6 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 SPDX-License-Identifier: GPL-3.0-or-later
 
-The complete GNU GPL version 3 license text is available from:
-https://www.gnu.org/licenses/gpl-3.0.html
-
-Before source or binary distribution, a verbatim offline copy of the license
-text must be bundled with this notice, together with all required third-party
-copyright and license notices.
+The complete, verbatim GNU GPL version 3 license text is included in
+`LICENSES/GPL-3.0.txt`. Third-party copyright and license notices are listed in
+`THIRD_PARTY_NOTICES.md` and retained next to each bundled source snapshot.

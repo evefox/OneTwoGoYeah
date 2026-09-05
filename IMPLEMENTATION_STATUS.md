@@ -6,6 +6,46 @@
 
 阶段 8 已完成：Flutter 三列编辑器、Dart FFI 原生资产、真实音频/谱面工作流、私有草稿与异常恢复、四平台播放和文件适配、桌面关闭保护、响应式输入与无障碍均已落地。阶段 8.5 的 macOS 体验微调已完成并通过整体验收，当前进入阶段 9 发布前兼容验证。
 
+## 阶段 9：发布前兼容验证（进行中）
+
+本轮先完成可在当前 Apple Silicon 主机上闭环的发布核查；Windows、真实
+iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境补齐。
+
+### 已完成
+
+- 发布资料已纳入仓库：`LICENSES/GPL-3.0.txt` 为完整 GPLv3 正文，
+  `LICENSES/FLUTTER-BSD-3-CLAUSE.txt` 为 Flutter 相关 BSD 3-Clause 文本，
+  `THIRD_PARTY_NOTICES.md` 汇总固定的 libmad/libogg/libVorbis、Flutter 和
+  Dart 依赖声明；示例音频、参考音效和本地导出文件仍由 Git 忽略。
+- 原生 CMake/CTest 黄金与一致性套件 `50/50` 通过；Dart FFI 分析和测试
+  `7/7` 通过；Flutter 分析无问题，Flutter 回归 `92/92` 通过。
+- Android Release APK 已使用 Flutter `3.47.2`、Dart `3.13.2`、SDK `36`
+  和 NDK `28.2.13676358` 构建，包含 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`
+  三种 ABI；原生资产检查确认三种 ABI 均导出 `otgy_chart_create_empty`，且
+  不依赖或打包 `libc++_shared.so`。包版本为 `1.0.0 (versionCode 1)`，APK
+  大小为 `59,333,139` 字节，当前使用本地 Debug signing key，仅适合个人真机
+  测试，不适合商店发布。
+- macOS Release App 已使用 Xcode `26.6`（macOS SDK `26.5`）构建；主程序为
+  `x86_64 + arm64` Universal，版本为 `1.0.0 (1)`。`codesign --verify` 通过，
+  但当前为本机 Ad Hoc 签名，保留 `com.apple.security.files.user-selected.read-write`
+  和开发调试 entitlement；对外分发仍需 Developer ID 签名和 notarization。
+- iOS 真机目标 Release 无签名构建通过，产物为 `arm64`、版本 `1.0.0 (1)`；
+  Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败项。当前尚未
+  在真实 iOS 设备上完成签名安装和运行冒烟。
+- 已在 `build/releases/` 生成带离线许可证资料的本地归档（该目录被 Git 忽略）：
+  `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
+  `OneTwoGoYeah-1.0.0+1-android-release.apk` 和
+  `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
+
+  ```text
+  9a0cf3fdee874e9043ff30066a494ac8faa869be888fb00874b9b9e754adbe29  OneTwoGoYeah-1.0.0+1-android-release.apk
+  2a5cd1b14dd6a788676dbea0a11b98ef1725c13883b5461dbc1a2a913c7bf668  OneTwoGoYeah-1.0.0+1-android-bundle.zip
+  3f7390423333ceca4fb3012dba682b333fc74c290bc4e2e8b564869d6b0d8c95  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
+  ```
+
+  两个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
+  `x86_64` 和 `arm64`。
+
 ## 阶段 8.5：macOS 体验微调验收
 
 - 使用 macOS Debug App 进行连续体验，优先处理影响操作手感、视觉层级和反馈清晰度的细小问题。
@@ -67,7 +107,7 @@
 - 增加共享音频导出基础名和最终建议名纯函数，保留合法 Unicode，统一处理控制字符、跨平台非法字符、首尾空白、末尾句点、保留名称、时间戳及 `_2` 起最小冲突后缀。
 - MP3/Ogg 解码成功结果增加自有 `AudioSourceInfo`；MP3 按解码样本数加权测得平均码率且排除 Xing 帧，Ogg 保留有效标称码率并以测得/容器时长码率回退。
 - 增加 `calculate_audio_export_quality`，直接查询固定 libvorbis 在当前采样率下品质 `1..5` 的标称码率；未知来源上限为 `5`，默认值为 `min(3, ceiling)`，明确拒绝越界或超过来源上限的请求。
-- 把固定 libVorbis `vorbisenc.c`、公开编码头和 23 份模式/码本表纳入离线快照；第三方源码总摘要更新为 `d4e1715267b23503c51bd73e42f4ccfd0523aa070d980c780c692f1f2a75a422`。
+- 把固定 libVorbis `vorbisenc.c`、公开编码头和 23 份模式/码本表纳入离线快照；第三方源码总摘要经复核为 `6c46bb3c55c2e5b3d433e4b2654e33c8b1eb14177695bc1cd754158fbdcd52fc`。
 - 增加进程内 `encode_ogg_vorbis`，固定 Ogg serial、1024 帧提交块、PCM float 转换、品质映射和 TITLE/ARTIST/ALBUM 顺序；有效 UTF-8 元数据确定写入，无效字段省略。
 - 增加品质 `1`、`3`、`5` 三份 CC0 确定性 Ogg 黄金输出，分别固定 SHA-256 并在普通测试中完整逐字节比较；重复编码、解码有效性、进度、取消、错误和所有权均通过。
 - 增加 `AudioExportSnapshot` 与高层编码任务，在确认时深复制 PCM/元数据并捕获 PCM 标识、原始 Offset、品质、来源信息、规范基础名和变换计划；在途任务只读取快照，取消不返回部分字节。
@@ -312,7 +352,7 @@
 
 ## 最后成功验证
 
-2026-08-31 在 arm64 macOS 上运行：
+2026-09-05 在 arm64 macOS 上运行：
 
 ```text
 cmake --build build/stage8-native --parallel
@@ -325,22 +365,36 @@ cd app/packages/otgy_native
 cd ../..
 ../build/flutter-sdk/bin/flutter analyze
 ../build/flutter-sdk/bin/flutter test -r expanded
-../build/flutter-sdk/bin/flutter build macos --debug
-codesign -d --entitlements :- build/macos/Build/Products/Debug/OneTwoGoYeah.app
+../build/flutter-sdk/bin/flutter build apk --release
+../build/flutter-sdk/bin/flutter build macos --release
+../build/flutter-sdk/bin/flutter build ios --release --no-codesign
+tool/verify_android_native_asset.sh app/build/app/outputs/flutter-apk/app-release.apk
+codesign --verify --deep --strict build/macos/Build/Products/Release/OneTwoGoYeah.app
+unzip -t build/releases/OneTwoGoYeah-1.0.0+1-android-bundle.zip
+unzip -t build/releases/OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
 
 swiftc -parse ios/Runner/AppDelegate.swift
 swiftc -parse macos/Runner/MainFlutterWindow.swift
 ```
 
-结果：原生核心、CLI 和 C ABI 49/49 通过；Dart FFI 分析通过且 6/6 测试通过；Flutter 分析通过且 25/25 测试通过。公共头 162 个函数声明与动态库 162 个 `otgy_*` 导出逐项一致。播放 PCM、设备帧推进、导出取消、六阶段分析回调、原子不覆盖发布、未保存退出和既有全部解码/波形/BPM/Offset/草稿/SLK 黄金均继续通过。Android Debug APK 已使用 SDK 35/36 与 NDK 28.2 完整构建，原生资产覆盖 `armeabi-v7a`、`arm64-v8a` 和 `x86_64`；macOS Debug App 已使用 Xcode 26.6 完整构建并启动，最终签名确认包含 `com.apple.security.files.user-selected.read-write`；iOS/macOS Swift 源码语法解析通过。Windows 与 iOS 真实 SDK 构建继续由阶段 8 CI 验证。
+结果：原生核心、CLI 和 C ABI `50/50` 通过；Dart FFI 分析通过且 `7/7`
+测试通过；Flutter 分析通过且 `92/92` 测试通过。Android Release APK、macOS
+Release Universal App 和 iOS 真机目标 Release 无签名 App 均构建成功；Android
+三 ABI 原生资产检查、macOS Ad Hoc 签名校验和两个发布 ZIP 完整性检查通过。
+`flutter build ios --simulator --release` 按 Flutter 约束拒绝执行（simulator
+Release 不受支持），不作为产品构建失败。当前机器没有 Windows SDK、Android 真机
+或已签名 iOS 真机，因此这些环境仍待阶段 9 后续验证。
 
 ## 已知问题
 
-- 完整 GPLv3 正文和第三方声明必须在分发前离线纳入仓库；当前 `LICENSE` 先固定 `GPL-3.0-or-later` 声明。
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
-- 本机已完成 Android Debug APK 与 macOS Debug App 真实构建；当前不是 Windows 环境，也尚未在真实 iOS 设备上验证，工作流继续覆盖其余平台，但远端首次运行结果不属于本地验证证据。
+- Android Release 当前使用本地 Debug signing key；macOS Release 为本机 Ad Hoc 签名。对外分发前必须由发布者在目标环境配置自己的 Android release keystore、Developer ID 签名和 Apple notarization，且不能把密钥或密码提交到仓库。
+- 本机不是 Windows 环境，也没有已连接的 Android 真机或已签名 iOS 真机；Windows x86-64/ARM64、Android 真机/模拟器 Release 冒烟和 iOS 真机安装运行仍需在对应设备或 CI 完成。
+- Flutter 不支持 iOS simulator 的 Release 构建；模拟器验证应使用 Debug/Profile 构建，不能把 `flutter build ios --simulator --release` 作为发布产物。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 
 ## 唯一下一步
 
-阶段 8.5 已完成验收。下一步进入阶段 9：在实际 x86-64 与 ARM64 的 Windows、macOS、iOS 和 Android 环境运行完整黄金与平台集成套件，补齐完整 GPLv3 正文、第三方声明、离线分发说明和源码安装文档，再形成可发布构建。
+继续阶段 9 的跨环境验证：在 Windows x86-64/ARM64、Android 真机或模拟器和
+真实 iOS 设备上安装对应 Release/Profile 产物，运行完整黄金与平台集成套件；
+随后由发布者注入正式签名凭据并重新生成可公开分发的 Android/macOS 构建。
