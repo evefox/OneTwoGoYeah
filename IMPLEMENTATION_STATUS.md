@@ -392,6 +392,11 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 - Android Release 当前使用本地 Debug signing key；macOS Release 为本机 Ad Hoc 签名。对外分发前必须由发布者在目标环境配置自己的 Android release keystore、Developer ID 签名和 Apple notarization，且不能把密钥或密码提交到仓库。
 - 本机不是 Windows 环境，也没有已连接的 Android 真机或已签名 iOS 真机；Windows x86-64/ARM64、Android 真机/模拟器 Release 冒烟和 iOS 真机安装运行仍需在对应设备或 CI 完成。
 - Flutter 不支持 iOS simulator 的 Release 构建；模拟器验证应使用 Debug/Profile 构建，不能把 `flutter build ios --simulator --release` 作为发布产物。
+- 在本机以 Xcode Apple Clang 交叉生成 `x86_64` 原生目标并运行 CTest 时，46/50
+  通过；Ogg Vorbis 解码/编码和依赖其 PCM 的 BPM/联合分析四项黄金与 arm64
+  不一致。该差异来自固定 libVorbis/FFT 浮点路径在不同 ISA 上的数值行为，尚未
+  通过兼容性审查，不能把该 x86_64 交叉结果视为发布兼容通过；需要在真实 x86-64
+  环境继续定位并锁定跨架构结果。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 
 ## 唯一下一步
