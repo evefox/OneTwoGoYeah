@@ -17,9 +17,9 @@ bits followed by little-endian binary64 fitness bits. The original 9216-frame
 PCM produces the reference fallback `120.0, 1.0`. The repeated 32768-frame PCM
 produces three candidates in compatibility order:
 
-1. `129.24970691676435, 0.0089304293574241252`
-2. `129.50274079874706, 0.0089239658120640712`
-3. `129.0, 0.0088604295138801949`
+1. `129.24970691676435, 0.0089304293574208188`
+2. `129.50274079874706, 0.0089239658120606261`
+3. `129.0, 0.0088604295138770689`
 
 Fixed reference source SHA-256 values:
 
@@ -30,6 +30,6 @@ Fixed reference source SHA-256 values:
 Fixture SHA-256 values:
 
 - `generated_stereo_11025.bpm_candidates`: `b4a9748d0815a3fcd8cd8ad086f64dced7bc024c8893ecfc696e552aa3983af6`
-- `generated_repeated_stereo_11025.bpm_candidates`: `3738124e87bbeedf557e2e94d01505c67fe03b87a2c9366c16b6974324757c0e`
+- `generated_repeated_stereo_11025.bpm_candidates`: `de3c035a3299f36b37e695568326ac2c9e7a324f10124c621600961d3c173843`
 
 Ordinary tests never regenerate these files.

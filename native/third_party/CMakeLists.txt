@@ -83,6 +83,7 @@ add_library(otgy_libvorbis STATIC
 target_compile_features(otgy_libvorbis PRIVATE c_std_90)
 target_compile_definitions(otgy_libvorbis PRIVATE
   _CRT_SECURE_NO_WARNINGS
+  OTGY_PORTABLE_VORBIS_FTOI
 )
 target_include_directories(otgy_libvorbis
   PUBLIC
@@ -102,11 +103,23 @@ set_target_properties(otgy_libvorbis PROPERTIES
 if(MSVC)
   target_compile_options(otgy_libmad PRIVATE /W3)
   target_compile_options(otgy_libogg PRIVATE /W3)
-  target_compile_options(otgy_libvorbis PRIVATE /W3)
+  target_compile_options(otgy_libvorbis PRIVATE
+    /W3
+    /fp:strict
+    /Qvec-
+    "/FI${CMAKE_CURRENT_SOURCE_DIR}/libvorbis/src/otgy_deterministic_math.h"
+  )
 else()
   target_compile_options(otgy_libmad PRIVATE -fno-fast-math)
   target_compile_options(otgy_libogg PRIVATE -fno-fast-math)
-  target_compile_options(otgy_libvorbis PRIVATE -fno-fast-math)
+  target_compile_options(otgy_libvorbis PRIVATE
+    -fno-fast-math
+    -ffp-contract=off
+    -fno-vectorize
+    -fno-slp-vectorize
+    -include
+    "${CMAKE_CURRENT_SOURCE_DIR}/libvorbis/src/otgy_deterministic_math.h"
+  )
 endif()
 
 # A single dependency target lets CI force every pinned library to build even

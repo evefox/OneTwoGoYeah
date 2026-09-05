@@ -7,9 +7,32 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace otgy::core::detail {
+
+[[nodiscard]] inline double deterministic_window_round(double result) noexcept {
+  std::uint64_t bits = 0U;
+  std::memcpy(&bits, &result, sizeof(bits));
+  const auto exponent = bits & UINT64_C(0x7ff0000000000000);
+  if (exponent == 0U || exponent == UINT64_C(0x7ff0000000000000)) {
+    return result;
+  }
+  const auto sign = bits & UINT64_C(0x8000000000000000);
+  auto magnitude = bits & ~sign;
+  magnitude += UINT64_C(0x40);
+  magnitude &= ~UINT64_C(0x7f);
+  bits = sign | magnitude;
+  double rounded = 0.0;
+  std::memcpy(&rounded, &bits, sizeof(rounded));
+  return rounded;
+}
+
+[[nodiscard]] inline double deterministic_window_cos(double value) noexcept {
+  return std::cos(value);
+}
 
 class TempoGapData final {
  public:
@@ -24,8 +47,10 @@ class TempoGapData final {
     const double step = 6.2831853071795864 /
                         static_cast<double>(window_size - 1);
     for (int index = 0; index < window_size; ++index) {
+      const auto value = 0.54 - 0.46 * deterministic_window_cos(
+                                      static_cast<double>(index) * step);
       window[static_cast<std::size_t>(index)] =
-          0.54 - 0.46 * std::cos(static_cast<double>(index) * step);
+          deterministic_window_round(value);
     }
   }
 

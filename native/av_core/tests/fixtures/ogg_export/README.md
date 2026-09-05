@@ -25,9 +25,9 @@ The one-time capture command, run from the repository root after configuring
 
 | Fixture | SHA-256 |
 |---|---|
-| `generated_stereo_11025.quality1.ogg` | `afe984023524e4c61b738bc305bcce89da8340068604bfdd6a325348979b8bdb` |
-| `generated_stereo_11025.quality3.ogg` | `f2fa9d2a8d52b50fa291339146884740a90c7050a99e8ac1ceffaae4e9a21e3a` |
-| `generated_stereo_11025.quality5.ogg` | `481edb1fd70b85268ab2b3636077cb950710c340b1bd6ce3746edaa925385839` |
+| `generated_stereo_11025.quality1.ogg` | `d53fef871242cf0ba0a626786b319fa8c342f5e3bf199addc8151d124dd1cf80` |
+| `generated_stereo_11025.quality3.ogg` | `61ee66cc03daebfbcecee2b2a7937422f6505674186109f7096dd6800ae52d0e` |
+| `generated_stereo_11025.quality5.ogg` | `acb9a4b125857e868ca897589da746eb2269ae2cf5c02dc94573534faf73df7e` |
 
 Golden changes require an explicit review of the fixed encoder configuration
 and the Ogg export contract in `ARCHITECTURE.md` and `TESTING.md`.

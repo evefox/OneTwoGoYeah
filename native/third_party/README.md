@@ -18,7 +18,7 @@ Pinned inputs:
 The retained source/header set has this deterministic content digest:
 
 ```text
-6c46bb3c55c2e5b3d433e4b2654e33c8b1eb14177695bc1cd754158fbdcd52fc
+2cc53e72e738fad21c8346146dbf976e088ea327adcf653fd83ea7b374214011
 ```
 
 To verify it from the repository root (the command intentionally excludes the
@@ -38,4 +38,8 @@ The current CMake targets include the MP3 decoder, Ogg framing, libVorbis core
 and vorbisfile sources, plus the VBR setup engine (`vorbisenc.c`) and its pinned
 mode/codebook tables for deterministic audio export. The compile definitions
 are centralized in `native/third_party/CMakeLists.txt`; no target uses a
-platform audio API, a subprocess, or `fast-math`.
+platform audio API, a subprocess, or `fast-math`. The libVorbis target also
+uses an explicit deterministic libm boundary, disables floating-point
+contraction/vectorization, and selects the scalar reference float-to-integer
+conversion on every architecture. This keeps the pinned codec's decoded PCM
+and encoded bytes identical between the supported ARM64 and x86-64 targets.

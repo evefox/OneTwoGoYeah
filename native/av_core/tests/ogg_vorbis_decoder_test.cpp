@@ -89,16 +89,16 @@ void assert_matches_golden(const std::string& ogg_name,
 void test_generated_golden_fixtures() {
   assert_matches_golden("generated_mono_8000.ogg",
                         "generated_mono_8000.planar.pcm16le", 8'000U,
-                        "47f4ad0d6677be6728ddc280eb6269f2d8e5c50de935d84f798be1da0f176f56",
+                        "4a7fd2821396494f8e84e8f6507e714650621805328293bb585938e35c090379",
                         true);
   assert_matches_golden("generated_stereo_11025.ogg",
                         "generated_stereo_11025.planar.pcm16le", 11'025U,
-                        "176275320fa9703e04e26040b18e0f5e5e91c6405e75f2b317c9acbd8ff8f58e",
+                        "ca2ab45c6ffb763dbcb2b85b2b90781968e811ad4b7cd67605817e173bdbea66",
                         false);
   assert_matches_golden("generated_three_channel_16000.ogg",
                         "generated_three_channel_16000.planar.pcm16le",
                         16'000U,
-                        "ed097f42dfeb0679fddd4ae6d2f3ce987e520c0509c4bc6abd1c744311f69987",
+                        "57866cb607a353a47d2327606a98e4d285e3ba7561792be3be78136dbbd6251e",
                         false);
 }
 

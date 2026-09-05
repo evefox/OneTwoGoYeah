@@ -209,7 +209,7 @@ otgy_assert_ogg_vorbis_fixture_sha256(
 )
 otgy_assert_ogg_vorbis_fixture_sha256(
   generated_mono_8000.planar.pcm16le
-  47f4ad0d6677be6728ddc280eb6269f2d8e5c50de935d84f798be1da0f176f56
+  4a7fd2821396494f8e84e8f6507e714650621805328293bb585938e35c090379
 )
 otgy_assert_ogg_vorbis_fixture_sha256(
   generated_stereo_11025.ogg
@@ -217,7 +217,7 @@ otgy_assert_ogg_vorbis_fixture_sha256(
 )
 otgy_assert_ogg_vorbis_fixture_sha256(
   generated_stereo_11025.planar.pcm16le
-  176275320fa9703e04e26040b18e0f5e5e91c6405e75f2b317c9acbd8ff8f58e
+  ca2ab45c6ffb763dbcb2b85b2b90781968e811ad4b7cd67605817e173bdbea66
 )
 otgy_assert_ogg_vorbis_fixture_sha256(
   generated_three_channel_16000.ogg
@@ -225,7 +225,7 @@ otgy_assert_ogg_vorbis_fixture_sha256(
 )
 otgy_assert_ogg_vorbis_fixture_sha256(
   generated_three_channel_16000.planar.pcm16le
-  ed097f42dfeb0679fddd4ae6d2f3ce987e520c0509c4bc6abd1c744311f69987
+  57866cb607a353a47d2327606a98e4d285e3ba7561792be3be78136dbbd6251e
 )
 
 add_executable(av_core_ogg_vorbis_decoder_test
@@ -273,15 +273,15 @@ endfunction()
 
 otgy_assert_ogg_export_fixture_sha256(
   generated_stereo_11025.quality1.ogg
-  afe984023524e4c61b738bc305bcce89da8340068604bfdd6a325348979b8bdb
+  d53fef871242cf0ba0a626786b319fa8c342f5e3bf199addc8151d124dd1cf80
 )
 otgy_assert_ogg_export_fixture_sha256(
   generated_stereo_11025.quality3.ogg
-  f2fa9d2a8d52b50fa291339146884740a90c7050a99e8ac1ceffaae4e9a21e3a
+  61ee66cc03daebfbcecee2b2a7937422f6505674186109f7096dd6800ae52d0e
 )
 otgy_assert_ogg_export_fixture_sha256(
   generated_stereo_11025.quality5.ogg
-  481edb1fd70b85268ab2b3636077cb950710c340b1bd6ce3746edaa925385839
+  acb9a4b125857e868ca897589da746eb2269ae2cf5c02dc94573534faf73df7e
 )
 
 target_compile_definitions(av_core_ogg_vorbis_encoder_test PRIVATE
@@ -558,7 +558,7 @@ otgy_assert_bpm_fixture_sha256(
 )
 otgy_assert_bpm_fixture_sha256(
   generated_repeated_stereo_11025.bpm_candidates
-  3738124e87bbeedf557e2e94d01505c67fe03b87a2c9366c16b6974324757c0e
+  de3c035a3299f36b37e695568326ac2c9e7a324f10124c621600961d3c173843
 )
 
 add_executable(av_core_bpm_detector_test
@@ -655,7 +655,7 @@ otgy_assert_sync_fixture_sha256(
 )
 otgy_assert_sync_fixture_sha256(
   generated_repeated_stereo_11025.sync_candidates
-  f98dd123ee3d900d719995b35ee45d98050afa9eeac729880c5001216c3fda66
+  4e900d20249230552bec6f7292814ced7f62cb54ae8b833fb20ef9dcfdf7b0ab
 )
 otgy_assert_sync_fixture_sha256(
   generated_three_channel_16000.sync_candidates

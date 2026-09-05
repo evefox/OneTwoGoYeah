@@ -120,11 +120,11 @@ void test_reference_goldens_and_order() {
   assert(result);
   const auto& candidates = *result.candidates();
   assert(candidates[0].bpm == 129.24970691676435);
-  assert(candidates[0].fitness == 0.0089304293574241252);
+  assert(candidates[0].fitness == 0.0089304293574208188);
   assert(candidates[1].bpm == 129.50274079874706);
-  assert(candidates[1].fitness == 0.0089239658120640712);
+  assert(candidates[1].fitness == 0.0089239658120606261);
   assert(candidates[2].bpm == 129.0);
-  assert(candidates[2].fitness == 0.0088604295138801949);
+  assert(candidates[2].fitness == 0.0088604295138770689);
   assert(candidates[0].fitness > candidates[1].fitness);
   assert(candidates[1].fitness > candidates[2].fitness);
   for (const auto& candidate : candidates) {

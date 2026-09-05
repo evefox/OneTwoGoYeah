@@ -19,6 +19,11 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
   Dart 依赖声明；示例音频、参考音效和本地导出文件仍由 Git 忽略。
 - 原生 CMake/CTest 黄金与一致性套件 `50/50` 通过；Dart FFI 分析和测试
   `7/7` 通过；Flutter 分析无问题，Flutter 回归 `92/92` 通过。
+- ARM64 与 x86-64 原生构建均通过完整 `50/50` 黄金与一致性套件。为消除固定
+  libVorbis 在两种 ISA 上的 libm 低位、浮点收缩/向量化和 x86 专用
+  `vorbis_ftoi` 差异，第三方边界现在使用统一 binary64 量化、严格浮点编译选项
+  和标量参考转换；Ogg 解码/编码以及依赖其 PCM 的 BPM/联合分析共用一套更新后
+  黄金，未放宽任何比较容差。
 - Android Release APK 已使用 Flutter `3.47.2`、Dart `3.13.2`、SDK `36`
   和 NDK `28.2.13676358` 构建，包含 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`
   三种 ABI；原生资产检查确认三种 ABI 均导出 `otgy_chart_create_empty`，且
@@ -107,7 +112,7 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 - 增加共享音频导出基础名和最终建议名纯函数，保留合法 Unicode，统一处理控制字符、跨平台非法字符、首尾空白、末尾句点、保留名称、时间戳及 `_2` 起最小冲突后缀。
 - MP3/Ogg 解码成功结果增加自有 `AudioSourceInfo`；MP3 按解码样本数加权测得平均码率且排除 Xing 帧，Ogg 保留有效标称码率并以测得/容器时长码率回退。
 - 增加 `calculate_audio_export_quality`，直接查询固定 libvorbis 在当前采样率下品质 `1..5` 的标称码率；未知来源上限为 `5`，默认值为 `min(3, ceiling)`，明确拒绝越界或超过来源上限的请求。
-- 把固定 libVorbis `vorbisenc.c`、公开编码头和 23 份模式/码本表纳入离线快照；第三方源码总摘要经复核为 `6c46bb3c55c2e5b3d433e4b2654e33c8b1eb14177695bc1cd754158fbdcd52fc`。
+- 把固定 libVorbis `vorbisenc.c`、公开编码头和 23 份模式/码本表纳入离线快照；第三方源码与确定性数学头总摘要经复核为 `2cc53e72e738fad21c8346146dbf976e088ea327adcf653fd83ea7b374214011`。
 - 增加进程内 `encode_ogg_vorbis`，固定 Ogg serial、1024 帧提交块、PCM float 转换、品质映射和 TITLE/ARTIST/ALBUM 顺序；有效 UTF-8 元数据确定写入，无效字段省略。
 - 增加品质 `1`、`3`、`5` 三份 CC0 确定性 Ogg 黄金输出，分别固定 SHA-256 并在普通测试中完整逐字节比较；重复编码、解码有效性、进度、取消、错误和所有权均通过。
 - 增加 `AudioExportSnapshot` 与高层编码任务，在确认时深复制 PCM/元数据并捕获 PCM 标识、原始 Offset、品质、来源信息、规范基础名和变换计划；在途任务只读取快照，取消不返回部分字节。
@@ -392,11 +397,6 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 - Android Release 当前使用本地 Debug signing key；macOS Release 为本机 Ad Hoc 签名。对外分发前必须由发布者在目标环境配置自己的 Android release keystore、Developer ID 签名和 Apple notarization，且不能把密钥或密码提交到仓库。
 - 本机不是 Windows 环境，也没有已连接的 Android 真机或已签名 iOS 真机；Windows x86-64/ARM64、Android 真机/模拟器 Release 冒烟和 iOS 真机安装运行仍需在对应设备或 CI 完成。
 - Flutter 不支持 iOS simulator 的 Release 构建；模拟器验证应使用 Debug/Profile 构建，不能把 `flutter build ios --simulator --release` 作为发布产物。
-- 在本机以 Xcode Apple Clang 交叉生成 `x86_64` 原生目标并运行 CTest 时，46/50
-  通过；Ogg Vorbis 解码/编码和依赖其 PCM 的 BPM/联合分析四项黄金与 arm64
-  不一致。该差异来自固定 libVorbis/FFT 浮点路径在不同 ISA 上的数值行为，尚未
-  通过兼容性审查，不能把该 x86_64 交叉结果视为发布兼容通过；需要在真实 x86-64
-  环境继续定位并锁定跨架构结果。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 
 ## 唯一下一步

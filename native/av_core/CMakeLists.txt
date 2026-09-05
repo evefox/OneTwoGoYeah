@@ -71,7 +71,10 @@ else()
   )
   set_source_files_properties(
     src/timing/bpm_detector.cpp
-    PROPERTIES COMPILE_OPTIONS "-Wno-reorder"
+    src/timing/offset_detector.cpp
+    src/timing/sync_analyzer.cpp
+    PROPERTIES COMPILE_OPTIONS
+      "-Wno-reorder;-ffp-contract=off;-fno-vectorize;-fno-slp-vectorize"
   )
 endif()
 

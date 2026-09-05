@@ -34,9 +34,9 @@ then independently matched against `av_core` byte for byte.
 
 | Fixture | Encoded SHA-256 | Expected rate | Expected frames | Planar PCM16LE SHA-256 |
 |---|---|---:|---:|---|
-| `generated_mono_8000.ogg` | `516e6044a16511f4e997469dfe4e4048a0f6590bb450bbe87f140002a0c6727b` | 8000 Hz | 8192 | `47f4ad0d6677be6728ddc280eb6269f2d8e5c50de935d84f798be1da0f176f56` |
-| `generated_stereo_11025.ogg` | `02d91d9bb70e72d07d3b3571c4c43a8cc7508a7faab2dc2bb631a8a18c728bf5` | 11025 Hz | 8192 | `176275320fa9703e04e26040b18e0f5e5e91c6405e75f2b317c9acbd8ff8f58e` |
-| `generated_three_channel_16000.ogg` | `c3575aad47f742e20b6762909309e4d22eacd85a0bb40ccf25afeb3df816c363` | 16000 Hz | 8192 | `ed097f42dfeb0679fddd4ae6d2f3ce987e520c0509c4bc6abd1c744311f69987` |
+| `generated_mono_8000.ogg` | `516e6044a16511f4e997469dfe4e4048a0f6590bb450bbe87f140002a0c6727b` | 8000 Hz | 8192 | `4a7fd2821396494f8e84e8f6507e714650621805328293bb585938e35c090379` |
+| `generated_stereo_11025.ogg` | `02d91d9bb70e72d07d3b3571c4c43a8cc7508a7faab2dc2bb631a8a18c728bf5` | 11025 Hz | 8192 | `ca2ab45c6ffb763dbcb2b85b2b90781968e811ad4b7cd67605817e173bdbea66` |
+| `generated_three_channel_16000.ogg` | `c3575aad47f742e20b6762909309e4d22eacd85a0bb40ccf25afeb3df816c363` | 16000 Hz | 8192 | `57866cb607a353a47d2327606a98e4d285e3ba7561792be3be78136dbbd6251e` |
 
 Golden changes require an explicit compatibility review against the
 ArrowVortex reference behavior described in `TESTING.md`.

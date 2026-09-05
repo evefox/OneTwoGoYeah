@@ -12,7 +12,7 @@ files therefore lock the complete unrounded candidate pairing and order:
 - `generated_stereo_11025.sync_candidates`: 32 bytes, SHA-256
   `5e22187cb80f6f5fb7ad1085d87f06a1e090b079262ffdbea3f5f33b13957d8e`
 - `generated_repeated_stereo_11025.sync_candidates`: 96 bytes, SHA-256
-  `f98dd123ee3d900d719995b35ee45d98050afa9eeac729880c5001216c3fda66`
+  `4e900d20249230552bec6f7292814ced7f62cb54ae8b833fb20ef9dcfdf7b0ab`
 - `generated_three_channel_16000.sync_candidates`: 32 bytes, SHA-256
   `17b62bc43235674ef0e8fec0099af3ec5654a5f78cb3bd12f50ef031ddce8490`
 
