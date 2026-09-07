@@ -18,7 +18,21 @@ if [ -z "$readelf_bin" ]; then
   readelf_bin=$(command -v llvm-readelf || true)
 fi
 if [ -z "$readelf_bin" ]; then
-  echo "readelf or llvm-readelf is required" >&2
+  # Android NDK ships llvm-readelf, but it is often not on PATH on macOS.
+  # Prefer explicitly configured NDK roots, then the standard macOS SDK path.
+  for ndk_root in "${ANDROID_NDK_ROOT:-}" "${ANDROID_NDK_HOME:-}" \
+      "/Users/$(id -un)/Library/Android/sdk/ndk"; do
+    if [ -n "$ndk_root" ] && [ -d "$ndk_root" ]; then
+      candidate=$(find "$ndk_root" -type f -path '*/toolchains/llvm/prebuilt/*/bin/llvm-readelf' -perm -111 -print -quit 2>/dev/null || true)
+      if [ -n "$candidate" ]; then
+        readelf_bin=$candidate
+        break
+      fi
+    fi
+  done
+fi
+if [ -z "$readelf_bin" ]; then
+  echo "readelf or llvm-readelf is required (install binutils or Android NDK)" >&2
   exit 2
 fi
 

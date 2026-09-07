@@ -39,16 +39,18 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
   在真实 iOS 设备上完成签名安装和运行冒烟。
 - 已在 `build/releases/` 生成带离线许可证资料的本地归档（该目录被 Git 忽略）：
   `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
-  `OneTwoGoYeah-1.0.0+1-android-release.apk` 和
+  `OneTwoGoYeah-1.0.0+1-android-release.apk`、
+  `OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
   `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
 
   ```text
-  9a0cf3fdee874e9043ff30066a494ac8faa869be888fb00874b9b9e754adbe29  OneTwoGoYeah-1.0.0+1-android-release.apk
-  2a5cd1b14dd6a788676dbea0a11b98ef1725c13883b5461dbc1a2a913c7bf668  OneTwoGoYeah-1.0.0+1-android-bundle.zip
-  3f7390423333ceca4fb3012dba682b333fc74c290bc4e2e8b564869d6b0d8c95  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
+  f92c30eca6682a0fc87510d0f7e8c35c296fa9f685f523b5b958c0090031899b  OneTwoGoYeah-1.0.0+1-android-release.apk
+  79418516971a076c253f8831e82f83f95a78551113ef28adf3d3a991a9a0e978  OneTwoGoYeah-1.0.0+1-android-bundle.zip
+  3bfbbf0f2c3f8c63386353e5275d76dec0fb8c2fa14a0545ff54affea20ce1aa  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
+  9ab041eacc50b8a8a4d58182c175b3ffc394428033f5a5bae1eff392d2f43f4a  OneTwoGoYeah-1.0.0+1-macos-universal-release.zip
   ```
 
-  两个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
+  三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
   `x86_64` 和 `arm64`。
 
 ## 阶段 8.5：macOS 体验微调验收
