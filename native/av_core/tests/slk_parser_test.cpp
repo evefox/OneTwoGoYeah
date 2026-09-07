@@ -162,6 +162,25 @@ void test_container_and_schema_errors() {
   bad_header[0] = 'X';
   assert_error(bytes_of(bad_header), SlkParseError::InvalidHeader);
 
+  auto compatible_header = valid_text();
+  const std::string canonical_id = "ID;PWXL;N;E\r\n";
+  const auto id_position = compatible_header.find(canonical_id);
+  assert(id_position == 0U);
+  compatible_header.replace(id_position, canonical_id.size(),
+                           "ID;SC;N;E\r\n");
+  const auto compatible_result = otgy::core::parse_slk_records(
+      reinterpret_cast<const std::uint8_t*>(compatible_header.data()),
+      compatible_header.size());
+  assert(compatible_result);
+
+  auto missing_name_flag = valid_text();
+  missing_name_flag.replace(0U, canonical_id.size(), "ID;PWXL;E\r\n");
+  assert_error(bytes_of(missing_name_flag), SlkParseError::InvalidHeader);
+
+  auto missing_end_flag = valid_text();
+  missing_end_flag.replace(0U, canonical_id.size(), "ID;PWXL;N;X\r\n");
+  assert_error(bytes_of(missing_end_flag), SlkParseError::InvalidHeader);
+
   auto unknown_record = valid_text();
   unknown_record.insert(unknown_record.find("P;PGeneral"),
                         "Z;unsupported\r\n");

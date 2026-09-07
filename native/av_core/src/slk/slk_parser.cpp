@@ -12,7 +12,6 @@
 namespace otgy::core {
 namespace {
 
-constexpr std::string_view kHeader = "ID;PWXL;N;E";
 constexpr std::array<std::string_view, 6U> kTypeSchema{{
     "C;Y2;X1;K\"int\"",
     "C;X2;K\"int\"",
@@ -100,6 +99,42 @@ enum class DecimalError : std::uint8_t {
   return starts_with(line, "P;") || starts_with(line, "F;") ||
          starts_with(line, "B;") || starts_with(line, "O;") ||
          starts_with(line, "NN;") || starts_with(line, "C;");
+}
+
+[[nodiscard]] bool valid_id_record(std::string_view line) noexcept {
+  if (!starts_with(line, "ID;")) {
+    return false;
+  }
+
+  bool has_name_flag = false;
+  std::size_t token_begin = 0U;
+  std::size_t token_count = 0U;
+  while (token_begin <= line.size()) {
+    const auto separator = line.find(';', token_begin);
+    const auto token_end = separator == std::string_view::npos
+                               ? line.size()
+                               : separator;
+    const auto token = line.substr(token_begin, token_end - token_begin);
+    if (token.empty()) {
+      return false;
+    }
+    if (token_count == 0U && token != "ID") {
+      return false;
+    }
+    if (token == "N") {
+      has_name_flag = true;
+    }
+    ++token_count;
+    if (separator == std::string_view::npos) {
+      break;
+    }
+    token_begin = separator + 1U;
+  }
+
+  const auto last_separator = line.rfind(';');
+  return token_count >= 3U && has_name_flag &&
+         last_separator != std::string_view::npos &&
+         line.substr(last_separator + 1U) == "E";
 }
 
 [[nodiscard]] bool parse_first_cell(
@@ -237,7 +272,7 @@ enum class DecimalError : std::uint8_t {
 [[nodiscard]] StepResult process_line(
     ParserState& state, std::string_view line, bool is_last_line) {
   if (state.current_line == 1U) {
-    if (line != kHeader) {
+    if (!valid_id_record(line)) {
       return step_failure(SlkParseError::InvalidHeader, state);
     }
     return step_success();
