@@ -430,11 +430,7 @@ class _EditorCanvasState extends State<EditorCanvas>
     if (column == null) {
       return;
     }
-    widget.controller.clickCell(
-      column,
-      _rowAt(details.localPosition.dy, size),
-      mobile: _mobile,
-    );
+    widget.controller.clickCell(column, _rowAt(details.localPosition.dy, size));
   }
 
   void _handleScroll(PointerScrollEvent event) {
@@ -601,7 +597,6 @@ class _EditorCanvasState extends State<EditorCanvas>
                 onTap: () => widget.controller.clickCell(
                   marker.column,
                   marker.row,
-                  mobile: _mobile,
                 ),
                 child: const SizedBox.expand(),
               ),

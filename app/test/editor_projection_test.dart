@@ -93,9 +93,13 @@ void main() {
     );
   });
 
-  test('mobile editing threshold is exact', () {
-    expect(mobileChartEditingEnabled(39.999), isFalse);
-    expect(mobileChartEditingEnabled(40), isTrue);
+  test('chart editing remains available at dense row spacing', () {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
+
+    expect(controller.markers, isNotEmpty);
   });
 
   test('marker sizing stays fixed while Zoom spacing can become dense', () {

@@ -1551,7 +1551,7 @@ void main() {
     tester,
   ) async {
     await pumpEditor(tester);
-    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0, mobile: false);
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
     final canvasSize = tester.getSize(
       find.byKey(const ValueKey('editor-canvas-paint')),
     );
@@ -1716,13 +1716,13 @@ void main() {
     tester,
   ) async {
     await pumpEditor(tester);
-    controller.clickCell(0, 0, mobile: false);
-    controller.clickCell(0, 1, mobile: false);
-    controller.clickCell(0, 2, mobile: false);
-    controller.clickCell(0, 2, mobile: false);
-    controller.clickCell(1, 3, mobile: false);
-    controller.clickCell(1, 4, mobile: false);
-    controller.clickCell(2, 6, mobile: false);
+    controller.clickCell(0, 0);
+    controller.clickCell(0, 1);
+    controller.clickCell(0, 2);
+    controller.clickCell(0, 2);
+    controller.clickCell(1, 3);
+    controller.clickCell(1, 4);
+    controller.clickCell(2, 6);
     expect(controller.showtimeMoves, hasLength(1));
     final move = controller.showtimeMoves.single;
     expect(move.isLast, isTrue);
@@ -2222,7 +2222,7 @@ void main() {
       );
 
       controller.moveToRow(0);
-      controller.clickCell(0, 0, mobile: false);
+      controller.clickCell(0, 0);
       controller.setTransitionSoundsEnabled(true);
       await controller.toggleRhythmTest();
       expect(controller.isRhythmTesting, isTrue);
@@ -2331,7 +2331,7 @@ void main() {
       '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
     ).readAsBytesSync();
     await controller.loadAudioBytes(audio, 'fixture.mp3');
-    controller.clickCell(0, 0, mobile: false);
+    controller.clickCell(0, 0);
     controller.setTransitionSoundsEnabled(true);
     await pumpEditor(tester);
 

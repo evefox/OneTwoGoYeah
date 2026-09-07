@@ -14,8 +14,6 @@ enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
 
 enum EditorPlaybackMode { idle, chartPreview, rhythmTest }
 
-bool mobileChartEditingEnabled(double rowSpacing) => rowSpacing >= 40;
-
 const double targetEditorRowSpacing = 46;
 const double playbackVisualZoom = 8;
 
@@ -439,13 +437,8 @@ class EditorController extends ChangeNotifier {
     _updateDirty();
   }
 
-  void clickCell(int column, int row, {required bool mobile}) {
+  void clickCell(int column, int row) {
     if (_isBusy || !generalActionsEnabled) {
-      return;
-    }
-    if (mobile && !mobileChartEditingEnabled(rowSpacing)) {
-      _notice = const EditorNotice('请放大后编辑');
-      notifyListeners();
       return;
     }
     final result = _editor.click(column, math.max(0, row));
