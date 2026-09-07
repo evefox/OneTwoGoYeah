@@ -306,7 +306,7 @@ void test_compatibility_chart_uses_canonical_shell_and_reimports() {
          8U);
   assert(reimport.document()->semantics().showtimes()[1U].show_d_rows.size() ==
          9U);
-  assert(reimport.document()->semantics().boundary_row().position
+  assert(reimport.document()->semantics().boundary_row()->position
              .total_sixteenth == 1'920U);
   const auto projection =
       otgy::core::project_finished_slk_to_chart_draft(*reimport.document());

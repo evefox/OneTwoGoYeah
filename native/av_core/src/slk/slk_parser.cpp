@@ -433,11 +433,6 @@ SlkParseResult parse_slk_records(
       return SlkParseResult{
           failure_details(SlkParseError::MissingData, state)};
     }
-    if (!state.boundary_seen || state.rows.back().type != SlkRowType::R) {
-      return SlkParseResult{failure_details(
-          SlkParseError::MissingBoundary, state,
-          state.rows.back().sheet_row, 5U)};
-    }
     return SlkParseResult{SlkParsedRecords{std::move(state.rows)}};
   } catch (const std::length_error&) {
     return SlkParseResult{

@@ -163,7 +163,7 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 - 播放位置覆盖未舍入起点、有限增量、达到/越过末尾、暂停后不推进、零时长、负秒推进到零、无音频、非法时长/光标/增量/状态和稳定错误。
 - 增加 `compose_slk_position`、`decompose_slk_position` 和 `validate_slk_position`，用唯一无符号整数实现生成四列、从总 1/16 行反向分解及严格导入一致性校验。
 - SLK 位置覆盖 beat/sixteenth `0..3` 全部组合、多个 measure、小节边界、`uint64` 最大值分解/重组、分量越界、乘加溢出、第四列前后差一和稳定错误。
-- 增加 `parse_slk_records(bytes)` 二进制入口，不解码标题字节；导入严格扫描结构合法的 ID、CRLF、六列类型 schema、受支持前导记录、Y3 起连续 sheet row、相邻 X1..X6、最终 `[r & 0]` 和容器 `E`，允许不同 Excel/SYLK 工具产生的合法前导变体。
+- 增加 `parse_slk_records(bytes)` 二进制入口，不解码标题字节；导入严格扫描结构合法的 ID、CRLF、六列类型 schema、受支持前导记录、Y3 起连续 sheet row、相邻 X1..X6、零个或一个 `[r & 0]` 和容器 `E`，允许不同 Excel/SYLK 工具产生的合法前导变体。
 - 底层解析返回有序自有 `SlkParsedRow`，强制四列一致、位置递增及 `n/s/c/d/r` 值组合；规范/兼容 SLK 分别解析 428/404 行，并覆盖未知记录、schema/列/行号/整数/类型/边界错误、来源位置和所有权。
 - 增加 `analyze_slk_drill_groups(records, beginRowIndex)`，在单个普通序列中配对紧邻的 NPC/玩家块，并在未消费的 Showtime 或文件边界前停止。
 - `DrillGroup` 结果以 NPC 起始 sheet row 作为同文档稳定标识，逐条传播显式角色、来源行和块内索引；动作相对位置以各自首个 `n` 为原点，兼容两个 `c` 到首个 `n` 间隔不同的合法块。
@@ -171,9 +171,9 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 - 增加 `analyze_slk_dance_move_drills(groupAnalysis)`，统一解码直接 `1..11` 与拆分 `segmentNCount * 100 + moveNCount`，按段拼接 NPC/玩家完整舞步并透传普通序列边界。
 - `DanceMoveDrill` 以首组标识作为同文档稳定标识，保留来源组映射、原始 `c`、段长、显式角色及连续舞步行索引；规范/兼容两阶段分别还原 `6 + 11` 与 `8 + 9` 个演练。
 - 舞步测试覆盖直接值全范围、`3+2+3=8`、两位数段长 `10+1=11`、真实 `moveNCount` 顺序、深复制/移动，以及无效值、数量、编码、总和、提前/缺失结尾和伪拆分的稳定来源错误。
-- 增加 `analyze_slk_showtimes(records)`，从完整底层行逐阶段复用唯一分组/舞步入口，把连续 `d` 与有序 `DanceMoveDrill` 一一关联并最终消费末行 `[r & 0]`。
+- 增加 `analyze_slk_showtimes(records)`，从完整底层行逐阶段复用唯一分组/舞步入口，把连续 `d` 与有序 `DanceMoveDrill` 一一关联并在存在时消费末行 `[r & 0]`。
 - Showtime/`SHOW-D` 分别以自身 sheet row 作为同文档稳定标识，每个 `SHOW-D` 自有保存来源行、阶段内索引、演练引用和已校验 `showNCount`；规范/兼容文件分别关联 `6+11` 与 `8+9` 个引用。
-- 完整语义测试覆盖多阶段、稳定映射、边界与所有权，以及空阶段、缺少 Showtime、下层失败、`d` 数量/值、缺失/错误边界和空输入的结构化原子错误。
+- 完整语义测试覆盖多阶段、稳定映射、可选边界与所有权，以及空阶段、缺少 Showtime、下层失败、`d` 数量/值、错误边界和空输入的结构化原子错误。
 - 增加 `import_finished_slk(bytes)` 原子入口，只编排现有记录解析与完整语义分析；全部成功才发布自有 `FinishedSlkDocument`，失败明确区分解析/语义层且不暴露部分值。
 - 严格导入测试覆盖两份真实文件、输入清除、深复制/移动、空/空指针/损坏头，以及语法合法的空谱面和缺失 `d`，并校验未使用下层错误保持 `None`。
 - 增加不依赖 SLK 的原生 `ChartDraft` 事件与关系容器，并由 `project_finished_slk_to_chart_draft(document)` 从已验证语义一次生成显式角色、稳定标识和 `showNCount`。

@@ -114,12 +114,12 @@ ChartDraft SlkChartDraftProjectionResult::take_draft() && {
 SlkChartDraftProjectionResult project_finished_slk_to_chart_draft(
     const FinishedSlkDocument& document) noexcept {
   const auto& semantics = document.semantics();
-  if (semantics.showtimes().empty() ||
-      semantics.boundary_row().type != SlkRowType::R ||
-      semantics.boundary_row().value != 0U) {
+  if (semantics.showtimes().empty()) {
     return SlkChartDraftProjectionResult{
         {SlkChartDraftProjectionError::InvalidFinishedDocument,
-         semantics.boundary_row().sheet_row}};
+         semantics.boundary_row().has_value()
+             ? semantics.boundary_row()->sheet_row
+             : 0U}};
   }
 
   try {

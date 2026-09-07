@@ -151,9 +151,10 @@ void test_full_association_mapping_and_ownership() {
   assert(second.stage.drills().size() == 1U);
   assert(second.show_d_rows.size() == 1U);
   assert(second.show_d_rows[0].show_n_count == 7U);
-  assert(analysis.boundary_source_row_index() + 1U == valid_rows().size());
-  assert(analysis.boundary_row().type == SlkRowType::R);
-  assert(analysis.boundary_row().value == 0U);
+  assert(analysis.boundary_source_row_index().value() + 1U ==
+         valid_rows().size());
+  assert(analysis.boundary_row()->type == SlkRowType::R);
+  assert(analysis.boundary_row()->value == 0U);
 
   const auto copy = analysis;
   const auto moved = std::move(analysis);
@@ -173,8 +174,8 @@ void test_repository_files() {
   assert(canonical_analysis.showtimes()[0].show_d_rows.size() == 6U);
   assert(canonical_analysis.showtimes()[1].id.value == 418U);
   assert(canonical_analysis.showtimes()[1].show_d_rows.size() == 11U);
-  assert(canonical_analysis.boundary_row().sheet_row == 430U);
-  assert(canonical_analysis.boundary_source_row_index() == 427U);
+  assert(canonical_analysis.boundary_row()->sheet_row == 430U);
+  assert(canonical_analysis.boundary_source_row_index().value() == 427U);
 
   const auto compatibility =
       parse_file(std::string{OTGY_EXAMPLE_DIR} + "/谎话成品.slk");
@@ -186,8 +187,8 @@ void test_repository_files() {
   assert(compatibility_analysis.showtimes()[0].show_d_rows.size() == 8U);
   assert(compatibility_analysis.showtimes()[1].id.value == 396U);
   assert(compatibility_analysis.showtimes()[1].show_d_rows.size() == 9U);
-  assert(compatibility_analysis.boundary_row().sheet_row == 406U);
-  assert(compatibility_analysis.boundary_source_row_index() == 403U);
+  assert(compatibility_analysis.boundary_row()->sheet_row == 406U);
+  assert(compatibility_analysis.boundary_source_row_index().value() == 403U);
 }
 
 void test_stage_and_nested_analysis_errors() {
@@ -268,8 +269,11 @@ void test_showtime_count_value_and_boundary_errors() {
 
   auto missing_boundary = valid_rows();
   missing_boundary.pop_back();
-  failure_of(records(std::move(missing_boundary)),
-             SlkShowtimeError::MissingFileBoundary);
+  const auto without_boundary = analyze_slk_showtimes(
+      records(std::move(missing_boundary)));
+  assert(without_boundary);
+  assert(!without_boundary.analysis()->boundary_row().has_value());
+  assert(!without_boundary.analysis()->boundary_source_row_index().has_value());
 
   auto invalid_boundary = valid_rows();
   invalid_boundary.push_back(row(9'999U, 9'999U, SlkRowType::N, 0U));

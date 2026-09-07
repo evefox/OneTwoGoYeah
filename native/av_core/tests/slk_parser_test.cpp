@@ -261,7 +261,12 @@ void test_type_value_and_boundary_errors() {
       std::string{kPrefix} +
       cell_row(3U, 0U, 0U, 0U, 0U, 'c', 1U) +
       cell_row(4U, 0U, 0U, 1U, 1U, 'n', 0U) + "E\r\n";
-  assert_error(bytes_of(missing_boundary), SlkParseError::MissingBoundary);
+  const auto parsed_without_boundary = otgy::core::parse_slk_records(
+      reinterpret_cast<const std::uint8_t*>(missing_boundary.data()),
+      missing_boundary.size());
+  assert(parsed_without_boundary);
+  assert(parsed_without_boundary.records()->rows().back().type ==
+         SlkRowType::N);
 
   const std::string boundary_not_last =
       std::string{kPrefix} +

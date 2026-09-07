@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -40,23 +41,26 @@ struct SlkShowtime final {
 class SlkShowtimeAnalysis final {
  public:
   SlkShowtimeAnalysis(std::vector<SlkShowtime> showtimes,
-                      SlkParsedRow boundary_row,
-                      std::size_t boundary_source_row_index) noexcept;
+                      std::optional<SlkParsedRow> boundary_row,
+                      std::optional<std::size_t> boundary_source_row_index)
+      noexcept;
 
   [[nodiscard]] const std::vector<SlkShowtime>& showtimes() const noexcept {
     return showtimes_;
   }
-  [[nodiscard]] const SlkParsedRow& boundary_row() const noexcept {
+  [[nodiscard]] const std::optional<SlkParsedRow>& boundary_row()
+      const noexcept {
     return boundary_row_;
   }
-  [[nodiscard]] std::size_t boundary_source_row_index() const noexcept {
+  [[nodiscard]] const std::optional<std::size_t>& boundary_source_row_index()
+      const noexcept {
     return boundary_source_row_index_;
   }
 
  private:
   std::vector<SlkShowtime> showtimes_;
-  SlkParsedRow boundary_row_;
-  std::size_t boundary_source_row_index_;
+  std::optional<SlkParsedRow> boundary_row_;
+  std::optional<std::size_t> boundary_source_row_index_;
 };
 
 enum class SlkShowtimeError : std::uint8_t {

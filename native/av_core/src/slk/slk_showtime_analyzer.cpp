@@ -55,8 +55,9 @@ namespace {
 }  // namespace
 
 SlkShowtimeAnalysis::SlkShowtimeAnalysis(
-    std::vector<SlkShowtime> showtimes, SlkParsedRow boundary_row,
-    std::size_t boundary_source_row_index) noexcept
+    std::vector<SlkShowtime> showtimes,
+    std::optional<SlkParsedRow> boundary_row,
+    std::optional<std::size_t> boundary_source_row_index) noexcept
     : showtimes_(std::move(showtimes)),
       boundary_row_(boundary_row),
       boundary_source_row_index_(boundary_source_row_index) {}
@@ -111,16 +112,24 @@ SlkShowtimeAnalysisResult analyze_slk_showtimes(
           return SlkShowtimeAnalysisResult{make_failure(
               SlkShowtimeError::EmptyChart, rows, boundary_index, 0U)};
         }
-        if (boundary_index >= rows.size() ||
-            rows[boundary_index].type != SlkRowType::R ||
-            rows[boundary_index].value != 0U ||
-            boundary_index + 1U != rows.size()) {
+        if (boundary_index < rows.size() &&
+            (rows[boundary_index].type != SlkRowType::R ||
+             rows[boundary_index].value != 0U ||
+             boundary_index + 1U != rows.size())) {
           return SlkShowtimeAnalysisResult{
               make_failure(SlkShowtimeError::InvalidFileBoundary, rows,
                            boundary_index, showtimes.size())};
         }
+        const std::optional<SlkParsedRow> boundary =
+            boundary_index < rows.size()
+                ? std::optional<SlkParsedRow>{rows[boundary_index]}
+                : std::nullopt;
+        const std::optional<std::size_t> boundary_source_row_index =
+            boundary_index < rows.size()
+                ? std::optional<std::size_t>{boundary_index}
+                : std::nullopt;
         return SlkShowtimeAnalysisResult{SlkShowtimeAnalysis{
-            std::move(showtimes), rows[boundary_index], boundary_index}};
+            std::move(showtimes), boundary, boundary_source_row_index}};
       }
 
       if (groups.groups().empty()) {
@@ -178,9 +187,8 @@ SlkShowtimeAnalysisResult analyze_slk_showtimes(
       showtimes.push_back(std::move(showtime));
       cursor = d_index;
       if (cursor >= rows.size()) {
-        return SlkShowtimeAnalysisResult{
-            make_failure(SlkShowtimeError::MissingFileBoundary, rows, cursor,
-                         showtimes.size())};
+        return SlkShowtimeAnalysisResult{SlkShowtimeAnalysis{
+            std::move(showtimes), std::nullopt, std::nullopt}};
       }
     }
   } catch (const std::bad_alloc&) {

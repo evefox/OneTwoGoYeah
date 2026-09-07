@@ -81,11 +81,11 @@ void test_repository_files_and_ownership() {
   assert(canonical.semantics().showtimes().size() == 2U);
   assert(canonical.semantics().showtimes()[0].show_d_rows.size() == 6U);
   assert(canonical.semantics().showtimes()[1].show_d_rows.size() == 11U);
-  assert(canonical.semantics().boundary_row().sheet_row == 430U);
+  assert(canonical.semantics().boundary_row()->sheet_row == 430U);
 
   std::fill(canonical_bytes.begin(), canonical_bytes.end(), 0U);
   assert(canonical.semantics().showtimes()[0].id.value == 155U);
-  assert(canonical.semantics().boundary_row().sheet_row == 430U);
+  assert(canonical.semantics().boundary_row()->sheet_row == 430U);
 
   const auto copy = *canonical_result.document();
   const auto moved = std::move(canonical_result).take_document();
@@ -102,7 +102,32 @@ void test_repository_files_and_ownership() {
   assert(compatibility.semantics().showtimes().size() == 2U);
   assert(compatibility.semantics().showtimes()[0].show_d_rows.size() == 8U);
   assert(compatibility.semantics().showtimes()[1].show_d_rows.size() == 9U);
-  assert(compatibility.semantics().boundary_row().sheet_row == 406U);
+  assert(compatibility.semantics().boundary_row()->sheet_row == 406U);
+
+  auto without_boundary_bytes = read_file(
+      std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  const std::string_view without_boundary_text{
+      reinterpret_cast<const char*>(without_boundary_bytes.data()),
+      without_boundary_bytes.size()};
+  const auto boundary_begin = without_boundary_text.rfind("C;Y430;X1;K");
+  const auto container_end = without_boundary_text.rfind("E\r\n");
+  assert(boundary_begin != std::string_view::npos);
+  assert(container_end != std::string_view::npos);
+  assert(boundary_begin < container_end);
+  without_boundary_bytes.erase(
+      without_boundary_bytes.begin() +
+          static_cast<std::ptrdiff_t>(boundary_begin),
+      without_boundary_bytes.begin() +
+          static_cast<std::ptrdiff_t>(container_end));
+  const auto without_boundary_result = otgy::core::import_finished_slk(
+      without_boundary_bytes.data(), without_boundary_bytes.size());
+  assert(without_boundary_result);
+  assert(!without_boundary_result.document()->semantics().boundary_row()
+              .has_value());
+  assert(!without_boundary_result.document()
+              ->semantics()
+              .boundary_source_row_index()
+              .has_value());
 }
 
 void test_parse_failures() {
