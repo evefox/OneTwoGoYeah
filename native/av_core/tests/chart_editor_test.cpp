@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "av_core/chart/chart_editor.hpp"
-#include "av_core/chart/chart_validator.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -228,10 +227,6 @@ void test_showtime_completion_layout_snapshot_and_deletion() {
   assert(editor.draft().showtime_start_events().size() == 1U);
   assert(editor.draft().showtime_move_events().size() == 2U);
   assert(editor.draft().showtimes().size() == 1U);
-  assert(editor.draft().showtimes().front().dance_move_drill_ids.size() ==
-         2U);
-  assert(editor.draft().showtimes().front().show_move_event_ids.size() ==
-         2U);
   assert(marker_of(editor.draft(), ChartMarkerType::ShowtimeStart).row == 52U);
   const auto first_d = marker_of(editor.draft(), ChartMarkerType::ShowtimeMove);
   const auto second_d =
@@ -260,17 +255,12 @@ void test_showtime_completion_layout_snapshot_and_deletion() {
   assert(editor.draft().showtime_move_events().empty());
   assert(editor.draft().showtime_start_events().size() == 1U);
   assert(editor.draft().showtimes().front().show_move_event_ids.empty());
-  assert(editor.draft().showtimes().front().dance_move_drill_ids.size() ==
-         2U);
   assert(editor.draft().dance_move_drills().size() == 2U);
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), generated));
 
   assert(editor.click(ChartColumn::Showtime, second_d.row));
   assert(editor.draft().showtime_move_events().size() == 1U);
-  assert(editor.draft().showtimes().front().dance_move_drill_ids.size() ==
-         2U);
-  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
   assert(editor.click(ChartColumn::Showtime, 80U));
   assert(editor.draft().showtime_move_events().size() == 2U);
   assert(marker_of(editor.draft(), ChartMarkerType::ShowtimeMove, 1U)

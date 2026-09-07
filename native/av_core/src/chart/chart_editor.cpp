@@ -879,8 +879,8 @@ struct CompleteDrill final {
   auto* showtime = find_showtime(draft, showtime_id.value);
   if (showtime == nullptr ||
       showtime->start_event_id.value != showtime_start_event_id.value ||
-      showtime->show_move_event_ids.size() >
-          showtime->dance_move_drill_ids.size()) {
+      showtime->dance_move_drill_ids.size() !=
+          showtime->show_move_event_ids.size()) {
     return {ChartEditCode::InvalidDraft, false, {0U}};
   }
   const auto drills =
@@ -895,29 +895,7 @@ struct CompleteDrill final {
       return {ChartEditCode::InvalidDraft, false, {0U}};
     }
   }
-
-  for (std::size_t index = 0U; index < showtime->show_move_event_ids.size();
-       ++index) {
-    const auto event_id = showtime->show_move_event_ids[index].value;
-    const auto event = std::find_if(
-        draft.showtime_move_events.begin(), draft.showtime_move_events.end(),
-        [event_id](const ChartShowtimeMoveEvent& candidate) {
-          return candidate.id.value == event_id;
-        });
-    if (event == draft.showtime_move_events.end() ||
-        event->showtime_id.value != showtime_id.value ||
-        event->dance_move_drill_id.value !=
-            showtime->dance_move_drill_ids[index].value) {
-      return {ChartEditCode::InvalidDraft, false, {0U}};
-    }
-  }
-
-  for (std::size_t index = showtime->dance_move_drill_ids.size();
-       index < drills.size(); ++index) {
-    showtime->dance_move_drill_ids.push_back(drills[index].id);
-  }
-
-  const auto begin = showtime->show_move_event_ids.size();
+  const auto begin = showtime->dance_move_drill_ids.size();
   if (begin == drills.size()) {
     return {ChartEditCode::NoRemainingDanceMoves, false, {0U}};
   }
@@ -975,6 +953,7 @@ struct CompleteDrill final {
     draft.showtime_move_events.push_back(
         {{event_id}, pending[index].row, showtime_id, pending[index].drill_id,
          pending[index].show_n_count});
+    showtime->dance_move_drill_ids.push_back(pending[index].drill_id);
     showtime->show_move_event_ids.push_back({event_id});
   }
   std::sort(draft.showtime_move_events.begin(),
@@ -1145,13 +1124,19 @@ void erase_showtime_events(MutableDraft& draft,
     if (erased(showtime.start_event_id)) {
       showtime.start_event_id = {0U};
     }
+    const auto pair_count = std::min(showtime.dance_move_drill_ids.size(),
+                                     showtime.show_move_event_ids.size());
+    std::vector<ChartDanceMoveDrillId> kept_drills;
     std::vector<ChartEventId> kept_events;
+    kept_drills.reserve(showtime.dance_move_drill_ids.size());
     kept_events.reserve(showtime.show_move_event_ids.size());
-    for (const auto event_id : showtime.show_move_event_ids) {
-      if (!erased(event_id)) {
-        kept_events.push_back(event_id);
+    for (std::size_t index = 0U; index < pair_count; ++index) {
+      if (!erased(showtime.show_move_event_ids[index])) {
+        kept_drills.push_back(showtime.dance_move_drill_ids[index]);
+        kept_events.push_back(showtime.show_move_event_ids[index]);
       }
     }
+    showtime.dance_move_drill_ids = std::move(kept_drills);
     showtime.show_move_event_ids = std::move(kept_events);
   }
   draft.showtimes.erase(
