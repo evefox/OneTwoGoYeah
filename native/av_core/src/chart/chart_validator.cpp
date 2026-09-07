@@ -387,8 +387,9 @@ ChartValidationResult validate_finished_chart(
 
     for (const auto& showtime : draft.showtimes()) {
       bool valid = !showtime.dance_move_drill_ids.empty() &&
-                   showtime.dance_move_drill_ids.size() ==
-                       showtime.show_move_event_ids.size();
+                   !showtime.show_move_event_ids.empty() &&
+                   showtime.show_move_event_ids.size() <=
+                       showtime.dance_move_drill_ids.size();
       const auto* start =
           find_start_event(draft, showtime.start_event_id.value);
       if (start == nullptr) {

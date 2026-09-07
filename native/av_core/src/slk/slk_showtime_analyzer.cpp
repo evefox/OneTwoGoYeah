@@ -159,29 +159,31 @@ SlkShowtimeAnalysisResult analyze_slk_showtimes(
                            {}};
       auto d_index = c_index + 1U;
       const auto& drills = showtime.stage.drills();
-      for (std::size_t index = 0U; index < drills.size(); ++index) {
-        if (d_index >= rows.size() || rows[d_index].type != SlkRowType::D) {
+      std::size_t d_count = 0U;
+      while (d_index < rows.size() && rows[d_index].type == SlkRowType::D) {
+        if (d_count >= drills.size()) {
           return SlkShowtimeAnalysisResult{
               make_failure(SlkShowtimeError::ShowtimeDCountMismatch, rows,
-                           d_index, showtimes.size(), 0U, index)};
+                           d_index, showtimes.size(), 0U, d_count)};
         }
-        if (rows[d_index].value != drills[index].move_n_count) {
+        if (rows[d_index].value != drills[d_count].move_n_count) {
           return SlkShowtimeAnalysisResult{
               make_failure(SlkShowtimeError::ShowtimeDValueMismatch, rows,
-                           d_index, showtimes.size(), 0U, index)};
+                           d_index, showtimes.size(), 0U, d_count)};
         }
         showtime.show_d_rows.push_back({{rows[d_index].sheet_row},
                                         rows[d_index],
                                         d_index,
-                                        index,
-                                        drills[index].id,
+                                        d_count,
+                                        drills[d_count].id,
                                         rows[d_index].value});
         ++d_index;
+        ++d_count;
       }
-      if (d_index < rows.size() && rows[d_index].type == SlkRowType::D) {
+      if (d_count == 0U) {
         return SlkShowtimeAnalysisResult{
             make_failure(SlkShowtimeError::ShowtimeDCountMismatch, rows,
-                         d_index, showtimes.size(), 0U, drills.size())};
+                         c_index + 1U, showtimes.size(), 0U, 0U)};
       }
 
       showtimes.push_back(std::move(showtime));

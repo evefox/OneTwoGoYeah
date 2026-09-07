@@ -93,7 +93,8 @@ enum class SlkShowtimeError : std::uint8_t {
     case SlkShowtimeError::MissingShowtime:
       return "SLK ordinary stage is not followed by Showtime";
     case SlkShowtimeError::ShowtimeDCountMismatch:
-      return "SLK Showtime d row count does not match its dance moves";
+      return "SLK Showtime must contain at least one d row and no more than "
+             "its preceding dance move drills";
     case SlkShowtimeError::ShowtimeDValueMismatch:
       return "SLK Showtime d value does not match dance move n count";
     case SlkShowtimeError::MissingFileBoundary:

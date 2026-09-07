@@ -244,10 +244,24 @@ void test_showtime_count_value_and_boundary_errors() {
   auto fewer = valid_rows();
   const auto second_d = find_row(fewer, SlkRowType::D, 1U);
   fewer.erase(fewer.begin() + static_cast<std::ptrdiff_t>(second_d));
-  const auto& fewer_failure = failure_of(
-      records(std::move(fewer)), SlkShowtimeError::ShowtimeDCountMismatch);
-  assert(fewer_failure.showtime_index == 0U);
-  assert(fewer_failure.show_d_index == 1U);
+  const auto fewer_result = analyze_slk_showtimes(records(std::move(fewer)));
+  assert(fewer_result);
+  assert(fewer_result.analysis()->showtimes()[0].stage.drills().size() ==
+         2U);
+  assert(fewer_result.analysis()->showtimes()[0].show_d_rows.size() == 1U);
+  assert(fewer_result.analysis()->showtimes()[0].show_d_rows[0]
+             .dance_move_drill_id.value ==
+         fewer_result.analysis()->showtimes()[0].stage.drills()[0].id.value);
+
+  auto none = valid_rows();
+  const auto second_d_none = find_row(none, SlkRowType::D, 1U);
+  const auto first_d_none = find_row(none, SlkRowType::D, 0U);
+  none.erase(none.begin() + static_cast<std::ptrdiff_t>(second_d_none));
+  none.erase(none.begin() + static_cast<std::ptrdiff_t>(first_d_none));
+  const auto& none_failure = failure_of(
+      records(std::move(none)), SlkShowtimeError::ShowtimeDCountMismatch);
+  assert(none_failure.showtime_index == 0U);
+  assert(none_failure.show_d_index == 0U);
 
   auto more = valid_rows();
   const auto second_d_more = find_row(more, SlkRowType::D, 1U);

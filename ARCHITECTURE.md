@@ -188,9 +188,9 @@ SLK `c` 值的编码、解码和校验都由共享核心负责：
 
 成功结果以首个 `DrillGroup` 标识作为同文档唯一且可复现的 `DanceMoveDrill` 标识，并保留每个来源组的原序列索引、组内索引、NPC/玩家两个原始 `c` 来源行、`cValue` 和解码段长。NPC 与玩家各自按组顺序拼接去掉 `c` 后的 `n/s` 行，得到带显式角色、演练标识和连续舞步内索引的自有 `DanceMove`；两者的 `n` 数量等于权威 `moveNCount` 且最后一行是唯一的 `s`。结果同时透传普通序列的底层起止行和 Showtime/文件边界类型，不扫描或关联边界后的 `d`。
 
-`Showtime` 识别和舞步关联同样属于 `av_core`。在成品谱面中，`[c & 0]` 标记结束紧邻其前的有序演示/练习阶段，并开始对应的 Showtime。随后连续出现的非零 `d` 条目按顺序与该阶段的 `DanceMoveDrill` 一一对应。每个 `d` 值必须等于所引用 `DanceMove` 的 `moveNCount`。共享模型为每个 `SHOW-D` 显式保留关联和自身的 `showNCount`：严格导入时它来自已校验的 `d` 值，自动补全时它是生成当下所引用 `DanceMove.moveNCount` 的快照。关联只用于来源追踪和成品校验，不是实时数据绑定；Flutter、C ABI 和其他适配层不得通过自行扫描 SLK 行重新建立关联。兼容导出先写 Showtime 标记，再写有序 `d` 条目。
+`Showtime` 识别和舞步关联同样属于 `av_core`。在成品谱面中，`[c & 0]` 标记结束紧邻其前的有序演示/练习阶段，并开始对应的 Showtime。随后至少一个、最多覆盖全部前置舞步演练的连续非零 `d` 条目，按顺序与该阶段 `DanceMoveDrill` 的有序前缀一一对应；不能跳过前置舞步或只引用后缀。每个 `d` 值必须等于所引用 `DanceMove` 的 `moveNCount`。共享模型保留该阶段的全部 `DanceMoveDrill` 列表，并为每个已展示的 `SHOW-D` 显式保留关联和自身的 `showNCount`：严格导入时它来自已校验的 `d` 值，自动补全时它是生成当下所引用 `DanceMove.moveNCount` 的快照。关联只用于来源追踪和成品校验，不是实时数据绑定；Flutter、C ABI 和其他适配层不得通过自行扫描 SLK 行重新建立关联。兼容导出先写 Showtime 标记，再写有序 `d` 条目。
 
-当前完整语义入口为 `analyze_slk_showtimes(records)`。它从底层第一个谱面行开始，对每个普通阶段调用上述唯一分组和舞步演练入口；普通阶段必须非空且必须紧随 `[c & 0]`。其后连续 `d` 的数量必须与该阶段的有序 `DanceMoveDrill` 数量相同，且逐项值等于 `moveNCount`。Showtime 标识取 `c0` 的 sheet row，`SHOW-D` 标识取自身 sheet row；每个自有 `SHOW-D` 同时保存来源底层行、阶段内索引、所引用演练标识和来自已校验 `d` 的 `showNCount`。
+当前完整语义入口为 `analyze_slk_showtimes(records)`。它从底层第一个谱面行开始，对每个普通阶段调用上述唯一分组和舞步演练入口；普通阶段必须非空且必须紧随 `[c & 0]`。其后连续 `d` 的数量必须在 `1..该阶段 DanceMoveDrill 数量` 内，且逐项值等于有序前缀中对应舞步的 `moveNCount`。Showtime 标识取 `c0` 的 sheet row，`SHOW-D` 标识取自身 sheet row；每个自有 `SHOW-D` 同时保存来源底层行、阶段内索引、所引用演练标识和来自已校验 `d` 的 `showNCount`。
 
 分析器继续从 `d` 后第一行解释下一普通阶段，接受零个或一个末行 `[r & 0]`，并在存在时把它作为已消费的格式边界返回，不创建领域事件。空谱面、空普通阶段、缺少 Showtime、分组或舞步分析失败、`d` 数量/值不匹配或非末行边界均原子失败。失败携带绝对来源行、sheet row、Showtime/阶段组/`SHOW-D` 索引及下层稳定错误，不暴露任何部分 Showtime。
 

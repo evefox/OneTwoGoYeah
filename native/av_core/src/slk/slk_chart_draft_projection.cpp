@@ -134,8 +134,9 @@ SlkChartDraftProjectionResult project_finished_slk_to_chart_draft(
       if (source_showtime.c_row.type != SlkRowType::C ||
           source_showtime.c_row.value != 0U ||
           source_showtime.stage.drills().empty() ||
-          source_showtime.stage.drills().size() !=
-              source_showtime.show_d_rows.size()) {
+          source_showtime.show_d_rows.empty() ||
+          source_showtime.show_d_rows.size() >
+              source_showtime.stage.drills().size()) {
         return SlkChartDraftProjectionResult{
             {SlkChartDraftProjectionError::InvalidFinishedDocument,
              source_showtime.c_row.sheet_row}};
@@ -165,9 +166,14 @@ SlkChartDraftProjectionResult project_finished_slk_to_chart_draft(
           {{source_showtime.c_row.sheet_row},
            source_showtime.c_row.position.total_sixteenth,
            {source_showtime.id.value}});
-      for (const auto& source_show_d : source_showtime.show_d_rows) {
+      for (std::size_t index = 0U;
+           index < source_showtime.show_d_rows.size(); ++index) {
+        const auto& source_show_d = source_showtime.show_d_rows[index];
         if (source_show_d.row.type != SlkRowType::D ||
-            source_show_d.show_n_count != source_show_d.row.value) {
+            source_show_d.show_n_count != source_show_d.row.value ||
+            source_show_d.show_d_index != index ||
+            source_show_d.dance_move_drill_id.value !=
+                source_showtime.stage.drills()[index].id.value) {
           return SlkChartDraftProjectionResult{
               {SlkChartDraftProjectionError::InvalidFinishedDocument,
                source_show_d.row.sheet_row}};

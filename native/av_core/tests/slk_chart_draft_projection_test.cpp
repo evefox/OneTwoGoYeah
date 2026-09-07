@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "av_core/chart/chart_validator.hpp"
 #include "av_core/slk/slk_chart_draft_projection.hpp"
 
 #include <cassert>
@@ -96,8 +97,9 @@ void assert_relations(const ChartDraft& draft) {
 
   for (const auto& showtime : draft.showtimes()) {
     assert(!showtime.dance_move_drill_ids.empty());
-    assert(showtime.dance_move_drill_ids.size() ==
-           showtime.show_move_event_ids.size());
+    assert(!showtime.show_move_event_ids.empty());
+    assert(showtime.show_move_event_ids.size() <=
+           showtime.dance_move_drill_ids.size());
     for (std::size_t index = 0U; index < showtime.show_move_event_ids.size();
          ++index) {
       const auto event_id = showtime.show_move_event_ids[index];
@@ -114,6 +116,26 @@ void assert_relations(const ChartDraft& draft) {
       assert(found);
     }
   }
+}
+
+void test_prefix_showtime_projection_and_validation() {
+  const auto document =
+      import_file(std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  auto showtimes = document.semantics().showtimes();
+  assert(showtimes.front().stage.drills().size() == 6U);
+  assert(showtimes.front().show_d_rows.size() == 6U);
+  showtimes.front().show_d_rows.resize(1U);
+  FinishedSlkDocument prefix_document{otgy::core::SlkShowtimeAnalysis{
+      std::move(showtimes), document.semantics().boundary_row(),
+      document.semantics().boundary_source_row_index()}};
+
+  const auto result =
+      otgy::core::project_finished_slk_to_chart_draft(prefix_document);
+  const auto& draft = draft_of(result);
+  assert(draft.showtimes().front().dance_move_drill_ids.size() == 6U);
+  assert(draft.showtimes().front().show_move_event_ids.size() == 1U);
+  const auto validation = otgy::core::validate_finished_chart(draft);
+  assert(validation.is_finished());
 }
 
 void test_canonical_projection_and_ownership() {
@@ -209,6 +231,7 @@ void test_error_messages() {
 int main() {
   test_canonical_projection_and_ownership();
   test_compatibility_projection();
+  test_prefix_showtime_projection_and_validation();
   test_invalid_finished_document();
   test_error_messages();
   return 0;

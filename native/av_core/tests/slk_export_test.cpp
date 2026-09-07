@@ -37,6 +37,27 @@ namespace {
   return std::move(validation).take_finished_chart();
 }
 
+[[nodiscard]] otgy::core::FinishedChart prefix_finished_from_file(
+    const std::string& path) {
+  const auto bytes = read_file(path);
+  auto import = otgy::core::import_finished_slk(bytes.data(), bytes.size());
+  assert(import);
+  auto showtimes = import.document()->semantics().showtimes();
+  assert(showtimes.front().show_d_rows.size() > 1U);
+  showtimes.front().show_d_rows.resize(1U);
+  otgy::core::FinishedSlkDocument prefix_document{
+      otgy::core::SlkShowtimeAnalysis{
+          std::move(showtimes), import.document()->semantics().boundary_row(),
+          import.document()->semantics().boundary_source_row_index()}};
+  auto projection =
+      otgy::core::project_finished_slk_to_chart_draft(prefix_document);
+  assert(projection);
+  auto validation =
+      otgy::core::validate_finished_chart(*projection.draft());
+  assert(validation.is_finished());
+  return std::move(validation).take_finished_chart();
+}
+
 [[nodiscard]] otgy::core::FinishedChart make_finished_chart(
     const std::vector<std::pair<std::uint64_t, std::uint64_t>>& drill_shapes,
     std::uint64_t first_row = 1U) {
@@ -314,6 +335,24 @@ void test_compatibility_chart_uses_canonical_shell_and_reimports() {
   assert_same_draft_semantics(chart.draft(), *projection.draft());
 }
 
+void test_prefix_showtime_exports_and_reimports() {
+  const auto chart = prefix_finished_from_file(
+      std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  const auto exported = otgy::core::export_finished_chart_to_slk(chart);
+  assert(exported);
+  const auto& draft = chart.draft();
+  assert(draft.showtimes().front().dance_move_drill_ids.size() == 6U);
+  assert(draft.showtimes().front().show_move_event_ids.size() == 1U);
+
+  const auto reimport = otgy::core::import_finished_slk(
+      exported.bytes()->data(), exported.bytes()->size());
+  assert(reimport);
+  assert(reimport.document()->semantics().showtimes().front().stage.drills()
+             .size() == 6U);
+  assert(reimport.document()->semantics().showtimes().front().show_d_rows
+             .size() == 1U);
+}
+
 void test_direct_split_values_and_boundary_extension_reimport() {
   const auto chart = make_finished_chart({{3U, 1U}, {3U, 2U}});
   const auto exported = otgy::core::export_finished_chart_to_slk(chart);
@@ -421,6 +460,7 @@ void test_export_error_messages() {
 int main() {
   test_canonical_finished_chart_round_trips_byte_for_byte();
   test_compatibility_chart_uses_canonical_shell_and_reimports();
+  test_prefix_showtime_exports_and_reimports();
   test_direct_split_values_and_boundary_extension_reimport();
   test_range_fields_and_format_anchor_boundaries();
   test_export_error_messages();

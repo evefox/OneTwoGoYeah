@@ -493,10 +493,10 @@ DanceMoveDrill（舞步演练）
 ```text
 多个 DanceMoveDrill
 + [c & 0]
-+ 每个前置 DanceMoveDrill 对应一个 [d & moveNCount]
++ 前置 DanceMoveDrill 的有序前缀对应一个或多个 [d & moveNCount]
 ```
 
-Showtime 的 `d` 条目按相同顺序与前面的舞步演练一一对应。每个非零 `d` 值等于对应 `DanceMove` 的完整 `[n & 0]` 数量。因此 `[c & 0]` 是有业务含义的 Showtime 标记，不是 `DrillGroup` 头，也不是单纯的冗余汇总行。
+Showtime 至少包含一个 `d` 条目，且 `d` 条目数量不得超过前置 `DanceMoveDrill` 数量；它们只能按前置舞步演练的有序前缀一一对应。比如前置舞步数量为 `6、7、8、9` 时，合法的 Showtime 可以包含 `6`，也可以包含 `6、7`、`6、7、8` 或 `6、7、8、9`，但不能跳过前面的舞步或只引用后缀。每个非零 `d` 值等于对应 `DanceMove` 的完整 `[n & 0]` 数量。因此 `[c & 0]` 是有业务含义的 Showtime 标记，不是 `DrillGroup` 头，也不是单纯的冗余汇总行。
 
 成品谱面中，每个 `SHOW-D` 的非零 `d` 值必须等于所对应完整 `DanceMove` 的 `N` 总数，不使用某个拆分演练组的分段数量。严格导入时直接保留 SLK 中已经校验通过的 `d` 值；编辑器自动生成 `SHOW-D` 时，把生成当下对应舞步的 `N` 总数复制为该 `SHOW-D` 自身的 `showNCount` 快照：
 
@@ -845,6 +845,8 @@ targetRow(i) = clickedFirstPlyNRow + sourceRow(i) - sourceFirstNpcNRow
 - 有剩余舞步时，起始位置对应第一个剩余舞步，并依次为全部剩余舞步生成 `SHOW-D` 和稳定关联；每个 `SHOW-D` 的兼容 `d` 值由其关联完整舞步的 `N` 总数派生。
 - 上述派生只发生在本次生成时：生成器把当时的完整舞步 `N` 总数写入每个新 `SHOW-D` 的 `showNCount`，后续排布也使用该快照。提交后即使原舞步发生变化，已有 `SHOW-D` 也不自动更新。
 - 没有剩余舞步时，补全失败并提示没有可补全的剩余舞步，不新增 `SHOW-D`。
+
+自动补全首次执行时仍会为所有剩余前置舞步生成 `SHOW-D`。用户可以通过点击后面的 `SHOW-D` 删除其自身及后续连续的 `SHOW-D`，从而保留任意长度的前缀；删除不会删除 Showtime 已收集的前置舞步演练关系，之后仍可继续补全被删除的后缀。
 
 首个待生成 `SHOW-D` 使用给定起始位置。后续 `SHOW-D+` 的位置按前一个 `SHOW-D` 所在小节起点和对应舞步的一小节或两小节时长计算：
 
