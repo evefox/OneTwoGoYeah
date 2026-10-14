@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -285,6 +286,62 @@ void main() {
     },
   );
 
+  test('cancellation while finishing a platform document aborts after finish returns', () async {
+    const uri = 'content://documents/cancelled.json';
+    final finishEntered = Completer<void>();
+    final finishReleased = Completer<void>();
+    final methods = <String>[];
+    var cancelled = false;
+
+    final publication = AudioExportPublisher.publishPlatformDocument(
+      bytes: Uint8List.fromList([1, 2, 3]),
+      documentUri: uri,
+      isCancelled: () => cancelled,
+      invokeMethod: (method, arguments) async {
+        methods.add(method);
+        switch (method) {
+          case 'openDocumentWrite':
+            expect(arguments, {'uri': uri});
+            return 29;
+          case 'writeDocumentChunk':
+            expect(arguments['session'], 29);
+            expect(arguments['bytes'], orderedEquals([1, 2, 3]));
+          case 'finishDocumentWrite':
+            expect(arguments, {'session': 29});
+            finishEntered.complete();
+            await finishReleased.future;
+          case 'abortDocumentWrite':
+            expect(arguments, {'session': 29, 'uri': uri});
+          default:
+            fail('Unexpected files channel method: $method');
+        }
+        return null;
+      },
+    );
+    final cancelledPublication = expectLater(
+      publication,
+      throwsA(isA<AudioExportPublishCancelled>()),
+    );
+    try {
+      await finishEntered.future;
+      expect(methods, [
+        'openDocumentWrite',
+        'writeDocumentChunk',
+        'finishDocumentWrite',
+      ]);
+      cancelled = true;
+    } finally {
+      finishReleased.complete();
+    }
+    await cancelledPublication;
+    expect(methods, [
+      'openDocumentWrite',
+      'writeDocumentChunk',
+      'finishDocumentWrite',
+      'abortDocumentWrite',
+    ]);
+  });
+
   test(
     'Android document open failure deletes the reserved destination',
     () async {
@@ -312,6 +369,41 @@ void main() {
       expect(methods, ['openDocumentWrite', 'deleteDocument']);
     },
   );
+
+  for (final direct in [false, true]) {
+    test('diagnostic collisions preserve JSON with direct=$direct', () async {
+      final original = File('${directory.path}/diagnostics.json');
+      await original.writeAsBytes([9]);
+      final published = await AudioExportPublisher.publish(
+        bytes: Uint8List.fromList([1, 2, 3]),
+        selectedPath: original.path,
+        baseName: 'diagnostics',
+        localTime: DateTime(2026),
+        isCancelled: () => false,
+        collisionFileName: (index) => 'diagnostics_$index.json',
+        linkTemporaryFile: direct
+            ? (_, _) async =>
+                  throw PlatformException(code: 'file-publish-error')
+            : _linkForTest,
+        writeBytesNoReplace: (bytes, target, _, _) async {
+          if (await File(target).exists()) return false;
+          await File(target).writeAsBytes(bytes);
+          return true;
+        },
+      );
+      expect(published.uri.pathSegments.last, 'diagnostics_2.json');
+      expect(await original.readAsBytes(), [9]);
+      expect(await published.readAsBytes(), [1, 2, 3]);
+      expect(
+        directory.listSync().where((f) => f.path.endsWith('.ogg')),
+        isEmpty,
+      );
+      expect(
+        directory.listSync().where((f) => f.path.contains('.otgy-tmp')),
+        isEmpty,
+      );
+    });
+  }
 
   test('platform document commit releases the selected destination', () async {
     String? method;

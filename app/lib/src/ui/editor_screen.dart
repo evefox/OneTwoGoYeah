@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -10,6 +11,7 @@ import 'package:otgy_native/otgy_native.dart';
 
 import '../application/editor_controller.dart';
 import '../infrastructure/audio_export_publisher.dart';
+import '../infrastructure/local_diagnostics.dart';
 import '../infrastructure/local_project_store.dart';
 import 'editor_canvas.dart';
 import 'editor_theme.dart';
@@ -66,10 +68,16 @@ String? normalizeAndroidAudioFileName(String fileName, String? mimeType) {
 }
 
 class EditorScreen extends StatefulWidget {
-  const EditorScreen({super.key, this.controller, this.storeFactory});
+  const EditorScreen({
+    super.key,
+    this.controller,
+    this.storeFactory,
+    this.diagnostics,
+  });
 
   final EditorController? controller;
   final ProjectStoreFactory? storeFactory;
+  final LocalDiagnostics? diagnostics;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -89,6 +97,20 @@ class _EditorScreenState extends State<EditorScreen>
   EditorNotice? _shownNotice;
   bool _exitConfirmationOpen = false;
   bool _allowExit = false;
+  bool _exportingDiagnostics = false;
+  bool _diagnosticPickerActive = false;
+  bool _diagnosticExportCancelled = false;
+
+  LocalDiagnostics? get _diagnostics =>
+      widget.diagnostics ?? LocalDiagnostics.instance;
+
+  void _record(String event, Map<String, Object?> fields) {
+    _diagnostics?.record(event, fields);
+  }
+
+  void _recordException(String operation, Object error, StackTrace stack) {
+    _diagnostics?.recordException(operation, error, stack);
+  }
 
   @override
   void initState() {
@@ -110,7 +132,11 @@ class _EditorScreenState extends State<EditorScreen>
         state == AppLifecycleState.detached) {
       unawaited(_controller.pausePlayback());
       _controller.cancelAudioExport();
-      unawaited(_flushRecovery());
+      if (!_diagnosticPickerActive || state == AppLifecycleState.detached) {
+        _diagnosticExportCancelled = true;
+        unawaited(_flushRecovery());
+      }
+      unawaited(_diagnostics?.flush());
     }
     if (state == AppLifecycleState.detached && !_controller.isDirty) {
       unawaited(_store?.endSessionNormally());
@@ -133,6 +159,10 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       final store = await (widget.storeFactory ?? LocalProjectStore.open)();
       final session = await store.beginSession();
+      _record('store.session.started', {
+        'interrupted': session.wasInterrupted,
+        'hasRecovery': session.recoveryPayload != null,
+      });
       if (!mounted) {
         return;
       }
@@ -144,7 +174,8 @@ class _EditorScreenState extends State<EditorScreen>
       try {
         final probe = NativeChartEditor.decodeRecovery(payload);
         probe.dispose();
-      } on Object {
+      } on Object catch (error, stack) {
+        _recordException('recovery.validate', error, stack);
         await store.deleteRecovery();
         _controller.showNotice('无法恢复上次编辑：恢复数据已损坏。', error: true);
         return;
@@ -154,7 +185,8 @@ class _EditorScreenState extends State<EditorScreen>
           unawaited(_offerRecovery(payload));
         }
       });
-    } on Object {
+    } on Object catch (error, stack) {
+      _recordException('store.initialize', error, stack);
       if (mounted) {
         _controller.showNotice('无法访问本地草稿存储。', error: true);
       }
@@ -188,7 +220,12 @@ class _EditorScreenState extends State<EditorScreen>
       final payload = _controller.encodeRecoverySnapshot();
       await store.writeRecovery(payload);
       _flushedProjectRevision = revision;
-    } on Object {
+      _record('recovery.write.completed', {
+        'revision': revision,
+        'bytes': payload.length,
+      });
+    } on Object catch (error, stack) {
+      _recordException('recovery.write', error, stack);
       if (mounted) {
         _controller.showNotice('无法更新恢复快照。', error: true);
       }
@@ -222,6 +259,7 @@ class _EditorScreenState extends State<EditorScreen>
       _controller.showNotice('已恢复上次谱面编辑');
     } else {
       await _store?.deleteRecovery();
+      _record('recovery.discarded', {});
     }
   }
 
@@ -236,7 +274,8 @@ class _EditorScreenState extends State<EditorScreen>
     XFile? file;
     try {
       file = await openFile(acceptedTypeGroups: [type]);
-    } on Object {
+    } on Object catch (error, stack) {
+      _recordException('audio.file-picker', error, stack);
       _controller.showNotice('无法打开音频文件选择器。', error: true);
       return;
     }
@@ -257,7 +296,8 @@ class _EditorScreenState extends State<EditorScreen>
         await file.readAsBytes(),
         normalizedFileName,
       );
-    } on Object {
+    } on Object catch (error, stack) {
+      _recordException('audio.read', error, stack);
       _controller.showNotice('无法读取所选音频文件。', error: true);
     }
   }
@@ -586,7 +626,8 @@ class _EditorScreenState extends State<EditorScreen>
     try {
       _controller.importSlkBytes(await file.readAsBytes(), normalizedFileName);
       _controller.showNotice('SLK 已导入');
-    } on Object {
+    } on Object catch (error, stack) {
+      _recordException('slk.import', error, stack);
       _controller.showNotice('SLK 导入失败：文件不是完整有效的成品谱面。', error: true);
     }
   }
@@ -598,7 +639,14 @@ class _EditorScreenState extends State<EditorScreen>
       return;
     }
     while (mounted) {
-      final drafts = await store.listDrafts();
+      List<DraftSummary> drafts;
+      try {
+        drafts = await store.listDrafts();
+      } on Object catch (error, stack) {
+        _recordException('draft.list', error, stack);
+        if (mounted) _controller.showNotice('无法读取本地草稿。', error: true);
+        return;
+      }
       if (!mounted) {
         return;
       }
@@ -663,7 +711,13 @@ class _EditorScreenState extends State<EditorScreen>
       if (action.delete) {
         final confirmed = await _confirmDeleteDraft(action.draft.name);
         if (confirmed) {
-          await store.deleteDraft(action.draft.id);
+          try {
+            await store.deleteDraft(action.draft.id);
+            _record('draft.delete.completed', {});
+          } on Object catch (error, stack) {
+            _recordException('draft.delete', error, stack);
+            if (mounted) _controller.showNotice('草稿删除失败。', error: true);
+          }
         }
         continue;
       }
@@ -677,7 +731,8 @@ class _EditorScreenState extends State<EditorScreen>
           draftName: action.draft.name,
         );
         return;
-      } on Object {
+      } on Object catch (error, stack) {
+        _recordException('draft.load', error, stack);
         _controller.showNotice('草稿加载失败：数据已损坏。', error: true);
       }
     }
@@ -705,7 +760,14 @@ class _EditorScreenState extends State<EditorScreen>
         _controller.showNotice(error.message, error: true);
         return false;
       }
-      final existing = await store.findByName(targetName);
+      DraftSummary? existing;
+      try {
+        existing = await store.findByName(targetName);
+      } on Object catch (error, stack) {
+        _recordException('draft.find', error, stack);
+        _controller.showNotice('草稿保存失败。', error: true);
+        return false;
+      }
       if (existing != null && existing.id != _controller.draftId) {
         if (!await _confirmOverwriteDraft(targetName)) {
           return false;
@@ -728,8 +790,14 @@ class _EditorScreenState extends State<EditorScreen>
       _recoveryTimer?.cancel();
       _flushedProjectRevision = _controller.projectRevision;
       await store.deleteRecovery();
+      _record('draft.save.completed', {
+        'saveAs': saveAs,
+        'revision': _controller.projectRevision,
+        'bytes': payload.length,
+      });
       return true;
-    } on Object {
+    } on Object catch (error, stack) {
+      _recordException('draft.save', error, stack);
       _controller.showNotice('草稿保存失败。', error: true);
       return false;
     }
@@ -792,6 +860,120 @@ class _EditorScreenState extends State<EditorScreen>
     }
   }
 
+  Future<void> _exportDiagnostics() async {
+    if (_exportingDiagnostics ||
+        _controller.isBusy ||
+        !_controller.generalActionsEnabled) {
+      return;
+    }
+    _exportingDiagnostics = true;
+    _diagnosticExportCancelled = false;
+    String? documentUri;
+    var completed = false;
+    Future<void> discardUncommittedDocument() async {
+      final uri = documentUri;
+      if (completed || uri == null) return;
+      documentUri = null;
+      try {
+        await AudioExportPublisher.discardPlatformDocument(documentUri: uri);
+      } on Object catch (error, stack) {
+        _recordException('diagnostics.export.cleanup', error, stack);
+      }
+    }
+
+    try {
+      final payload = _controller.encodeRecoverySnapshot();
+      final state = _controller.diagnosticState;
+      _record('diagnostics.export.requested', state);
+      final logger = _diagnostics;
+      final bundle = logger == null
+          ? LocalDiagnostics.snapshotBundle(
+              recoveryPayload: payload,
+              state: state,
+            )
+          : await logger.exportBundle(recoveryPayload: payload, state: state);
+      final bytes = Uint8List.fromList(utf8.encode(jsonEncode(bundle)));
+      final time = DateTime.now().toUtc();
+      final baseName = 'otgy-diagnostics-${time.microsecondsSinceEpoch}';
+      final name = '$baseName.json';
+      bool cancelled() => !mounted || _diagnosticExportCancelled;
+      if (cancelled()) throw const AudioExportPublishCancelled();
+      final mobile =
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS;
+      String? selectedPath;
+      _diagnosticPickerActive = true;
+      try {
+        if (mobile) {
+          documentUri = await AudioExportPublisher.selectPlatformDocument(
+            suggestedName: name,
+            mimeType: 'application/json',
+          );
+        } else {
+          final location = await getSaveLocation(
+            suggestedName: name,
+            acceptedTypeGroups: const [
+              XTypeGroup(
+                label: '诊断包 JSON',
+                extensions: ['json'],
+                mimeTypes: ['application/json'],
+                uniformTypeIdentifiers: ['public.json'],
+              ),
+            ],
+          );
+          selectedPath = location?.path;
+        }
+      } finally {
+        _diagnosticPickerActive = false;
+      }
+      if (documentUri == null && selectedPath == null) {
+        _record('diagnostics.export.cancelled', {});
+        return;
+      }
+      if (cancelled()) throw const AudioExportPublishCancelled();
+      if (documentUri case final uri?) {
+        await AudioExportPublisher.publishPlatformDocument(
+          bytes: bytes,
+          documentUri: uri,
+          isCancelled: cancelled,
+        );
+        if (cancelled()) throw const AudioExportPublishCancelled();
+        await AudioExportPublisher.commitPlatformDocument(documentUri: uri);
+      } else {
+        await AudioExportPublisher.publish(
+          bytes: bytes,
+          selectedPath: selectedPath!,
+          baseName: baseName,
+          localTime: time,
+          isCancelled: cancelled,
+          collisionFileName: (index) => '${baseName}_$index.json',
+        );
+      }
+      completed = true;
+      _record('diagnostics.export.completed', {'bytes': bytes.length});
+      if (mounted) _controller.showNotice('诊断包已导出');
+    } on AudioExportPublishCancelled {
+      _record('diagnostics.export.cancelled', {});
+      if (mounted) _controller.showNotice('诊断导出已取消');
+    } on Object catch (error, stack) {
+      await discardUncommittedDocument();
+      if (mounted) {
+        await _showOperationError(
+          title: '诊断包导出失败',
+          operation: 'diagnostics-export',
+          error: error,
+          stackTrace: stack,
+        );
+      } else {
+        _recordException('diagnostics-export', error, stack);
+      }
+    } finally {
+      await discardUncommittedDocument();
+      _diagnosticPickerActive = false;
+      _exportingDiagnostics = false;
+    }
+  }
+
   Future<void> _exportSlk() async {
     final result = _controller.exportSlk();
     if (!result.isFinished) {
@@ -841,7 +1023,8 @@ class _EditorScreenState extends State<EditorScreen>
         mimeType: 'application/octet-stream',
       ).saveTo(location.path);
       _controller.showNotice('SLK 已导出');
-    } on Object {
+    } on Object catch (error, stack) {
+      _recordException('slk.export', error, stack);
       _controller.showNotice('SLK 导出失败。', error: true);
     }
   }
@@ -925,6 +1108,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _showAudioExportError(Object error, StackTrace stackTrace) {
+    _recordException('audio.export', error, stackTrace);
     final diagnostic = _formatOperationDiagnostic(
       'audio-export',
       error,
@@ -942,6 +1126,7 @@ class _EditorScreenState extends State<EditorScreen>
     required Object error,
     required StackTrace stackTrace,
   }) {
+    _recordException(operation, error, stackTrace);
     final diagnostic = _formatOperationDiagnostic(operation, error, stackTrace);
     return showDialog<void>(
       context: context,
@@ -1131,6 +1316,7 @@ class _EditorScreenState extends State<EditorScreen>
                           onSaveAs: () => _save(saveAs: true),
                           onClear: _confirmClear,
                           onExportSlk: _exportSlk,
+                          onExportDiagnostics: _exportDiagnostics,
                         ),
                         Expanded(child: EditorCanvas(controller: _controller)),
                         _StatusBar(

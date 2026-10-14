@@ -343,7 +343,7 @@ RecoveryPayload    = { chartDraft }
 
 正式草稿保存通过“完整临时文件写入、刷新、原子替换”的方式发布。任何失败都必须保留上一份有效正式草稿和当前内存工作区。草稿列表读取正式草稿索引，默认按最后修改时间降序排列；恢复快照不进入该索引。
 
-App 私有存储中最多存在一个恢复快照。每次已提交的谱面修改都会调度 `500` 毫秒防抖更新；进入后台和正常退出回调会请求立即刷新。恢复快照只保存版本化的 `ChartDraft` 谱面数据，明确不使用正式草稿的 BPM/Offset 负载。写入通过临时文件发布新的不可变记录，再删除旧代，因此崩溃最多丢失尚未刷新的最新修改，不能同时破坏上一份有效快照。
+App 私有存储中最多存在一个恢复快照。每次已提交的谱面修改都会调度 `500` 毫秒防抖更新；进入后台和正常退出回调会请求立即刷新，但诊断文件选择器活跃期间的 `paused`/`hidden` 不额外刷新，既有防抖和真正 `detached` 退出处理继续独立运行。恢复快照只保存版本化的 `ChartDraft` 谱面数据，明确不使用正式草稿的 BPM/Offset 负载。写入通过临时文件发布新的不可变记录，再删除旧代，因此崩溃最多丢失尚未刷新的最新修改，不能同时破坏上一份有效快照。
 
 恢复快照不保存 `WorkspaceSource`、正式草稿 ID、音频引用、平台授权凭据、BPM、Offset、规范 PCM、波形图块、分析缓存或视图状态。异常恢复只还原谱面数据，不恢复任何音频或界面会话状态。
 
@@ -356,6 +356,30 @@ App 私有存储中最多存在一个恢复快照。每次已提交的谱面修�
 正式负载在 `ChartDraft` 前逐位保存 BPM 和 Offset 的 IEEE-754 binary64 表示，并拒绝非有限或超出 App 权威范围的值；恢复负载结构中没有这两个字段。编码/解码只验证容器安全和字段表示，不调用成品校验器，因此零关系、缺失块、角色不匹配或其他允许的不完整草稿仍可逐值往返。名称、`draftId`、修改时间等索引元数据由上层正式草稿容器管理；音频、授权、PCM、波形、缓存、来源、播放/视图状态、历史及 `ChartEditor` 的会话内下一标识均不进入任一负载。
 
 当前 `LocalProjectStore` 在 App 私有支持目录使用 version 1 JSON 外层和 `.otgydata` 不可变记录保存索引元数据，核心二进制负载以 Base64 携带。每次保存先完整写入并刷新临时文件，再在同目录发布新代；读取时忽略截断、损坏或未知版本记录，并保留仍有效的上一代。该外层只是平台存储适配，不解释或重写核心负载。
+
+## 本地诊断与验收构建契约
+
+诊断属于 App 基础设施，不引入新的领域实现。`OTGY_DIAGNOSTICS` 是默认 `false` 的编译期开关；关闭时不初始化详细日志目录或写入队列，开启时在私有支持目录保存 JSONL。初始化、记录、轮换、读取或导出日志失败不得抛入编辑流程或吞掉原有异常处理；失败状态即使没有可写目录也必须能够进入主动导出的诊断包。整个流程不访问网络。
+
+`LocalDiagnostics` 的生产上限是 `4` 个轮换文件，每文件 `262144` 字节，等待写入队列 `128` 条，单条 JSONL UTF-8 记录含换行最多 `16384` 字节。写入顺序按会话和序号保持，先检查字节上限再轮换，不拆出半条 JSON 记录。超长记录通过缩减字段并标记 `truncated`/`originalBytes` 保持合法 JSON；无法容纳或队列满时增加 `droppedRecords`。写入与导出读取串行化；读取损坏行时跳过并增加 `corruptLines`，存储错误以 `storageFailed` 和脱敏 `failure` 保留。日志队列、轮换与错误统计不得依赖 `LocalProjectStore`。
+
+`main` 捕获 Flutter 框架错误和平台异步错误时先记录脱敏异常，再链接原处理器；已有处理器的返回语义与默认错误报告必须保留，诊断自身失败不得导致递归报告。应用控制器通过白名单记录命令 `code`、`changed`、明确允许的参数和记录时的单份 `state`；正常编辑在更新投影和修订号后记录操作后状态，阻止或异常路径记录当时状态，保存与恢复路径也记录结果。状态包含谱面计数、修订号、dirty、来源类型、BPM/Offset 数值、当前行、undo/redo、选择模式与范围、是否有音频和剪贴板，但不得转储任意控制器对象、来源名称、草稿 ID、文件名、完整路径/URI、音频或任何剪贴板负载。新异常记录只保留类型、原生 domain/code/status、OS 数值代码、白名单平台代码与脱敏堆栈，不读取异常 message、details 或调用 error.toString()；非白名单平台代码写为 `[redacted code]`。历史 `exception` 仅允许 `operation`、`type`、`domain`、`code`、`status`、`osCode`、脱敏 `stack` 与严格白名单 `state`；`state` 只保留整数 `revision/markerCount/showtimeMoveCount`、有限数值 `bpm/offset/currentRow`、布尔 `dirty/hasAudio/canUndo/canRedo/selectionMode/hasClipboard`、已知枚举名 `sourceKind`，以及选择的布尔 `active` 和整数 `danceMoveDrillId/firstRow/lastRow`。未知键和类型不匹配字段丢弃，不允许任意嵌套文本。安全代码仍须遵守相应类型和平台代码白名单，未知异常原文丢弃。通用脱敏递归清理敏感键 `message`、`details`、`error`、`exception`，未知对象与非字符串 key 不调用 `toString()`。
+
+主动导出的版本 1 单 JSON 包使用以下字段契约：
+
+- `schemaVersion = 1`，`session` 为不含用户路径的会话标识；有 logger 时沿用其会话，无 logger 的 fallback 为本次导出生成会话。`capturedAt` 为复制恢复字节与状态时取得的 UTC 时间，在日志 `flush` 前记录；`createdAt` 为组包时取得的 UTC 时间，两个字段均保留。
+- `identity` 包含 `appVersion`、`buildId`、`buildTime`、`coreVersion`、`apiVersion`、`operatingSystem`、`operatingSystemVersion`、`buildMode`；验收包的 `buildMode` 为 `release`。
+- `captureState` 是白名单状态摘要，不包含来源/草稿名称、路径、音频或剪贴板内容。
+- `snapshot = { encoding: "base64", kind: "recovery", payload: "…" }`，`payload` 是当前 `NativeChartEditor.encodeRecovery` 返回字节的原样 Base64；该入口最终调用唯一的核心 `encode_recovery_snapshot`，不经过 SLK、不重新序列化字段、不读磁盘恢复快照、不调用成品校验。
+- `logs` 是按日志文件轮换与记录顺序汇集、再次执行通用脱敏的日志记录；`corruptLines`、`droppedRecords`、`storageFailed`、`failure` 描述采集限制与失败。`detailedDiagnosticsEnabled` 是编译期开关；`initializationFailure` 是可空的安全错误字段 JSON 字符串，`failure` 优先报告 logger 存储错误，否则报告初始化错误。普通构建与验收构建均提供导出菜单；无 logger 时调用 `snapshotBundle`，保留身份、状态与谱面，`logs` 为空、丢弃与损坏计数为零，初始化失败由上述字段明确表示。仅关闭日志不令 `storageFailed` 为 true。
+
+只有用户主动导出时才捕获 `snapshot`，日常日志不保存谱面负载；包不包含音频、系统或编辑器剪贴板、私人完整路径/URI、文件名或草稿名。空草稿和无 store 会话均可编码。捕获/发布属于只读操作，不改 dirty/source/revision/history/selection/clipboard，不调用 store 的恢复写入、清理或会话标记。诊断文件选择器的 `paused`/`hidden` 只抑制额外的生命周期恢复刷新，已有 `500` 毫秒防抖继续独立运行，`detached` 仍执行真实退出处理。
+
+JSON 发布复用 `io.onetwogoyeah/files`：桌面在同名 `.json` 或发布瞬间竞争时重试可用名称，最终发布必须不替换；移动端原样分块写入后 publish/commit，在 `finish` 返回后及 `commit` 前检查取消；失败或取消时对未提交文档执行 abort 并尝试删除，失败清理必须在显示错误弹窗前尝试完成。适配层只处理字节、目标与所有权，不理解包内谱面。导出遵守一般操作门控和 `!isBusy`，并单独防止重复导出。
+
+`scripts/build-acceptance.py` 使用 Python 标准库生成并运行验收 Release 命令，只支持 `apk`、`macos`、`windows`、`ios`，不安装或操作设备。脚本从实际 `app/pubspec.yaml` 的唯一顶层 `version` 读取版本，同时传递对应 `--build-name`、`--build-number` 与 `OTGY_APP_VERSION`；注入 `OTGY_DIAGNOSTICS=true`、`OTGY_BUILD_ID`、`OTGY_BUILD_TIME`。构建 ID 由完整 git commit、clean/dirty 状态和 UTC 时间构成，构建时间采用 UTC ISO 8601；身份字段不包含本机用户名、工作目录或 SDK 路径。
+
+脚本默认优先使用仓库缓存的 `build/flutter-sdk/bin/flutter`（Windows 为 `flutter.bat`），否则使用 PATH 中的 Flutter；`--flutter` 可指定已有 SDK。固定 `--release`、`--no-pub`、禁用 analytics 与版本检查，要求依赖和平台工具预先缓存，不自动解析依赖或下载 SDK。`--dry-run` 只读取本地版本和 git 身份并输出实际命令 JSON，不运行 Flutter。`--` 后仅允许已定义的打包白名单：APK 的 `--split-per-abi`、`--target-platform`，iOS 的 `--no-codesign`；其他参数一律拒绝，包括模式、版本、全部 dart defines/define 文件、配置与目标入口覆盖，防止替换诊断开关或身份。常规构建仍默认关闭详细日志。
 
 ## 平台边界
 

@@ -86,6 +86,7 @@ class EditorToolbars extends StatelessWidget {
     required this.onSaveAs,
     required this.onClear,
     required this.onExportSlk,
+    required this.onExportDiagnostics,
   });
 
   final EditorController controller;
@@ -98,6 +99,7 @@ class EditorToolbars extends StatelessWidget {
   final VoidCallback onSaveAs;
   final VoidCallback onClear;
   final VoidCallback onExportSlk;
+  final VoidCallback onExportDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -134,6 +136,7 @@ class EditorToolbars extends StatelessWidget {
                 onSaveAs: onSaveAs,
                 onClear: onClear,
                 onExportSlk: onExportSlk,
+                onExportDiagnostics: onExportDiagnostics,
               ),
             ],
           );
@@ -419,6 +422,7 @@ class _ChartToolbar extends StatelessWidget {
     required this.onSaveAs,
     required this.onClear,
     required this.onExportSlk,
+    required this.onExportDiagnostics,
   });
 
   final EditorController controller;
@@ -429,6 +433,7 @@ class _ChartToolbar extends StatelessWidget {
   final VoidCallback onSaveAs;
   final VoidCallback onClear;
   final VoidCallback onExportSlk;
+  final VoidCallback onExportDiagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -501,6 +506,12 @@ class _ChartToolbar extends StatelessWidget {
                       leadingIcon: const Icon(Icons.folder_open_outlined),
                       onPressed: onOpenDrafts,
                       child: const Text('打开草稿'),
+                    ),
+                    MenuItemButton(
+                      key: const ValueKey('export-diagnostics'),
+                      leadingIcon: const Icon(Icons.bug_report_outlined),
+                      onPressed: enabled ? onExportDiagnostics : null,
+                      child: const Text('导出诊断包（含当前谱面）'),
                     ),
                   ],
                   builder: (context, menu, child) => TextButton(

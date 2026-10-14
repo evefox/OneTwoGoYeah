@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:otgy_native/otgy_native.dart';
 
+import '../infrastructure/local_diagnostics.dart';
 import '../infrastructure/playback_output.dart';
 
 enum EditorNoticeKind { info, error }
@@ -123,9 +124,17 @@ final class EditorNotice {
 }
 
 class EditorController extends ChangeNotifier {
-  EditorController({NativeChartEditor? editor, PlaybackOutput? playbackOutput})
-    : _editor = editor ?? NativeChartEditor.createEmpty(),
-      _playbackOutput = playbackOutput ?? const MethodChannelPlaybackOutput() {
+  EditorController({
+    NativeChartEditor? editor,
+    PlaybackOutput? playbackOutput,
+    DiagnosticRecorder? diagnosticRecorder,
+  }) : _editor = editor ?? NativeChartEditor.createEmpty(),
+       _playbackOutput = playbackOutput ?? const MethodChannelPlaybackOutput(),
+       _diagnosticRecorder =
+           diagnosticRecorder ??
+           (LocalDiagnostics.detailedEnabled
+               ? LocalDiagnostics.instance?.record
+               : null) {
     _zoom = _automaticEditZoomForBpm(_bpm);
     _refreshProjection();
     _refreshViewMetrics();
@@ -134,6 +143,7 @@ class EditorController extends ChangeNotifier {
 
   NativeChartEditor _editor;
   final PlaybackOutput _playbackOutput;
+  final DiagnosticRecorder? _diagnosticRecorder;
   NativeAudio? _audio;
   NativePlaybackSoundBank? _playbackSoundBank;
   Future<NativePlaybackSoundBank>? _playbackSoundBankFuture;
@@ -192,6 +202,131 @@ class EditorController extends ChangeNotifier {
   double? _playbackSoundResumeRow;
   AudioExportCancellation? _audioExportCancellation;
   AudioExportProgress? _audioExportProgress;
+
+  Map<String, Object?> get diagnosticState {
+    final selected = _editor.selection;
+    return Map<String, Object?>.unmodifiable({
+      'revision': _projectRevision,
+      'dirty': _isDirty,
+      'sourceKind': _sourceKind.name,
+      'hasAudio': hasAudio,
+      'bpm': _bpm,
+      'offset': _offset,
+      'currentRow': _currentRow,
+      'markerCount': _markers.length,
+      'showtimeMoveCount': _showtimeMoves.length,
+      'canUndo': canUndo,
+      'canRedo': canRedo,
+      'selectionMode': _selectionMode,
+      'selection': Map<String, Object?>.unmodifiable({
+        'active': selected.active,
+        'danceMoveDrillId': selected.danceMoveDrillId,
+        'firstRow': selected.firstRow,
+        'lastRow': selected.lastRow,
+      }),
+      'hasClipboard': _editor.hasClipboard,
+    });
+  }
+
+  /// Callers use static event identifiers and diagnostic metadata only.
+  void recordDiagnostic(
+    String event, [
+    Map<String, Object?> fields = const {},
+  ]) {
+    final recorder = _diagnosticRecorder;
+    if (recorder == null) return;
+    try {
+      const numericFields = {
+        'column',
+        'row',
+        'anchorRow',
+        'code',
+        'primaryEventId',
+        'domain',
+        'status',
+        'candidateCount',
+        'stage',
+        'audioVersion',
+        'completedUnits',
+        'totalUnits',
+      };
+      const booleanFields = {
+        'changed',
+        'enabled',
+        'blocked',
+        'cached',
+        'reused',
+      };
+      final metadata = <String, Object?>{};
+      for (final entry in fields.entries) {
+        final value = entry.value;
+        if ((numericFields.contains(entry.key) &&
+                value is num &&
+                value.isFinite) ||
+            (booleanFields.contains(entry.key) && value is bool)) {
+          metadata[entry.key] = value;
+        }
+      }
+      recorder(
+        event,
+        Map<String, Object?>.unmodifiable({
+          ...metadata,
+          'state': diagnosticState,
+        }),
+      );
+    } catch (_) {
+      // Diagnostics must never change an editor operation's outcome.
+    }
+  }
+
+  void recordDiagnosticException(
+    String operation,
+    Object error,
+    StackTrace stack,
+  ) {
+    final recorder = _diagnosticRecorder;
+    if (recorder == null) return;
+    try {
+      recorder(
+        'exception',
+        Map<String, Object?>.unmodifiable({
+          'operation': operation,
+          'type': error.runtimeType.toString(),
+          'stack': LocalDiagnostics.sanitizeText(stack.toString()),
+          if (error is OtgyException) ...{
+            'domain': error.domain,
+            'code': error.code,
+            'status': error.status,
+          },
+          'state': diagnosticState,
+        }),
+      );
+    } catch (_) {
+      // Diagnostics must never change an editor operation's outcome.
+    }
+  }
+
+  T _diagnosticCall<T>(String operation, T Function() action) {
+    try {
+      return action();
+    } catch (error, stack) {
+      recordDiagnosticException(operation, error, stack);
+      rethrow;
+    }
+  }
+
+  void _recordEdit(
+    String event,
+    EditResult result, [
+    Map<String, Object?> parameters = const {},
+  ]) {
+    recordDiagnostic(event, {
+      ...parameters,
+      'code': result.code,
+      'changed': result.changed,
+      'primaryEventId': result.primaryEventId,
+    });
+  }
 
   List<ChartMarker> get markers => _markers;
   List<ShowtimeMove> get showtimeMoves => _showtimeMoves;
@@ -318,8 +453,10 @@ class EditorController extends ChangeNotifier {
 
   Future<void> loadAudioBytes(Uint8List bytes, String fileName) async {
     if (_isBusy || !generalActionsEnabled) {
+      recordDiagnostic('audio.load', {'blocked': true});
       return;
     }
+    recordDiagnostic('audio.load.start');
     _setBusy(true);
     NativeAudio? pending;
     try {
@@ -379,7 +516,12 @@ class EditorController extends ChangeNotifier {
       _invalidatePlaybackSoundSession();
       _notice = const EditorNotice('音频已加载');
       _updateDirty();
-    } on Object {
+      recordDiagnostic('audio.load', {
+        'changed': true,
+        'audioVersion': _audioVersion,
+      });
+    } catch (error, stack) {
+      recordDiagnosticException('audio.load', error, stack);
       pending?.dispose();
       _notice = const EditorNotice(
         '音频加载失败：无法解码或生成波形，所选音频未加载。',
@@ -446,9 +588,17 @@ class EditorController extends ChangeNotifier {
 
   void clickCell(int column, int row) {
     if (_isBusy || !generalActionsEnabled) {
+      recordDiagnostic('click', {
+        'column': column,
+        'row': row,
+        'blocked': true,
+      });
       return;
     }
-    final result = _editor.click(column, math.max(0, row));
+    final result = _diagnosticCall(
+      'click',
+      () => _editor.click(column, math.max(0, row)),
+    );
     if (result.changed) {
       _refreshProjection();
       _commitChartChange();
@@ -456,10 +606,12 @@ class EditorController extends ChangeNotifier {
       _notice = EditorNotice(_editMessage(result.code));
       notifyListeners();
     }
+    _recordEdit('click', result, {'column': column, 'row': row});
   }
 
   void toggleSelectionMode() {
     if (_isBusy || !generalActionsEnabled) {
+      recordDiagnostic('selectionMode.toggle', {'blocked': true});
       return;
     }
     if (_selectionMode) {
@@ -471,49 +623,84 @@ class EditorController extends ChangeNotifier {
 
   void enterSelectionMode() {
     if (_isBusy || !generalActionsEnabled || _selectionMode) {
+      recordDiagnostic('selectionMode.enter', {'blocked': true});
       return;
     }
     _selectionMode = true;
     notifyListeners();
+    recordDiagnostic('selectionMode.enter', {'enabled': true, 'changed': true});
   }
 
   void exitSelectionMode() {
     if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      recordDiagnostic('selectionMode.exit', {'blocked': true});
       return;
     }
-    _editor.clearSelection();
-    _editor.clearClipboard();
+    final clearedSelection = _diagnosticCall(
+      'selection.clear',
+      _editor.clearSelection,
+    );
+    final clearedClipboard = _diagnosticCall(
+      'clipboard.clear',
+      _editor.clearClipboard,
+    );
     _selectionMode = false;
     notifyListeners();
+    recordDiagnostic('selection.clear', {
+      'code': clearedSelection.code,
+      'changed': clearedSelection.changed,
+    });
+    recordDiagnostic('clipboard.clear', {
+      'code': clearedClipboard.code,
+      'changed': clearedClipboard.changed,
+    });
+    recordDiagnostic('selectionMode.exit', {'enabled': false, 'changed': true});
   }
 
   void selectAt(int column, int row) {
     if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      recordDiagnostic('select', {
+        'column': column,
+        'row': row,
+        'blocked': true,
+      });
       return;
     }
-    final result = _editor.select(column, math.max(0, row));
+    final result = _diagnosticCall(
+      'select',
+      () => _editor.select(column, math.max(0, row)),
+    );
     if (result.code != 0) {
       _notice = EditorNotice(_editMessage(result.code));
     }
     notifyListeners();
+    recordDiagnostic('select', {
+      'column': column,
+      'row': row,
+      'code': result.code,
+      'changed': result.changed,
+    });
   }
 
   void copySelection() {
     if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      recordDiagnostic('copy', {'blocked': true});
       return;
     }
-    final result = _editor.copySelection();
+    final result = _diagnosticCall('copy', _editor.copySelection);
     if (result.code != 0) {
       _notice = EditorNotice(_editMessage(result.code));
     }
     notifyListeners();
+    recordDiagnostic('copy', {'code': result.code, 'changed': result.changed});
   }
 
   void cutSelection() {
     if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      recordDiagnostic('cut', {'blocked': true});
       return;
     }
-    final result = _editor.cutSelection();
+    final result = _diagnosticCall('cut', _editor.cutSelection);
     if (result.changed) {
       _refreshProjection();
       _commitChartChange();
@@ -521,13 +708,16 @@ class EditorController extends ChangeNotifier {
       _notice = EditorNotice(_editMessage(result.code));
       notifyListeners();
     }
+    _recordEdit('cut', result);
   }
 
   void pasteAtCursor() {
     if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      recordDiagnostic('paste', {'blocked': true});
       return;
     }
-    final result = _editor.paste(math.max(0, _currentRow.round()));
+    final anchorRow = math.max(0, _currentRow.round());
+    final result = _diagnosticCall('paste', () => _editor.paste(anchorRow));
     if (result.changed) {
       _refreshProjection();
       _commitChartChange();
@@ -535,50 +725,64 @@ class EditorController extends ChangeNotifier {
       _notice = EditorNotice(_editMessage(result.code));
       notifyListeners();
     }
+    _recordEdit('paste', result, {'anchorRow': anchorRow});
   }
 
   void undo() {
     if (!canUndo || _isBusy || !generalActionsEnabled) {
+      recordDiagnostic('undo', {'blocked': true});
       return;
     }
-    _editor.undo();
+    final result = _diagnosticCall('undo', _editor.undo);
     _refreshProjection();
     _commitChartChange();
+    _recordEdit('undo', result);
   }
 
   void redo() {
     if (!canRedo || _isBusy || !generalActionsEnabled) {
+      recordDiagnostic('redo', {'blocked': true});
       return;
     }
-    _editor.redo();
+    final result = _diagnosticCall('redo', _editor.redo);
     _refreshProjection();
     _commitChartChange();
+    _recordEdit('redo', result);
   }
 
   void clearChart() {
     if (_isBusy || !generalActionsEnabled) {
+      recordDiagnostic('clear', {'blocked': true});
       return;
     }
-    final result = _editor.clear();
+    final result = _diagnosticCall('clear', _editor.clear);
     if (result.changed) {
       _refreshProjection();
       _commitChartChange();
     }
+    _recordEdit('clear', result);
   }
 
   Future<List<AudioAnalysisCandidate>> analyzeAudio() {
     final cached = _analysisCandidates;
     if (cached != null) {
+      recordDiagnostic('audio.analysis', {
+        'cached': true,
+        'candidateCount': cached.length,
+      });
       return Future.value(cached);
     }
     final existing = _analysisFuture;
     if (existing != null) {
+      recordDiagnostic('audio.analysis', {'reused': true});
       return existing;
     }
     final bytes = _audioSourceBytes;
     final extension = _audioExtension;
     if (bytes == null || extension == null) {
-      return Future.error(StateError('No audio is loaded.'));
+      final error = StateError('No audio is loaded.');
+      recordDiagnosticException('audio.analysis', error, StackTrace.current);
+      return Future.error(error);
     }
     final version = _audioVersion;
     final source = Uint8List.fromList(bytes);
@@ -592,9 +796,11 @@ class EditorController extends ChangeNotifier {
       if (stage != null) {
         _analysisStage = stage;
         notifyListeners();
+        recordDiagnostic('audio.analysis.stage', {'stage': stage.value});
       }
     });
     _analysisStage = SyncAnalysisStage.detectingOnsets;
+    recordDiagnostic('audio.analysis.start', {'audioVersion': version});
     _setBusy(true);
     final future =
         Isolate.run(
@@ -607,9 +813,16 @@ class EditorController extends ChangeNotifier {
             .then((candidates) {
               if (version == _audioVersion) {
                 _analysisCandidates = List.unmodifiable(candidates);
+                recordDiagnostic('audio.analysis', {
+                  'candidateCount': candidates.length,
+                });
                 return _analysisCandidates!;
               }
               throw StateError('Audio changed while analysis was running.');
+            })
+            .onError((Object error, StackTrace stack) {
+              recordDiagnosticException('audio.analysis', error, stack);
+              Error.throwWithStackTrace(error, stack);
             })
             .whenComplete(() async {
               await stageSubscription.cancel();
@@ -731,10 +944,14 @@ class EditorController extends ChangeNotifier {
       if (cancellation.isRequested) {
         throw const AudioExportCancelled();
       }
-    } on OtgyException catch (error) {
+    } on OtgyException catch (error, stack) {
+      recordDiagnosticException('audio.export', error, stack);
       if (error.domain == 9 && error.code == 1) {
         throw const AudioExportCancelled();
       }
+      rethrow;
+    } catch (error, stack) {
+      recordDiagnosticException('audio.export', error, stack);
       rethrow;
     } finally {
       await progressSubscription?.cancel();
@@ -762,9 +979,13 @@ class EditorController extends ChangeNotifier {
 
   void importSlkBytes(Uint8List bytes, String fileName) {
     if (!generalActionsEnabled) {
+      recordDiagnostic('project.importSlk', {'blocked': true});
       return;
     }
-    final pending = NativeChartEditor.importSlk(bytes);
+    final pending = _diagnosticCall(
+      'project.importSlk',
+      () => NativeChartEditor.importSlk(bytes),
+    );
     _replaceEditor(pending);
     _sourceKind = WorkspaceSourceKind.importedSlk;
     _sourceName = fileName;
@@ -774,6 +995,7 @@ class EditorController extends ChangeNotifier {
     _projectRevision++;
     _currentRow = 0;
     notifyListeners();
+    recordDiagnostic('project.importSlk', {'changed': true});
   }
 
   void loadFormalDraft({
@@ -782,9 +1004,13 @@ class EditorController extends ChangeNotifier {
     required String draftName,
   }) {
     if (!generalActionsEnabled) {
+      recordDiagnostic('project.load', {'blocked': true});
       return;
     }
-    final decoded = NativeChartEditor.decodeFormal(payload);
+    final decoded = _diagnosticCall(
+      'project.load',
+      () => NativeChartEditor.decodeFormal(payload),
+    );
     _replaceEditor(decoded.editor);
     _bpm = decoded.bpm;
     _offset = decoded.offset;
@@ -798,13 +1024,18 @@ class EditorController extends ChangeNotifier {
     _currentRow = 0;
     _synchronizeAutomaticEditZoom();
     notifyListeners();
+    recordDiagnostic('project.load', {'changed': true});
   }
 
   void restoreRecovery(Uint8List payload) {
     if (!generalActionsEnabled) {
+      recordDiagnostic('project.restore', {'blocked': true});
       return;
     }
-    final pending = NativeChartEditor.decodeRecovery(payload);
+    final pending = _diagnosticCall(
+      'project.restore',
+      () => NativeChartEditor.decodeRecovery(payload),
+    );
     _replaceEditor(pending);
     _sourceKind = WorkspaceSourceKind.untitled;
     _sourceName = null;
@@ -814,6 +1045,7 @@ class EditorController extends ChangeNotifier {
     _projectRevision++;
     _currentRow = 0;
     notifyListeners();
+    recordDiagnostic('project.restore', {'changed': true});
   }
 
   Uint8List encodeFormalDraft() =>
@@ -835,6 +1067,7 @@ class EditorController extends ChangeNotifier {
     _isDirty = false;
     _notice = const EditorNotice('草稿已保存');
     notifyListeners();
+    recordDiagnostic('project.saved');
   }
 
   String get suggestedProjectBaseName {
@@ -953,7 +1186,8 @@ class EditorController extends ChangeNotifier {
         (_) => unawaited(_pollPlayback(generation)),
       );
       notifyListeners();
-    } on Object {
+    } catch (error, stack) {
+      recordDiagnosticException('playback.start', error, stack);
       _playbackGeneration++;
       _playbackMode = EditorPlaybackMode.idle;
       _playbackStart = null;
@@ -982,7 +1216,8 @@ class EditorController extends ChangeNotifier {
         return;
       }
       _finishPlaybackAt(state.playedFrames, forcePause: true);
-    } on Object {
+    } catch (error, stack) {
+      recordDiagnosticException('playback.pause', error, stack);
       if (generation != _playbackGeneration) {
         return;
       }
@@ -1003,7 +1238,8 @@ class EditorController extends ChangeNotifier {
         return;
       }
       _finishPlaybackAt(state.playedFrames, forcePause: !state.playing);
-    } on Object {
+    } catch (error, stack) {
+      recordDiagnosticException('playback.query', error, stack);
       if (generation != _playbackGeneration) {
         return;
       }
@@ -1246,6 +1482,9 @@ class EditorController extends ChangeNotifier {
         }
       }
       notifyListeners();
+    } catch (error, stack) {
+      recordDiagnosticException('waveform.generate', error, stack);
+      rethrow;
     } finally {
       _setBusy(false);
     }

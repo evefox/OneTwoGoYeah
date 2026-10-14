@@ -359,6 +359,31 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 
 ## 最后成功验证
 
+### 2026-10-14：离线本地诊断与验收构建入口
+
+已接通 `OTGY_DIAGNOSTICS` 编译期开关、本地有界 JSONL、构建身份、编辑命令与结果、保存恢复及异常日志，以及普通/验收构建共有的“导出诊断包（含当前谱面）”。主动导出使用共享核心恢复编码的原始字节，不调用成品校验或 SLK 导出；日志不包含谱面负载、音频、文件/草稿名或剪贴板内容。异常不读取 message/details，不 stringify 未知对象；历史异常状态按类型与字段白名单再次过滤。移动端在 finish 返回后与 commit 前检查取消，失败先尝试未提交文档清理，再显示原有可复制错误弹窗。
+
+已通过的实际命令：
+
+```text
+cd app
+../build/flutter-sdk/bin/dart format test/diagnostics_export_test.dart
+../build/flutter-sdk/bin/flutter --suppress-analytics --no-version-check analyze --no-pub
+../build/flutter-sdk/bin/flutter --suppress-analytics --no-version-check test --no-pub --reporter expanded
+../build/flutter-sdk/bin/flutter --suppress-analytics --no-version-check test --no-pub --dart-define=OTGY_DIAGNOSTICS=true --reporter expanded test/local_diagnostics_test.dart test/main_diagnostics_test.dart test/editor_diagnostics_test.dart test/diagnostics_export_test.dart test/diagnostics_lifecycle_test.dart test/audio_export_publisher_test.dart
+
+cd ..
+python3 -B scripts/test_build_acceptance.py
+python3 -B -c "from pathlib import Path; paths = sorted(Path('scripts').glob('*.py')); [compile(p.read_bytes(), str(p), 'exec') for p in paths]; print(f'Python syntax OK: {len(paths)} files')"
+git diff --check
+```
+
+结果：最终格式检查 `1` 文件、`0` 变化（此前全部 `12` 个诊断相关 Dart 文件格式检查也为 `0` 变化）；Flutter 静态检查无问题；默认配置完整回归 `164/164`、开启诊断的六文件定向回归 `76/76` 均通过。成功、取消、捕获失败、选择器失败、写入失败、提交失败与 finish 等待期间 detached 均验证工作区状态保护；剪贴板不只检查可粘贴，还在卸载界面隔离恢复监听后，与独立同源会话实际粘贴，并逐字节比较正式草稿及恢复编码。JSON 冲突不覆盖原文件且保持 `.json` 扩展名的普通发布与直接写入回退测试均通过。历史首轮三项导出等待失败在最终完整回归中未再出现，未确认其根因，不将其归为已证实的生产缺陷。
+
+验收脚本测试 `5/5` 通过，包含 APK/macOS/Windows/iOS 的真实 CLI dry-run、版本读取、构建身份和参数覆盖拒绝；两个 Python 文件内存语法编译及 `git diff --check` 通过。dry-run 使用不存在的 Flutter 路径，未启动打包或安装。
+
+验证边界：本轮为本地主机单元/Widget、原生 FFI 与模拟平台通道回归，不代替四平台实际发布验收。本轮没有构建新的诊断 Release APK/App，没有安装或操作设备，没有修改已保存的设备草稿；下面的既有发布包及设备结果不是本轮诊断验收结果。
+
 ### 2026-10-14：空演练组清理与 Showtime 再生成
 
 核心在候选草稿与提交边界按角色事件的 `drill_group_id` 删除零绑定事件的演练组，并移除舞步中的组引用，再判断 Showtime 是否失效。删除一组 NPC 后仍保留该组玩家内容；删除其最后一个角色事件后，剩余完整组可以再次生成 `SHOW-D`。存活事件的组即使关系向量为空仍保留，加载、只读查询和失败命令不修改旧快照，撤销/重做精确恢复完整关系。
@@ -463,6 +488,6 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 ## 唯一下一步
 
-本轮 Showtime 阻塞问题已闭环：保存现场的原生解码确认残留空组是直接阻塞条件，当前核心在原始 payload 的内存副本上完成无损清理与 SHOW-D 再生成，独立 Android 模拟器三项真实 App/FFI 集成回归 `3/3` 通过，原 `emulator-5554` 保存文件保持逐字节不变。
+本地诊断实现、规格、状态保护测试和验收打包入口已完成；最终静态检查、默认配置完整 Flutter 回归 `164/164`、开启诊断的六文件定向回归 `76/76` 与四平台脚本测试 `5/5` 均通过。
 
-唯一下一步是继续阶段 9 的跨环境发布验证；三 ABI 原生资产检查与正式签名仍按上面的已知问题处理，不将本轮 Debug 模拟器验证视为这些发布检查已经完成。
+唯一下一步是在另行授权后使用验收入口构建新的诊断 Release，并在对应环境完成跨平台运行验证。本轮不打包、不安装、不操作设备；三 ABI 原生资产检查与正式签名仍按上面的已知问题处理，脚本 dry-run、既有 Debug 模拟器和历史 Release 结果不代表新的诊断构建已经通过发布验收。

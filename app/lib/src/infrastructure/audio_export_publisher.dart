@@ -90,6 +90,9 @@ abstract final class AudioExportPublisher {
       await invokeMethod('finishDocumentWrite', <String, Object?>{
         'session': session,
       });
+      if (isCancelled()) {
+        throw const AudioExportPublishCancelled();
+      }
       completed = true;
     } finally {
       if (!completed) {
@@ -131,6 +134,7 @@ abstract final class AudioExportPublisher {
     void Function(int completedUnits, int totalUnits)? onProgress,
     LinkTemporaryFile linkTemporaryFile = _linkTemporaryFile,
     WriteBytesNoReplace? writeBytesNoReplace,
+    String Function(int collisionIndex)? collisionFileName,
   }) async {
     var target = File(selectedPath);
     // A sandboxed macOS save panel can authorize only the selected path, not
@@ -153,6 +157,7 @@ abstract final class AudioExportPublisher {
         isCancelled: isCancelled,
         onProgress: onProgress,
         writeBytesNoReplace: directWriter,
+        collisionFileName: collisionFileName,
       );
     }
     var published = false;
@@ -189,11 +194,13 @@ abstract final class AudioExportPublisher {
             published = true;
             return target;
           }
-          final name = OtgyNative.makeAudioExportFileName(
-            baseName: baseName,
-            localTime: localTime,
-            collisionIndex: collisionIndex,
-          );
+          final name =
+              collisionFileName?.call(collisionIndex) ??
+              OtgyNative.makeAudioExportFileName(
+                baseName: baseName,
+                localTime: localTime,
+                collisionIndex: collisionIndex,
+              );
           target = File('${target.parent.path}${Platform.pathSeparator}$name');
         }
       } on PlatformException catch (error) {
@@ -208,6 +215,7 @@ abstract final class AudioExportPublisher {
           isCancelled: isCancelled,
           onProgress: onProgress,
           writeBytesNoReplace: directWriter,
+          collisionFileName: collisionFileName,
         );
       }
     } finally {
@@ -225,6 +233,7 @@ abstract final class AudioExportPublisher {
     required bool Function() isCancelled,
     required void Function(int completedUnits, int totalUnits)? onProgress,
     required WriteBytesNoReplace writeBytesNoReplace,
+    required String Function(int collisionIndex)? collisionFileName,
   }) async {
     for (var collisionIndex = 1; ; collisionIndex++) {
       if (isCancelled()) {
@@ -238,11 +247,13 @@ abstract final class AudioExportPublisher {
       )) {
         return target;
       }
-      final name = OtgyNative.makeAudioExportFileName(
-        baseName: baseName,
-        localTime: localTime,
-        collisionIndex: collisionIndex + 1,
-      );
+      final name =
+          collisionFileName?.call(collisionIndex + 1) ??
+          OtgyNative.makeAudioExportFileName(
+            baseName: baseName,
+            localTime: localTime,
+            collisionIndex: collisionIndex + 1,
+          );
       target = File('${target.parent.path}${Platform.pathSeparator}$name');
     }
   }

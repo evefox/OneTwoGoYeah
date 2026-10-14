@@ -1,12 +1,46 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import 'src/application/editor_controller.dart';
+import 'src/infrastructure/local_diagnostics.dart';
 import 'src/ui/editor_screen.dart';
 import 'src/ui/editor_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeAppDiagnostics();
   runApp(const OneTwoGoYeahApp());
+}
+
+Future<LocalDiagnostics?> initializeAppDiagnostics() async {
+  final diagnostics = await LocalDiagnostics.initialize();
+  if (diagnostics != null) {
+    installDiagnosticErrorHandlers(diagnostics);
+    diagnostics.record('startup', LocalDiagnostics.buildIdentity);
+  }
+  return diagnostics;
+}
+
+void installDiagnosticErrorHandlers(LocalDiagnostics logger) {
+  final previousFlutterError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    logger.recordException(
+      'flutter',
+      details.exception,
+      details.stack ?? StackTrace.empty,
+    );
+    if (previousFlutterError != null) {
+      previousFlutterError(details);
+    } else {
+      FlutterError.presentError(details);
+    }
+  };
+  final previousPlatformError = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    logger.recordException('platform', error, stack);
+    return previousPlatformError?.call(error, stack) ?? false;
+  };
 }
 
 class OneTwoGoYeahApp extends StatelessWidget {

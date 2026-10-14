@@ -759,6 +759,40 @@ Offset 微调浮窗测试必须验证：
 
 Android 平台构建完成后运行 `tool/verify_android_native_asset.sh`，逐一检查 `arm64-v8a`、`armeabi-v7a` 和 `x86_64` 的 `libotgy_native.so` 导出 `otgy_chart_create_empty`，且不声明或打包 `libc++_shared.so` 依赖。该检查防止 FFI 首次加载因 NDK C++ 运行库缺失而失败；模拟器或真机启动验证仍需在阶段 9 完成。
 
+## 本地诊断验收
+
+诊断测试在 App 基础设施、控制器、Widget 与既有文件通道层进行，不复制核心谱面算法。必须覆盖：
+
+- 未定义 `OTGY_DIAGNOSTICS` 时默认关闭，启动不查询日志存储目录、不创建日志文件；验收 Release 显式启用。日志目录初始化失败不阻断启动、编辑或主动导出，并能在包内观察失败。
+- 精确验证最多 `4` 个文件、每个最多 `262144` 字节、队列最多 `128` 条、单条 UTF-8 JSONL 含换行最多 `16384` 字节；用多字节字符触发截断，验证合法 JSON 与明确标志。突发队列溢出、目录消失、写入失败和损坏日志行分别验证丢弃数量、存储失败、损坏行计数，以及之后仍可导出。
+- 跨会话轮换、串行写入和主动导出的顺序正确；不拆出半条 JSON。对 Windows 路径、UNC、Unix 路径、带空格文件名、file/content URI、堆栈、嵌套与旧日志进行脱敏回归；新异常记录只保留类型、安全代码和脱敏堆栈，使用不含路径的敏感哨兵验证不读取 message/details、不调用 error.toString()。历史 `exception` 仅允许 `operation`、`type`、`domain`、`code`、`status`、`osCode`、脱敏 `stack` 与严格白名单 `state`，并用不含路径的敏感哨兵验证未知异常原文被丢弃；状态白名单测试逐值证明安全计数、有限时序值、布尔状态、已知来源类型和选择范围保留，未知键、非有限值、错误类型、非法来源类型和任意嵌套文本丢弃。递归敏感键 `message`、`details`、`error`、`exception` 必须脱敏；未知对象与非字符串 key 不得调用 `toString()`。保留排查所需的稳定错误代码与包内堆栈位置。
+- 白名单不泄漏来源名、草稿名、文件名、完整私有路径/URI、音频字节或系统/编辑器剪贴板；使用唯一敏感哨兵检查整个输出。日常日志不包含恢复谱面负载，只有用户主动导出才调用 `encodeRecovery`。
+- 单 JSON 包 `schemaVersion = 1`，构建/App/core/API/platform/mode 字段与实际构建一致；`captureState` 符合白名单。同时检查 `capturedAt` 为等待日志 flush 前的 UTC 采集时间、`createdAt` 为组包时间，及 `detailedDiagnosticsEnabled`、可空 `initializationFailure`、`storageFailed`、`failure` 的正常/关闭/初始化失败分支；无 logger 的 fallback 日志为空、丢弃与损坏计数为零，关闭本身不算存储失败。Base64 解码后的 `snapshot.payload` 与捕获时核心 `encodeRecovery` 输出逐字节相等，空白、不完整和有效草稿均可往返，不调用 SLK 或成品校验。
+- 普通构建与验收构建菜单可见名称均为 `导出诊断包（含当前谱面）`，按 `generalActionsEnabled && !isBusy` 启用，播放、音频导出和其他忙状态均禁用，导出期间不能重复启动；没有音频或 store、日志关闭或初始化失败、空白/不完整草稿仍可导出。
+- 用含选择与剪贴板、undo/redo、dirty 和来源的会话分别执行导出成功、取消、捕获失败、选择器失败、写入失败、提交失败及 finish 等待期间 detached；精确比较前后 dirty/source/revision/history/selection/clipboard。剪贴板不能只比较是否可粘贴：完成只读状态与存储断言后，卸载界面以隔离恢复监听，向相同空位置粘贴，并与未导出的独立同源会话逐字节比较正式草稿和恢复编码，证明剪贴板负载保持不变；该测试主动粘贴不计为诊断导出行为。另验证系统剪贴板不被读取或改写、store 没有恢复保存/删除或会话标记调用。
+- 在没有挂起恢复任务的选择器流程中发出 `paused`/`hidden`，证明没有额外恢复刷新；另以已经调度的 `500` 毫秒防抖证明原任务照常执行。`detached` 仍执行退出与必要恢复处理，选择器外的后台刷新行为保持正常。
+- 桌面 `.json` 同名和发布竞争不覆盖旧文件，能改名重试，失败清理临时输出；Android/iOS 文件会话按原样字节 publish/commit，覆盖 `finish` 返回后和 `commit` 前的取消检查，失败或取消 abort 并尝试删除未提交文档；验证失败清理在错误弹窗显示前尝试完成，路径目标和 URI 目标都可用。
+- main 框架与平台异常 hook 链接原处理器，保留默认输出和原返回语义；日志失败不触发递归或吞掉异常。控制器白名单日志包含命令 code/changed、允许参数与操作后单份状态，并覆盖保存、恢复和异常结果；阻止与异常路径记录当时状态，不记录前后双状态。
+
+## 验收 Release 构建入口
+
+`scripts/build-acceptance.py` 是仅构建、不安装的验收入口，使用 Python 标准库。脚本验证只执行语法检查和 dry-run，不启动 Flutter、不解析依赖、不联网、不操作设备：
+
+```text
+python3 -c "from pathlib import Path; p = Path('scripts/build-acceptance.py'); compile(p.read_text(encoding='utf-8'), str(p), 'exec')"
+python3 scripts/test_build_acceptance.py
+python3 scripts/build-acceptance.py apk --dry-run
+python3 scripts/build-acceptance.py macos --dry-run
+python3 scripts/build-acceptance.py windows --dry-run
+python3 scripts/build-acceptance.py ios --dry-run -- --no-codesign
+```
+
+读取 dry-run 的 JSON `command` 数组，逐项确认目标正确，固定 `--release`、`--no-pub`、禁用统计/版本检查；`--build-name`、`--build-number`、`OTGY_APP_VERSION` 均来源于当前 pubspec。`OTGY_BUILD_ID` 必须包含本地完整 git HEAD、clean/dirty 与 UTC 时间，`OTGY_BUILD_TIME` 是相同采集时刻的 UTC ISO 8601，身份字段没有本机路径或用户名；SDK 命令路径不属于身份字段。测试必须对 clean 和 dirty 仓库及非当前工作目录调用检查读取根目录正确，对更新后的 pubspec 检查版本随之变化，对缺失/重复/非法版本失败而不是静默使用旧版本。
+
+使用 dry-run 覆盖分离值与 `=` 形式的禁止透传：`--debug`、`--profile`、`--release`、`--build-name`、`--build-number`、`--dart-define=OTGY_DIAGNOSTICS=false`、`OTGY_APP_VERSION/OTGY_BUILD_ID/OTGY_BUILD_TIME` 的 defines、`--dart-define-from-file`、`--config-only` 和替代入口 `--target`。未知或缩写参数、嵌套 `--`、重复或非法平台打包选项也必须以非零状态退出，不启动 Flutter。白名单 APK `--split-per-abi`、`--target-platform` 和 iOS `--no-codesign` 则进入命令；不支持的构建目标拒绝。dry-run 即使指定不存在的 Flutter 可执行路径也能输出命令，证明没有启动 SDK。
+
+以上只验证命令与入口，不证明实际应用包构建成功。专用脚本测试以内存 `compile` 加载入口，四平台 CLI dry-run 在临时工作目录执行并使用不存在的 Flutter 路径；版本缺失/重复/非法与版本变化使用临时 pubspec，clean/dirty 使用模拟 git 返回，不修改真实 pubspec、不创建 git 提交。禁止透传测试对脚本子进程调用设置失败哨兵，确认拒绝发生在启动 git 或 Flutter 前。真实包需另行在对应已缓存的 SDK/平台工具环境构建并核对包版本与诊断身份；不得把 dry-run、内存语法检查或专用脚本测试记录成真实构建、安装或设备验收通过。
+
 ## 夹具规则
 
 - 在可行情况下，夹具应足够小，适合放入仓库。
