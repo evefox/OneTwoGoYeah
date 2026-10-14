@@ -1061,6 +1061,39 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
+  KeyEventResult _handleSelectionShortcut(FocusNode node, KeyEvent event) {
+    if (!_controller.selectionMode) {
+      return KeyEventResult.ignored;
+    }
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    if (focusContext?.findAncestorWidgetOfExactType<EditableText>() != null) {
+      return KeyEventResult.ignored;
+    }
+    final bindings = <ShortcutActivator, VoidCallback>{
+      const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+          _controller.copySelection,
+      const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+          _controller.copySelection,
+      const SingleActivator(LogicalKeyboardKey.keyX, control: true):
+          _controller.cutSelection,
+      const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
+          _controller.cutSelection,
+      const SingleActivator(LogicalKeyboardKey.keyV, control: true):
+          _controller.pasteAtCursor,
+      const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+          _controller.pasteAtCursor,
+      const SingleActivator(LogicalKeyboardKey.escape):
+          _controller.exitSelectionMode,
+    };
+    for (final binding in bindings.entries) {
+      if (binding.key.accepts(event, HardwareKeyboard.instance)) {
+        binding.value();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -1076,35 +1109,41 @@ class _EditorScreenState extends State<EditorScreen>
               unawaited(_confirmExit());
             }
           },
-          child: Scaffold(
-            body: Stack(
-              children: [
-                SafeArea(
-                  child: Column(
-                    children: [
-                      EditorToolbars(
-                        controller: _controller,
-                        onChooseAudio: _chooseAudio,
-                        onAnalyze: _analyzeAudio,
-                        onExportAudio: _exportAudio,
-                        onImportSlk: _importSlk,
-                        onOpenDrafts: _openDrafts,
-                        onSave: _save,
-                        onSaveAs: () => _save(saveAs: true),
-                        onClear: _confirmClear,
-                        onExportSlk: _exportSlk,
-                      ),
-                      Expanded(child: EditorCanvas(controller: _controller)),
-                      _StatusBar(
-                        controller: _controller,
-                        onJumpToTime: _jumpToSongTime,
-                      ),
-                    ],
+          child: Focus(
+            canRequestFocus: false,
+            skipTraversal: true,
+            includeSemantics: false,
+            onKeyEvent: _handleSelectionShortcut,
+            child: Scaffold(
+              body: Stack(
+                children: [
+                  SafeArea(
+                    child: Column(
+                      children: [
+                        EditorToolbars(
+                          controller: _controller,
+                          onChooseAudio: _chooseAudio,
+                          onAnalyze: _analyzeAudio,
+                          onExportAudio: _exportAudio,
+                          onImportSlk: _importSlk,
+                          onOpenDrafts: _openDrafts,
+                          onSave: _save,
+                          onSaveAs: () => _save(saveAs: true),
+                          onClear: _confirmClear,
+                          onExportSlk: _exportSlk,
+                        ),
+                        Expanded(child: EditorCanvas(controller: _controller)),
+                        _StatusBar(
+                          controller: _controller,
+                          onJumpToTime: _jumpToSongTime,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                if (_controller.isExportingAudio)
-                  _AudioExportProgressOverlay(controller: _controller),
-              ],
+                  if (_controller.isExportingAudio)
+                    _AudioExportProgressOverlay(controller: _controller),
+                ],
+              ),
             ),
           ),
         );

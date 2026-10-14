@@ -33,6 +33,24 @@ final BoxDecoration _canvasControlSurfaceDecoration = BoxDecoration(
 
 double editorCursorY(Size size) => size.height * editorCursorViewportFraction;
 
+Rect? projectEditorSelectionBand({
+  required ChartSelection selection,
+  required Rect chart,
+  required double cursorY,
+  required double currentRow,
+  required double rowSpacing,
+}) {
+  if (!selection.active) {
+    return null;
+  }
+  final top = cursorY + (selection.firstRow - currentRow - 0.5) * rowSpacing;
+  final bottom = cursorY + (selection.lastRow - currentRow + 0.5) * rowSpacing;
+  if (bottom < chart.top || top > chart.bottom) {
+    return null;
+  }
+  return Rect.fromLTRB(chart.left, top, chart.right, bottom);
+}
+
 int projectEditorRow({
   required double y,
   required double cursorY,
@@ -430,7 +448,26 @@ class _EditorCanvasState extends State<EditorCanvas>
     if (column == null) {
       return;
     }
-    widget.controller.clickCell(column, _rowAt(details.localPosition.dy, size));
+    _handleCellActivate(column, _rowAt(details.localPosition.dy, size));
+  }
+
+  void _handleCellActivate(int column, int row) {
+    _focusNode.requestFocus();
+    if (widget.controller.selectionMode) {
+      widget.controller.selectAt(column, row);
+    } else {
+      widget.controller.clickCell(column, row);
+    }
+  }
+
+  void _handleLongPress(LongPressStartDetails details, Size size) {
+    final column = _columnAt(details.localPosition, size);
+    if (column == null) {
+      return;
+    }
+    _focusNode.requestFocus();
+    widget.controller.enterSelectionMode();
+    widget.controller.selectAt(column, _rowAt(details.localPosition.dy, size));
   }
 
   void _handleScroll(PointerScrollEvent event) {
@@ -579,8 +616,9 @@ class _EditorCanvasState extends State<EditorCanvas>
               _cursorY(size) +
               (marker.row - widget.controller.currentRow) * spacing;
           final markerTop = math.max(rect.top, y - spacing / 2).toDouble();
-          final markerBottom =
-              math.min(rect.bottom, y + spacing / 2).toDouble();
+          final markerBottom = math
+              .min(rect.bottom, y + spacing / 2)
+              .toDouble();
           if (markerBottom <= markerTop) {
             continue;
           }
@@ -594,10 +632,7 @@ class _EditorCanvasState extends State<EditorCanvas>
               child: Semantics(
                 button: true,
                 label: _markerSemanticLabel(marker),
-                onTap: () => widget.controller.clickCell(
-                  marker.column,
-                  marker.row,
-                ),
+                onTap: () => _handleCellActivate(marker.column, marker.row),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -666,6 +701,9 @@ class _EditorCanvasState extends State<EditorCanvas>
                     key: const ValueKey('editor-canvas'),
                     behavior: HitTestBehavior.opaque,
                     onTapUp: (details) => _handleTap(details, size),
+                    onLongPressStart: _mobile
+                        ? (details) => _handleLongPress(details, size)
+                        : null,
                     onScaleStart: _handleScaleStart,
                     onScaleUpdate: _handleScaleUpdate,
                     onScaleEnd: _handleScaleEnd,
@@ -734,6 +772,12 @@ class _EditorCanvasState extends State<EditorCanvas>
                         navigation: navigation,
                       ),
                     ),
+                  ),
+                if (widget.controller.selectionMode)
+                  Positioned(
+                    left: 8,
+                    bottom: 56,
+                    child: _SelectionControls(controller: widget.controller),
                   ),
                 Positioned(
                   left: 8,
@@ -1068,6 +1112,49 @@ class _NavigationRailState extends State<_NavigationRail> {
   }
 }
 
+class _SelectionControls extends StatelessWidget {
+  const _SelectionControls({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = controller.generalActionsEnabled && !controller.isBusy;
+    return DecoratedBox(
+      decoration: _canvasControlSurfaceDecoration,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: const ValueKey('selection-copy'),
+            onPressed: enabled && controller.canCopySelection
+                ? controller.copySelection
+                : null,
+            tooltip: '复制',
+            icon: const Icon(Icons.copy_outlined, size: 20),
+          ),
+          IconButton(
+            key: const ValueKey('selection-cut'),
+            onPressed: enabled && controller.canCutSelection
+                ? controller.cutSelection
+                : null,
+            tooltip: '剪切',
+            icon: const Icon(Icons.content_cut_outlined, size: 20),
+          ),
+          IconButton(
+            key: const ValueKey('selection-paste'),
+            onPressed: enabled && controller.canPaste
+                ? controller.pasteAtCursor
+                : null,
+            tooltip: '粘贴',
+            icon: const Icon(Icons.content_paste_outlined, size: 20),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HistoryControls extends StatelessWidget {
   const _HistoryControls({required this.controller});
 
@@ -1169,6 +1256,7 @@ class _EditorCanvasPainter extends CustomPainter {
     }
     _drawShowtimeRanges(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawGrid(canvas, chart, cursorY, spacing, paintCurrentRow);
+    _drawSelection(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawMarkers(
       canvas,
       chart,
@@ -1180,6 +1268,36 @@ class _EditorCanvasPainter extends CustomPainter {
     _drawCursor(canvas, chart, cursorY);
     canvas.restore();
     _drawHeaders(canvas, chart, columnLayout);
+  }
+
+  void _drawSelection(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+    double paintCurrentRow,
+  ) {
+    final band = projectEditorSelectionBand(
+      selection: controller.selection,
+      chart: chart,
+      cursorY: cursorY,
+      currentRow: paintCurrentRow,
+      rowSpacing: spacing,
+    );
+    if (band == null) {
+      return;
+    }
+    canvas.drawRect(
+      band,
+      Paint()..color = EditorColors.accent.withValues(alpha: 0.10),
+    );
+    canvas.drawRect(
+      band,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = EditorColors.accent.withValues(alpha: 0.85),
+    );
   }
 
   void _drawColumnBackgrounds(Canvas canvas, _CanvasColumnLayout columnLayout) {

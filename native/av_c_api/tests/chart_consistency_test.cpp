@@ -85,6 +85,23 @@ void compare_edit(const otgy::core::ChartEditResult& direct,
          "chart edit result differs");
 }
 
+void compare_selection(const otgy::core::ChartSelection& direct,
+                       const otgy_chart_selection& abi) {
+  expect(abi.active == static_cast<std::uint8_t>(direct.active) &&
+             abi.dance_move_drill_id == direct.drill_id.value &&
+             abi.first_row == direct.first_row &&
+             abi.last_row == direct.last_row,
+         "chart selection differs");
+}
+
+void compare_session(const otgy::core::ChartSessionResult& direct,
+                     const otgy_chart_session_result& abi) {
+  expect(abi.code == static_cast<std::uint32_t>(direct.code) &&
+             abi.changed == static_cast<std::uint8_t>(direct.changed),
+         "chart session result differs");
+  compare_selection(direct.selection, abi.selection);
+}
+
 void compare_markers(const std::vector<otgy::core::ChartMarker>& direct,
                      const otgy_chart_markers* abi) {
   expect(otgy_chart_markers_get_count(abi) == direct.size(),
@@ -511,6 +528,226 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
              direct_editor.redo_count(),
          "redo history count differs");
 
+  const auto direct_select =
+      direct_editor.select(otgy::core::ChartColumn::Npc, 4U);
+  otgy_chart_session_result abi_session{};
+  expect(otgy_chart_editor_select(editor.get(), OTGY_CHART_COLUMN_NPC, 4U,
+                                  &abi_session, &raw_error) == OTGY_STATUS_OK,
+         "C ABI select failed");
+  compare_session(direct_select, abi_session);
+  expect(abi_session.selection.active == 1U &&
+             abi_session.selection.first_row == 0U &&
+             abi_session.selection.last_row == 4U,
+         "C ABI selection span differs");
+
+  otgy_chart_selection abi_selection{};
+  expect(otgy_chart_editor_get_selection(editor.get(), &abi_selection,
+                                         &raw_error) == OTGY_STATUS_OK,
+         "C ABI get selection failed");
+  compare_selection(direct_editor.selection(), abi_selection);
+  expect(otgy_chart_editor_get_undo_count(editor.get()) ==
+                 direct_editor.undo_count() &&
+             otgy_chart_editor_get_redo_count(editor.get()) ==
+                 direct_editor.redo_count(),
+         "selection changed chart history");
+
+  const auto direct_deselect =
+      direct_editor.select(otgy::core::ChartColumn::Npc, 100U);
+  expect(otgy_chart_editor_select(editor.get(), OTGY_CHART_COLUMN_NPC, 100U,
+                                  &abi_session, &raw_error) == OTGY_STATUS_OK,
+         "C ABI empty row select failed");
+  compare_session(direct_deselect, abi_session);
+  expect(abi_session.changed == 1U && abi_session.selection.active == 0U,
+         "empty row did not clear the C ABI selection");
+
+  const auto direct_clear_selection = direct_editor.clear_selection();
+  expect(otgy_chart_editor_clear_selection(editor.get(), &abi_session,
+                                           &raw_error) == OTGY_STATUS_OK,
+         "C ABI clear selection failed");
+  compare_session(direct_clear_selection, abi_session);
+  expect(abi_session.changed == 0U && abi_session.selection.active == 0U,
+         "clearing an empty C ABI selection reported a change");
+
+  const auto direct_reselect =
+      direct_editor.select(otgy::core::ChartColumn::Npc, 4U);
+  expect(otgy_chart_editor_select(editor.get(), OTGY_CHART_COLUMN_NPC, 4U,
+                                  &abi_session, &raw_error) == OTGY_STATUS_OK,
+         "C ABI select failed");
+  compare_session(direct_reselect, abi_session);
+  abi_selection = {1U, 7U, 8U, 9U};
+  expect(otgy_chart_editor_get_selection(nullptr, &abi_selection, &raw_error) ==
+                 OTGY_STATUS_INVALID_ARGUMENT &&
+             abi_selection.active == 0U &&
+             abi_selection.dance_move_drill_id == 0U &&
+             abi_selection.first_row == 0U && abi_selection.last_row == 0U,
+         "null editor exposed a C ABI selection");
+  auto session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
+               OTGY_ABI_ERROR_NULL_ARGUMENT,
+               "required C ABI argument is null");
+  session_error.reset();
+
+  abi_session = {1U, 1U, {1U, 7U, 8U, 9U}};
+  expect(otgy_chart_editor_clear_selection(nullptr, &abi_session, &raw_error) ==
+                 OTGY_STATUS_INVALID_ARGUMENT &&
+             abi_session.code == 0U && abi_session.changed == 0U &&
+             abi_session.selection.active == 0U &&
+             abi_session.selection.dance_move_drill_id == 0U,
+         "null editor was not rejected");
+  session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
+               OTGY_ABI_ERROR_NULL_ARGUMENT,
+               "required C ABI argument is null");
+  session_error.reset();
+
+  expect(otgy_chart_editor_select(editor.get(), OTGY_CHART_COLUMN_NPC, 4U,
+                                  nullptr, &raw_error) ==
+             OTGY_STATUS_INVALID_ARGUMENT,
+         "null session result was not rejected");
+  session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
+               OTGY_ABI_ERROR_NULL_ARGUMENT,
+               "required C ABI argument is null");
+  session_error.reset();
+
+  expect(otgy_chart_editor_has_clipboard(editor.get()) == 0U &&
+             otgy_chart_editor_has_clipboard(nullptr) == 0U,
+         "clipboard state differs before copy");
+
+  const auto direct_copy = direct_editor.copy_selection();
+  expect(otgy_chart_editor_copy_selection(editor.get(), &abi_session,
+                                          &raw_error) == OTGY_STATUS_OK,
+         "C ABI copy selection failed");
+  compare_session(direct_copy, abi_session);
+  expect(abi_session.changed == 1U &&
+             otgy_chart_editor_has_clipboard(editor.get()) == 1U,
+         "C ABI copy did not fill the clipboard");
+  expect(otgy_chart_editor_get_undo_count(editor.get()) ==
+             direct_editor.undo_count(),
+         "copy changed chart history");
+
+  const auto history_before_paste = direct_editor.undo_count();
+  const auto direct_paste = direct_editor.paste(200U);
+  otgy_chart_edit_result abi_paste{};
+  expect(otgy_chart_editor_paste(editor.get(), 200U, &abi_paste, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI paste failed");
+  compare_edit(direct_paste, abi_paste);
+  expect(abi_paste.code == OTGY_CHART_EDIT_SUCCESS &&
+             abi_paste.changed == 1U &&
+             otgy_chart_editor_get_undo_count(editor.get()) ==
+                 history_before_paste + 1U,
+         "successful C ABI paste did not add one history entry");
+
+  otgy_chart_selection abi_pasted_selection{};
+  expect(otgy_chart_editor_get_selection(editor.get(), &abi_pasted_selection,
+                                         &raw_error) == OTGY_STATUS_OK,
+         "C ABI pasted selection read-back failed");
+  const auto& direct_pasted_selection = direct_editor.selection();
+  expect(abi_pasted_selection.active == 1U &&
+             abi_pasted_selection.dance_move_drill_id ==
+                 direct_pasted_selection.drill_id.value &&
+             abi_pasted_selection.first_row == 200U &&
+             abi_pasted_selection.last_row == 204U,
+         "C ABI pasted selection differs");
+
+  abi_paste = {7U, 7U, 7U};
+  const auto direct_occupied = direct_editor.paste(200U);
+  expect(otgy_chart_editor_paste(editor.get(), 200U, &abi_paste, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI occupied paste failed");
+  compare_edit(direct_occupied, abi_paste);
+  expect(abi_paste.code == OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED &&
+             abi_paste.changed == 0U &&
+             otgy_chart_editor_get_undo_count(editor.get()) ==
+                 history_before_paste + 1U,
+         "occupied C ABI paste was not reported");
+
+  abi_paste = {7U, 7U, 7U};
+  expect(otgy_chart_editor_paste(nullptr, 0U, &abi_paste, &raw_error) ==
+                 OTGY_STATUS_INVALID_ARGUMENT &&
+             abi_paste.code == 0U && abi_paste.changed == 0U &&
+             abi_paste.primary_event_id == 0U,
+         "null editor was not rejected by paste");
+  session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
+               OTGY_ABI_ERROR_NULL_ARGUMENT,
+               "required C ABI argument is null");
+  session_error.reset();
+
+  // cut_selection reports through the edit result because it edits the draft,
+  // and it is never blocked by a Showtime. clear_clipboard reports through the
+  // session result because it only drops session state.
+  const auto history_before_cut = otgy_chart_editor_get_undo_count(editor.get());
+  const auto direct_cut = direct_editor.cut_selection();
+  otgy_chart_edit_result abi_cut{7U, 7U, 7U};
+  expect(otgy_chart_editor_cut_selection(editor.get(), &abi_cut, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI cut failed");
+  compare_edit(direct_cut, abi_cut);
+  expect(abi_cut.code == OTGY_CHART_EDIT_SUCCESS && abi_cut.changed == 1U &&
+             otgy_chart_editor_get_undo_count(editor.get()) ==
+                 history_before_cut + 1U &&
+             otgy_chart_editor_has_clipboard(editor.get()) == 1U,
+         "C ABI cut was not reported");
+  otgy_chart_selection abi_cut_selection{7U, 7U, 7U, 7U};
+  expect(otgy_chart_editor_get_selection(editor.get(), &abi_cut_selection,
+                                         &raw_error) == OTGY_STATUS_OK &&
+             abi_cut_selection.active == 0U,
+         "cut did not clear the C ABI selection");
+
+  const auto direct_cut_again = direct_editor.cut_selection();
+  abi_cut = {7U, 7U, 7U};
+  expect(otgy_chart_editor_cut_selection(editor.get(), &abi_cut, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI cut without a selection failed");
+  compare_edit(direct_cut_again, abi_cut);
+  expect(abi_cut.code == OTGY_CHART_EDIT_SELECTION_UNAVAILABLE &&
+             abi_cut.changed == 0U && abi_cut.primary_event_id == 0U &&
+             otgy_chart_editor_get_undo_count(editor.get()) ==
+                 history_before_cut + 1U,
+         "cut without a C ABI selection was not reported");
+
+  const auto history_before_clear_clipboard =
+      otgy_chart_editor_get_undo_count(editor.get());
+  const auto direct_clear_clipboard = direct_editor.clear_clipboard();
+  otgy_chart_session_result abi_clear_clipboard{};
+  expect(otgy_chart_editor_clear_clipboard(editor.get(), &abi_clear_clipboard,
+                                           &raw_error) == OTGY_STATUS_OK,
+         "C ABI clipboard clear failed");
+  compare_session(direct_clear_clipboard, abi_clear_clipboard);
+  expect(abi_clear_clipboard.code == OTGY_CHART_EDIT_SUCCESS &&
+             abi_clear_clipboard.changed == 1U &&
+             otgy_chart_editor_has_clipboard(editor.get()) == 0U &&
+             otgy_chart_editor_get_undo_count(editor.get()) ==
+                 history_before_clear_clipboard,
+         "C ABI clipboard clear was not reported");
+
+  const auto direct_empty_clipboard = direct_editor.paste(400U);
+  abi_paste = {7U, 7U, 7U};
+  expect(otgy_chart_editor_paste(editor.get(), 400U, &abi_paste, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI paste after a clipboard clear failed");
+  compare_edit(direct_empty_clipboard, abi_paste);
+  expect(abi_paste.code == OTGY_CHART_EDIT_CLIPBOARD_EMPTY &&
+             abi_paste.changed == 0U &&
+             otgy_chart_editor_get_undo_count(editor.get()) ==
+                 history_before_clear_clipboard,
+         "empty C ABI clipboard was not reported");
+
+  otgy_chart_session_result abi_null_clear{};
+  expect(otgy_chart_editor_clear_clipboard(nullptr, &abi_null_clear,
+                                           &raw_error) ==
+                 OTGY_STATUS_INVALID_ARGUMENT &&
+             abi_null_clear.code == 0U && abi_null_clear.changed == 0U &&
+             abi_null_clear.selection.active == 0U,
+         "null editor was not rejected by the clipboard clear");
+  session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
+               OTGY_ABI_ERROR_NULL_ARGUMENT,
+               "required C ABI argument is null");
+  session_error.reset();
+
   otgy_chart* raw_edited = nullptr;
   expect(otgy_chart_editor_copy_chart(editor.get(), &raw_edited, &raw_error) ==
              OTGY_STATUS_OK,
@@ -638,6 +875,162 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
              OTGY_STATUS_OK,
          "C ABI clear failed");
   compare_edit(direct_clear, abi_clear);
+
+  // A Showtime is deleted together with the edit that makes it stale, and the C
+  // ABI reports the same results as the core. This runs on its own editor pair
+  // so the chart copies compared above stay untouched.
+  otgy_chart* raw_stale_chart = nullptr;
+  expect(otgy_chart_create_empty(&raw_stale_chart, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI stale chart failed");
+  auto stale_chart = handle<otgy_chart, otgy_chart_destroy>(raw_stale_chart);
+  otgy_chart_editor* raw_stale_editor = nullptr;
+  expect(otgy_chart_editor_create(stale_chart.get(), &raw_stale_editor,
+                                  &raw_error) == OTGY_STATUS_OK,
+         "C ABI stale editor create failed");
+  auto stale_editor =
+      handle<otgy_chart_editor, otgy_chart_editor_destroy>(raw_stale_editor);
+  otgy::core::ChartEditor direct_stale(empty_chart());
+  const otgy::core::ChartColumn stale_columns[] = {
+      otgy::core::ChartColumn::Npc, otgy::core::ChartColumn::Player,
+      otgy::core::ChartColumn::Showtime};
+  const std::uint32_t stale_abi_columns[] = {
+      OTGY_CHART_COLUMN_NPC, OTGY_CHART_COLUMN_PLAYER,
+      OTGY_CHART_COLUMN_SHOWTIME};
+  const auto stale_click = [&](std::size_t column, std::uint64_t row) {
+    const auto direct = direct_stale.click(stale_columns[column], row);
+    otgy_chart_edit_result abi{};
+    expect(otgy_chart_editor_click(stale_editor.get(), stale_abi_columns[column],
+                                   row, &abi, &raw_error) == OTGY_STATUS_OK,
+           "C ABI stale click failed");
+    compare_edit(direct, abi);
+    return direct;
+  };
+  stale_click(0U, 0U);
+  stale_click(0U, 4U);
+  stale_click(0U, 8U);
+  stale_click(0U, 8U);
+  stale_click(1U, 12U);
+  stale_click(1U, 16U);
+  const auto stale_completion = stale_click(2U, 32U);
+  expect(stale_completion.code == otgy::core::ChartEditCode::Success &&
+             direct_stale.draft().showtimes().size() == 1U,
+         "stale fixture Showtime was not generated");
+
+  otgy_chart* raw_stale_copy = nullptr;
+  expect(otgy_chart_editor_copy_chart(stale_editor.get(), &raw_stale_copy,
+                                      &raw_error) == OTGY_STATUS_OK,
+         "C ABI stale chart copy failed");
+  auto stale_copy = handle<otgy_chart, otgy_chart_destroy>(raw_stale_copy);
+  const auto stale_markers =
+      otgy::core::project_chart_markers(direct_stale.draft());
+  expect(static_cast<bool>(stale_markers), "direct Showtime projection failed");
+  otgy_chart_markers* raw_stale_markers = nullptr;
+  expect(otgy_chart_project_markers(stale_copy.get(), &raw_stale_markers,
+                                    &raw_error) == OTGY_STATUS_OK,
+         "C ABI Showtime projection failed");
+  auto stale_projection =
+      handle<otgy_chart_markers, otgy_chart_markers_destroy>(raw_stale_markers);
+  compare_markers(*stale_markers.markers(), stale_projection.get());
+  expect(otgy_chart_markers_get_count(stale_projection.get()) == 8U,
+         "Showtime did not add its two markers");
+
+  const auto stale_break = stale_click(0U, 0U);
+  expect(stale_break.code == otgy::core::ChartEditCode::Success &&
+             direct_stale.draft().showtimes().empty() &&
+             direct_stale.draft().showtime_start_events().empty() &&
+             direct_stale.draft().showtime_move_events().empty(),
+         "stale Showtime was not deleted with its edit");
+  stale_copy.reset();
+  expect(otgy_chart_editor_copy_chart(stale_editor.get(), &raw_stale_copy,
+                                      &raw_error) == OTGY_STATUS_OK,
+         "C ABI stale chart copy failed");
+  stale_copy = handle<otgy_chart, otgy_chart_destroy>(raw_stale_copy);
+  const auto broken_markers =
+      otgy::core::project_chart_markers(direct_stale.draft());
+  expect(static_cast<bool>(broken_markers), "direct broken projection failed");
+  expect(otgy_chart_project_markers(stale_copy.get(), &raw_stale_markers,
+                                    &raw_error) == OTGY_STATUS_OK,
+         "C ABI broken projection failed");
+  stale_projection =
+      handle<otgy_chart_markers, otgy_chart_markers_destroy>(raw_stale_markers);
+  compare_markers(*broken_markers.markers(), stale_projection.get());
+  expect(otgy_chart_markers_get_count(stale_projection.get()) == 3U,
+         "Showtime markers survived the edit that made them stale");
+
+  const auto direct_reset = direct_stale.clear();
+  otgy_chart_edit_result abi_reset{};
+  expect(otgy_chart_editor_clear(stale_editor.get(), &abi_reset, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI group fixture reset failed");
+  compare_edit(direct_reset, abi_reset);
+  const auto group_click = [&](std::size_t column, std::uint64_t row) {
+    const auto result = stale_click(column, row);
+    expect(result.changed, "group fixture click did not change the chart");
+  };
+  for (const auto row : {2U, 3U, 4U, 5U}) {
+    group_click(0U, row);
+  }
+  for (const auto row : {6U, 7U}) {
+    group_click(1U, row);
+  }
+  for (const auto row : {10U, 11U, 12U, 12U}) {
+    group_click(0U, row);
+  }
+  for (const auto row : {13U, 14U}) {
+    group_click(1U, row);
+  }
+  group_click(2U, 16U);
+  group_click(0U, 2U);
+  expect(direct_stale.draft().drill_groups().size() == 2U,
+         "group with surviving player content was removed");
+  const auto before_group_delete = direct_stale.draft();
+  group_click(1U, 6U);
+  expect(direct_stale.draft().drill_groups().size() == 1U &&
+             direct_stale.draft().dance_move_drills().front()
+                     .drill_group_ids.size() == 1U,
+         "eventless group or its drill reference survived deletion");
+  const auto after_group_delete = direct_stale.draft();
+  const auto compare_group_chart = [&] {
+    otgy_chart* raw_copy = nullptr;
+    expect(otgy_chart_editor_copy_chart(stale_editor.get(), &raw_copy,
+                                        &raw_error) == OTGY_STATUS_OK,
+           "C ABI group chart copy failed");
+    auto copy = handle<otgy_chart, otgy_chart_destroy>(raw_copy);
+    otgy_chart_semantics* raw_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(copy.get(), &raw_semantics, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI group semantics failed");
+    auto semantics =
+        handle<otgy_chart_semantics, otgy_chart_semantics_destroy>(raw_semantics);
+    compare_semantics(direct_stale.draft(), semantics.get());
+  };
+  compare_group_chart();
+  const auto direct_group_undo = direct_stale.undo();
+  otgy_chart_edit_result abi_group_undo{};
+  expect(otgy_chart_editor_undo(stale_editor.get(), &abi_group_undo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI group undo failed");
+  compare_edit(direct_group_undo, abi_group_undo);
+  expect(otgy::core::chart_drafts_equal(direct_stale.draft(), before_group_delete),
+         "group deletion undo did not restore the draft");
+  compare_group_chart();
+  const auto direct_group_redo = direct_stale.redo();
+  otgy_chart_edit_result abi_group_redo{};
+  expect(otgy_chart_editor_redo(stale_editor.get(), &abi_group_redo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI group redo failed");
+  compare_edit(direct_group_redo, abi_group_redo);
+  expect(otgy::core::chart_drafts_equal(direct_stale.draft(), after_group_delete),
+         "group deletion redo did not restore the draft");
+  compare_group_chart();
+  group_click(2U, 16U);
+  expect(direct_stale.draft().showtime_move_events().size() == 1U &&
+             direct_stale.draft().showtime_move_events().front().row == 17U &&
+             direct_stale.draft().showtime_move_events().front().show_n_count ==
+                 1U,
+         "remaining group did not regenerate Showtime");
+  compare_group_chart();
   return edited;
 }
 

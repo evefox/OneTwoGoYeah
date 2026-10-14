@@ -761,6 +761,10 @@ typedef struct otgy_chart_edit_result {
 #define OTGY_CHART_EDIT_ALLOCATION_FAILURE UINT32_C(14)
 #define OTGY_CHART_EDIT_NOTHING_TO_UNDO UINT32_C(15)
 #define OTGY_CHART_EDIT_NOTHING_TO_REDO UINT32_C(16)
+#define OTGY_CHART_EDIT_SELECTION_UNAVAILABLE UINT32_C(17)
+#define OTGY_CHART_EDIT_CLIPBOARD_EMPTY UINT32_C(18)
+#define OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED UINT32_C(19)
+#define OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE UINT32_C(20)
 
 OTGY_C_API otgy_status otgy_chart_editor_click(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
@@ -774,6 +778,68 @@ OTGY_C_API otgy_status otgy_chart_editor_undo(
 OTGY_C_API otgy_status otgy_chart_editor_redo(
     otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
     otgy_error** out_error);
+
+/// Selection of one dance move in the current editor session. A selection is
+/// session state: it is never persisted and never produces history.
+typedef struct otgy_chart_selection {
+  uint8_t active;
+  uint64_t dance_move_drill_id;
+  uint64_t first_row;
+  uint64_t last_row;
+} otgy_chart_selection;
+
+/// Result of a session command. `changed` describes the selection or clipboard,
+/// never the chart draft; use otgy_chart_edit_result for commands that edit the
+/// draft, so the two meanings are never confused.
+typedef struct otgy_chart_session_result {
+  uint32_t code;
+  uint8_t changed;
+  otgy_chart_selection selection;
+} otgy_chart_session_result;
+
+/// Session commands never edit the chart draft and never add history. They
+/// clear every out parameter before validating arguments, so a failed call
+/// never leaves an older value readable. otgy_chart_editor_cut_selection and
+/// otgy_chart_editor_paste edit the draft and therefore report through
+/// otgy_chart_edit_result, but they clear that out parameter on failure the
+/// same way.
+OTGY_C_API otgy_status otgy_chart_editor_get_selection(
+    const otgy_chart_editor* editor, otgy_chart_selection* out_selection,
+    otgy_error** out_error);
+OTGY_C_API otgy_status otgy_chart_editor_select(
+    otgy_chart_editor* editor, uint32_t column, uint64_t row,
+    otgy_chart_session_result* out_result, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_chart_editor_clear_selection(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error);
+
+/// Returns 1 when the session clipboard holds a copied dance move. A null
+/// editor returns 0, matching otgy_chart_editor_can_undo.
+OTGY_C_API uint8_t otgy_chart_editor_has_clipboard(
+    const otgy_chart_editor* editor);
+OTGY_C_API otgy_status otgy_chart_editor_copy_selection(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error);
+
+/// Drops the session clipboard without touching the draft, the history or the
+/// selection. Leaving selection mode uses this command.
+OTGY_C_API otgy_status otgy_chart_editor_clear_clipboard(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error);
+
+/// Copies the selected dance move into the clipboard and deletes it. One
+/// successful call is exactly one history entry, and it reports through
+/// otgy_chart_edit_result because the draft changed.
+OTGY_C_API otgy_status otgy_chart_editor_cut_selection(
+    otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
+    otgy_error** out_error);
+
+/// One successful call is exactly one history entry. The fragment's smallest
+/// row lands on anchor_row; every event keeps its column and role and only
+/// rows are translated.
+OTGY_C_API otgy_status otgy_chart_editor_paste(
+    otgy_chart_editor* editor, uint64_t anchor_row,
+    otgy_chart_edit_result* out_result, otgy_error** out_error);
 
 typedef struct otgy_chart_diagnostic {
   uint32_t code;

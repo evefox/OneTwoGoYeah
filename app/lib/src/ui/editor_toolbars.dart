@@ -273,7 +273,11 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           : '节奏测试',
       style: _toolbarIconButtonStyle,
       icon: controller.isRhythmTesting
-          ? const Icon(Icons.pause_rounded, size: 20, color: EditorColors.accent)
+          ? const Icon(
+              Icons.pause_rounded,
+              size: 20,
+              color: EditorColors.accent,
+            )
           : const _RhythmTestIcon(),
     );
     final export = IconButton(
@@ -484,42 +488,61 @@ class _ChartToolbar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: MenuAnchor(
-              menuChildren: [
-                MenuItemButton(
-                  leadingIcon: const Icon(Icons.file_open_outlined),
-                  onPressed: onImportSlk,
-                  child: const Text('导入 SLK'),
-                ),
-                MenuItemButton(
-                  leadingIcon: const Icon(Icons.folder_open_outlined),
-                  onPressed: onOpenDrafts,
-                  child: const Text('打开草稿'),
-                ),
-              ],
-              builder: (context, menu, child) => TextButton(
-                key: const ValueKey('chart-menu'),
-                onPressed: enabled
-                    ? () => menu.isOpen ? menu.close() : menu.open()
-                    : null,
-                style: _toolbarFileButtonStyle,
-                child: Row(
-                  children: [
-                    const Icon(Icons.description_outlined, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          '$chartLabel${controller.isDirty ? '  • 未保存' : ''}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+            child: Stack(
+              children: [
+                MenuAnchor(
+                  menuChildren: [
+                    MenuItemButton(
+                      leadingIcon: const Icon(Icons.file_open_outlined),
+                      onPressed: onImportSlk,
+                      child: const Text('导入 SLK'),
+                    ),
+                    MenuItemButton(
+                      leadingIcon: const Icon(Icons.folder_open_outlined),
+                      onPressed: onOpenDrafts,
+                      child: const Text('打开草稿'),
                     ),
                   ],
+                  builder: (context, menu, child) => TextButton(
+                    key: const ValueKey('chart-menu'),
+                    onPressed: enabled
+                        ? () => menu.isOpen ? menu.close() : menu.open()
+                        : null,
+                    style: _toolbarFileButtonStyle,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.description_outlined, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '$chartLabel${controller.isDirty ? '  • 未保存' : ''}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 40),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: IconButton(
+                    key: const ValueKey('selection-mode'),
+                    onPressed: enabled ? controller.toggleSelectionMode : null,
+                    tooltip: controller.selectionMode ? '退出选择' : '选择',
+                    isSelected: controller.selectionMode,
+                    style: _toolbarIconButtonStyle,
+                    icon: const Icon(Icons.highlight_alt_outlined, size: 20),
+                    selectedIcon: const Icon(Icons.deselect_outlined, size: 20),
+                  ),
+                ),
+              ],
             ),
           ),
           SizedBox(width: mobile ? 4 : 6),

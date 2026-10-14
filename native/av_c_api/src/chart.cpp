@@ -43,6 +43,19 @@ void copy_edit_result(const otgy::core::ChartEditResult& source,
             source.primary_event_id.value};
 }
 
+otgy_chart_selection from_core(
+    const otgy::core::ChartSelection& value) noexcept {
+  return {static_cast<std::uint8_t>(value.active), value.drill_id.value,
+          value.first_row, value.last_row};
+}
+
+void copy_session_result(const otgy::core::ChartSessionResult& source,
+                         otgy_chart_session_result& target) noexcept {
+  target = {static_cast<std::uint32_t>(source.code),
+            static_cast<std::uint8_t>(source.changed),
+            from_core(source.selection)};
+}
+
 template <typename Edit>
 otgy_status edit_chart(otgy_chart_editor* editor,
                        otgy_chart_edit_result* out_result,
@@ -52,6 +65,24 @@ otgy_status edit_chart(otgy_chart_editor* editor,
       return invalid_argument(out_error);
     }
     copy_edit_result(edit(editor->value), *out_result);
+    return OTGY_STATUS_OK;
+  });
+}
+
+/// Session commands zero the out result before the argument check, so a caller
+/// that ignores the returned status never reads a stale selection.
+template <typename Edit>
+otgy_status session_chart(otgy_chart_editor* editor,
+                          otgy_chart_session_result* out_result,
+                          otgy_error** out_error, Edit&& edit) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_session_result{};
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_result == nullptr) {
+      return invalid_argument(out_error);
+    }
+    copy_session_result(edit(editor->value), *out_result);
     return OTGY_STATUS_OK;
   });
 }
@@ -416,6 +447,80 @@ otgy_status otgy_chart_editor_redo(otgy_chart_editor* editor,
                                    otgy_error** out_error) {
   return edit_chart(editor, out_result, out_error,
                     [](auto& value) { return value.redo(); });
+}
+
+otgy_status otgy_chart_editor_get_selection(
+    const otgy_chart_editor* editor, otgy_chart_selection* out_selection,
+    otgy_error** out_error) {
+  if (out_selection != nullptr) {
+    *out_selection = otgy_chart_selection{};
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_selection == nullptr) {
+      return invalid_argument(out_error);
+    }
+    *out_selection = from_core(editor->value.selection());
+    return OTGY_STATUS_OK;
+  });
+}
+
+otgy_status otgy_chart_editor_select(otgy_chart_editor* editor,
+                                     std::uint32_t column, std::uint64_t row,
+                                     otgy_chart_session_result* out_result,
+                                     otgy_error** out_error) {
+  return session_chart(editor, out_result, out_error, [&](auto& value) {
+    return value.select(static_cast<otgy::core::ChartColumn>(column), row);
+  });
+}
+
+otgy_status otgy_chart_editor_clear_selection(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error) {
+  return session_chart(editor, out_result, out_error,
+                       [](auto& value) { return value.clear_selection(); });
+}
+
+uint8_t otgy_chart_editor_has_clipboard(const otgy_chart_editor* editor) {
+  return editor != nullptr && editor->value.has_clipboard() ? UINT8_C(1)
+                                                            : UINT8_C(0);
+}
+
+otgy_status otgy_chart_editor_copy_selection(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error) {
+  return session_chart(editor, out_result, out_error,
+                       [](auto& value) { return value.copy_selection(); });
+}
+
+otgy_status otgy_chart_editor_clear_clipboard(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error) {
+  return session_chart(editor, out_result, out_error,
+                       [](auto& value) { return value.clear_clipboard(); });
+}
+
+/// Draft-editing commands of the selection feature clear their out result
+/// before the argument check. edit_chart stays untouched so the pre-existing
+/// click/clear/undo/redo commands keep their exact behavior.
+otgy_status otgy_chart_editor_cut_selection(
+    otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
+    otgy_error** out_error) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_edit_result{};
+  }
+  return edit_chart(editor, out_result, out_error,
+                    [](auto& value) { return value.cut_selection(); });
+}
+
+otgy_status otgy_chart_editor_paste(otgy_chart_editor* editor,
+                                    std::uint64_t anchor_row,
+                                    otgy_chart_edit_result* out_result,
+                                    otgy_error** out_error) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_edit_result{};
+  }
+  return edit_chart(editor, out_result, out_error,
+                    [&](auto& value) { return value.paste(anchor_row); });
 }
 
 otgy_status otgy_chart_validate_finished(

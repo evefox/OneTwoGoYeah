@@ -149,6 +149,7 @@ class EditorController extends ChangeNotifier {
   bool _audioExportCancellationRequested = false;
   EditorPlaybackMode _playbackMode = EditorPlaybackMode.idle;
   bool _isDirty = false;
+  bool _selectionMode = false;
   bool _waveformVisible = true;
   WaveformFilter _waveformFilter = WaveformFilter.none;
   double _waveformFilterStrength = 0.75;
@@ -247,6 +248,12 @@ class EditorController extends ChangeNotifier {
   bool get hasAudio => _audio != null;
   bool get canUndo => _editor.canUndo;
   bool get canRedo => _editor.canRedo;
+  bool get selectionMode => _selectionMode;
+  ChartSelection get selection => _editor.selection;
+  bool get hasSelection => _editor.hasSelection;
+  bool get canCopySelection => _selectionMode && hasSelection;
+  bool get canCutSelection => _selectionMode && hasSelection;
+  bool get canPaste => _selectionMode && _editor.hasClipboard;
   String? get audioFileName => _audioFileName;
   String get chartName => _sourceName ?? '未命名草稿';
   WorkspaceSourceKind get sourceKind => _sourceKind;
@@ -442,6 +449,85 @@ class EditorController extends ChangeNotifier {
       return;
     }
     final result = _editor.click(column, math.max(0, row));
+    if (result.changed) {
+      _refreshProjection();
+      _commitChartChange();
+    } else {
+      _notice = EditorNotice(_editMessage(result.code));
+      notifyListeners();
+    }
+  }
+
+  void toggleSelectionMode() {
+    if (_isBusy || !generalActionsEnabled) {
+      return;
+    }
+    if (_selectionMode) {
+      exitSelectionMode();
+    } else {
+      enterSelectionMode();
+    }
+  }
+
+  void enterSelectionMode() {
+    if (_isBusy || !generalActionsEnabled || _selectionMode) {
+      return;
+    }
+    _selectionMode = true;
+    notifyListeners();
+  }
+
+  void exitSelectionMode() {
+    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      return;
+    }
+    _editor.clearSelection();
+    _editor.clearClipboard();
+    _selectionMode = false;
+    notifyListeners();
+  }
+
+  void selectAt(int column, int row) {
+    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      return;
+    }
+    final result = _editor.select(column, math.max(0, row));
+    if (result.code != 0) {
+      _notice = EditorNotice(_editMessage(result.code));
+    }
+    notifyListeners();
+  }
+
+  void copySelection() {
+    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      return;
+    }
+    final result = _editor.copySelection();
+    if (result.code != 0) {
+      _notice = EditorNotice(_editMessage(result.code));
+    }
+    notifyListeners();
+  }
+
+  void cutSelection() {
+    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      return;
+    }
+    final result = _editor.cutSelection();
+    if (result.changed) {
+      _refreshProjection();
+      _commitChartChange();
+    } else {
+      _notice = EditorNotice(_editMessage(result.code));
+      notifyListeners();
+    }
+  }
+
+  void pasteAtCursor() {
+    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+      return;
+    }
+    final result = _editor.paste(math.max(0, _currentRow.round()));
     if (result.changed) {
       _refreshProjection();
       _commitChartChange();
@@ -1263,6 +1349,7 @@ class EditorController extends ChangeNotifier {
   void _replaceEditor(NativeChartEditor pending) {
     final previous = _editor;
     _editor = pending;
+    _selectionMode = false;
     _refreshProjection();
     _invalidatePlaybackSoundSession();
     previous.dispose();
@@ -1367,6 +1454,14 @@ class EditorController extends ChangeNotifier {
     8 => 'Showtime 位置不合法',
     9 => '没有剩余舞步可以生成',
     10 => 'Showtime 范围内存在其他标记',
+    11 => '谱面草稿无法编辑',
+    12 => '谱面行范围溢出',
+    13 => '谱面标识已耗尽',
+    14 => '内存不足，无法完成修改',
+    17 => '该标记不属于可选择的舞步',
+    18 => '剪贴板为空',
+    19 => '粘贴范围内存在其他标记',
+    20 => 'Showtime 内容不一致，请删除后重新生成',
     _ => '没有可应用的修改',
   };
 

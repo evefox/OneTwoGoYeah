@@ -1508,6 +1508,124 @@ external int otgy_chart_editor_redo(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+/// Session commands never edit the chart draft and never add history. They
+/// clear every out parameter before validating arguments, so a failed call
+/// never leaves an older value readable. otgy_chart_editor_cut_selection and
+/// otgy_chart_editor_paste edit the draft and therefore report through
+/// otgy_chart_edit_result, but they clear that out parameter on failure the
+/// same way.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_selection>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_get_selection(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<otgy_chart_selection> out_selection,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint32,
+    ffi.Uint64,
+    ffi.Pointer<otgy_chart_session_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_select(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int column,
+  int row,
+  ffi.Pointer<otgy_chart_session_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_session_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_clear_selection(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<otgy_chart_session_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Returns 1 when the session clipboard holds a copied dance move. A null
+/// editor returns 0, matching otgy_chart_editor_can_undo.
+@ffi.Native<ffi.Uint8 Function(ffi.Pointer<otgy_chart_editor>)>()
+external int otgy_chart_editor_has_clipboard(
+  ffi.Pointer<otgy_chart_editor> editor,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_session_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_copy_selection(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<otgy_chart_session_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Drops the session clipboard without touching the draft, the history or the
+/// selection. Leaving selection mode uses this command.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_session_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_clear_clipboard(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<otgy_chart_session_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Copies the selected dance move into the clipboard and deletes it. One
+/// successful call is exactly one history entry, and it reports through
+/// otgy_chart_edit_result because the draft changed.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_cut_selection(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// One successful call is exactly one history entry. The fragment's smallest
+/// row lands on anchor_row; every event keeps its column and role and only
+/// rows are translated.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint64,
+    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_paste(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int anchor_row,
+  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart>,
@@ -2171,6 +2289,35 @@ final class otgy_chart_edit_result extends ffi.Struct {
   external int primary_event_id;
 }
 
+/// Selection of one dance move in the current editor session. A selection is
+/// session state: it is never persisted and never produces history.
+final class otgy_chart_selection extends ffi.Struct {
+  @ffi.Uint8()
+  external int active;
+
+  @ffi.Uint64()
+  external int dance_move_drill_id;
+
+  @ffi.Uint64()
+  external int first_row;
+
+  @ffi.Uint64()
+  external int last_row;
+}
+
+/// Result of a session command. `changed` describes the selection or clipboard,
+/// never the chart draft; use otgy_chart_edit_result for commands that edit the
+/// draft, so the two meanings are never confused.
+final class otgy_chart_session_result extends ffi.Struct {
+  @ffi.Uint32()
+  external int code;
+
+  @ffi.Uint8()
+  external int changed;
+
+  external otgy_chart_selection selection;
+}
+
 final class otgy_chart_diagnostic extends ffi.Struct {
   @ffi.Uint32()
   external int code;
@@ -2480,6 +2627,14 @@ const int OTGY_CHART_EDIT_ALLOCATION_FAILURE = 14;
 const int OTGY_CHART_EDIT_NOTHING_TO_UNDO = 15;
 
 const int OTGY_CHART_EDIT_NOTHING_TO_REDO = 16;
+
+const int OTGY_CHART_EDIT_SELECTION_UNAVAILABLE = 17;
+
+const int OTGY_CHART_EDIT_CLIPBOARD_EMPTY = 18;
+
+const int OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED = 19;
+
+const int OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE = 20;
 
 const int OTGY_CHART_DIAGNOSTIC_EMPTY_CHART = 0;
 

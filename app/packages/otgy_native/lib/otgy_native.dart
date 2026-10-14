@@ -89,6 +89,40 @@ final class EditResult {
   final int primaryEventId;
 }
 
+final class ChartSelection {
+  const ChartSelection({
+    required this.active,
+    required this.danceMoveDrillId,
+    required this.firstRow,
+    required this.lastRow,
+  });
+
+  final bool active;
+  final int danceMoveDrillId;
+  final int firstRow;
+  final int lastRow;
+
+  factory ChartSelection._fromNative(native.otgy_chart_selection value) =>
+      ChartSelection(
+        active: value.active != 0,
+        danceMoveDrillId: value.dance_move_drill_id,
+        firstRow: value.first_row,
+        lastRow: value.last_row,
+      );
+}
+
+final class SessionResult {
+  const SessionResult({
+    required this.code,
+    required this.changed,
+    required this.selection,
+  });
+
+  final int code;
+  final bool changed;
+  final ChartSelection selection;
+}
+
 final class TimelineRange {
   const TimelineRange({
     required this.beginSeconds,
@@ -1083,6 +1117,95 @@ final class NativeChartEditor {
 
   bool get canUndo => native.otgy_chart_editor_can_undo(_requireEditor()) != 0;
   bool get canRedo => native.otgy_chart_editor_can_redo(_requireEditor()) != 0;
+
+  ChartSelection get selection => using((arena) {
+    final result = arena<native.otgy_chart_selection>();
+    final error = arena<Pointer<native.otgy_error>>();
+    try {
+      _checkStatus(
+        native.otgy_chart_editor_get_selection(_requireEditor(), result, error),
+        error,
+      );
+      return ChartSelection._fromNative(result.ref);
+    } finally {
+      _destroyError(error);
+    }
+  });
+
+  bool get hasSelection => selection.active;
+  bool get hasClipboard =>
+      native.otgy_chart_editor_has_clipboard(_requireEditor()) != 0;
+
+  SessionResult select(int column, int row) => _session(
+    (result, error) => native.otgy_chart_editor_select(
+      _requireEditor(),
+      column,
+      row,
+      result,
+      error,
+    ),
+  );
+
+  SessionResult clearSelection() => _session(
+    (result, error) => native.otgy_chart_editor_clear_selection(
+      _requireEditor(),
+      result,
+      error,
+    ),
+  );
+
+  SessionResult copySelection() => _session(
+    (result, error) => native.otgy_chart_editor_copy_selection(
+      _requireEditor(),
+      result,
+      error,
+    ),
+  );
+
+  SessionResult clearClipboard() => _session(
+    (result, error) => native.otgy_chart_editor_clear_clipboard(
+      _requireEditor(),
+      result,
+      error,
+    ),
+  );
+
+  SessionResult _session(
+    int Function(
+      Pointer<native.otgy_chart_session_result>,
+      Pointer<Pointer<native.otgy_error>>,
+    )
+    operation,
+  ) {
+    return using((arena) {
+      final result = arena<native.otgy_chart_session_result>();
+      final error = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(operation(result, error), error);
+        return SessionResult(
+          code: result.ref.code,
+          changed: result.ref.changed != 0,
+          selection: ChartSelection._fromNative(result.ref.selection),
+        );
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
+  EditResult cutSelection() => _edit(
+    (result, error) =>
+        native.otgy_chart_editor_cut_selection(_requireEditor(), result, error),
+  );
+
+  EditResult paste(int anchorRow) => _edit(
+    (result, error) => native.otgy_chart_editor_paste(
+      _requireEditor(),
+      anchorRow,
+      result,
+      error,
+    ),
+  );
 
   EditResult click(int column, int row) => _edit(
     (result, error) => native.otgy_chart_editor_click(

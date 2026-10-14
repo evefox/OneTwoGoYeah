@@ -1547,9 +1547,7 @@ void main() {
     expect(inkBelow, 0);
   });
 
-  testWidgets('clips timeline markers below the column header', (
-    tester,
-  ) async {
+  testWidgets('clips timeline markers below the column header', (tester) async {
     await pumpEditor(tester);
     controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
     final canvasSize = tester.getSize(
@@ -2084,11 +2082,39 @@ void main() {
       '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
     ).readAsBytesSync();
     await controller.loadAudioBytes(audio, 'fixture.mp3');
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
+    controller.enterSelectionMode();
+    controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
+    controller.copySelection();
+    final selectedDraft = controller.encodeFormalDraft();
+    final selectedRevision = controller.projectRevision;
     await pumpEditor(tester);
 
     await controller.togglePlayback();
     await tester.pump();
     expect(controller.isPlaying, isTrue);
+    for (final key in [
+      'selection-mode',
+      'selection-copy',
+      'selection-cut',
+      'selection-paste',
+    ]) {
+      expect(
+        tester.widget<IconButton>(find.byKey(ValueKey(key))).onPressed,
+        isNull,
+      );
+    }
+    controller.toggleSelectionMode();
+    controller.exitSelectionMode();
+    controller.selectAt(OTGY_CHART_COLUMN_NPC, 40);
+    controller.copySelection();
+    controller.cutSelection();
+    controller.pasteAtCursor();
+    expect(controller.selectionMode, isTrue);
+    expect(controller.selection.firstRow, 0);
+    expect(controller.canPaste, isTrue);
+    expect(controller.projectRevision, selectedRevision);
+    expect(controller.encodeFormalDraft(), orderedEquals(selectedDraft));
     expect(
       tester
           .widget<TextButton>(find.byKey(const ValueKey('song-time')))

@@ -3,6 +3,7 @@
 #include "av_core/chart/chart_editor.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <new>
 #include <utility>
@@ -26,11 +27,10 @@ struct MutableDraft final {
         dance_move_drills(draft.dance_move_drills()),
         showtimes(draft.showtimes()) {}
 
-  [[nodiscard]] ChartDraft finish() && {
-    return {std::move(role_events), std::move(showtime_start_events),
-            std::move(showtime_move_events), std::move(drill_groups),
-            std::move(dance_move_drills), std::move(showtimes)};
-  }
+  /// The single conversion from a working draft to a committable one: every
+  /// draft-changing command ends here, so the cleanup that keeps a commit
+  /// self-consistent cannot be bypassed. Defined after the helpers it needs.
+  [[nodiscard]] ChartDraft finish() &&;
 };
 
 struct IdState final {
@@ -144,10 +144,211 @@ struct IdState final {
   return nullptr;
 }
 
+[[nodiscard]] const ChartRoleEvent* find_role_event_in(
+    const ChartDraft& draft, std::uint64_t id) noexcept {
+  for (const auto& event : draft.role_events()) {
+    if (event.id.value == id) {
+      return &event;
+    }
+  }
+  return nullptr;
+}
+
+[[nodiscard]] const ChartDanceMoveDrill* find_drill_in(
+    const ChartDraft& draft, std::uint64_t id) noexcept {
+  for (const auto& drill : draft.dance_move_drills()) {
+    if (drill.id.value == id) {
+      return &drill;
+    }
+  }
+  return nullptr;
+}
+
+[[nodiscard]] const ChartShowtimeMoveEvent* find_showtime_move_in(
+    const ChartDraft& draft, std::uint64_t id) noexcept {
+  for (const auto& event : draft.showtime_move_events()) {
+    if (event.id.value == id) {
+      return &event;
+    }
+  }
+  return nullptr;
+}
+
+/// Derives the selectable row span of one dance move. This deliberately does
+/// not reuse complete_drill: an editor draft may hold a dance move whose
+/// MoveEnd, player block or move_n_count are still missing, and selection must
+/// survive that. Membership comes from the drill reference carried by each role
+/// event, so a group whose id list was emptied by an earlier deletion does not
+/// break the selection, and a drill spanning several groups keeps one span.
+[[nodiscard]] bool derive_selection(const ChartDraft& draft,
+                                    ChartDanceMoveDrillId drill_id,
+                                    ChartSelection& out) noexcept {
+  if (find_drill_in(draft, drill_id.value) == nullptr) {
+    return false;
+  }
+  bool has_row = false;
+  std::uint64_t first_row = 0U;
+  std::uint64_t last_row = 0U;
+  for (const auto& event : draft.role_events()) {
+    if (event.dance_move_drill_id.value != drill_id.value) {
+      continue;
+    }
+    if (!has_row) {
+      first_row = event.row;
+      last_row = event.row;
+      has_row = true;
+    } else {
+      first_row = std::min(first_row, event.row);
+      last_row = std::max(last_row, event.row);
+    }
+  }
+  if (!has_row) {
+    return false;
+  }
+  out = {true, drill_id, first_row, last_row};
+  return true;
+}
+
 [[nodiscard]] bool role_event_less(const ChartRoleEvent& left,
                                    const ChartRoleEvent& right) noexcept {
   return left.row != right.row ? left.row < right.row
                                : left.id.value < right.id.value;
+}
+
+[[nodiscard]] std::vector<ChartEventId> member_event_ids(
+    const std::vector<ChartEventId>& ids,
+    const std::vector<ChartRoleEvent>& members) {
+  std::vector<ChartEventId> kept;
+  for (const auto id : ids) {
+    const bool member =
+        std::any_of(members.begin(), members.end(),
+                    [id](const ChartRoleEvent& event) {
+                      return event.id.value == id.value;
+                    });
+    if (member) {
+      kept.push_back(id);
+    }
+  }
+  return kept;
+}
+
+[[nodiscard]] std::uint64_t member_first_row(
+    const ChartDrillGroup& group,
+    const std::vector<ChartRoleEvent>& members) noexcept {
+  std::uint64_t first = std::numeric_limits<std::uint64_t>::max();
+  const auto consider = [&first, &members](const std::vector<ChartEventId>& ids) {
+    for (const auto id : ids) {
+      for (const auto& event : members) {
+        if (event.id.value == id.value) {
+          first = std::min(first, event.row);
+          break;
+        }
+      }
+    }
+  };
+  consider(group.npc_event_ids);
+  consider(group.player_event_ids);
+  return first;
+}
+
+/// Builds the session clipboard payload for one dance move. The fragment holds
+/// exactly the selected drill, the drill groups that exist for it and both
+/// roles' bound events, with every row rebased so the smallest offset is zero.
+/// Group and event order is rebuilt from the fragment itself, so the payload
+/// stays deterministic even when the source draft's relation vectors are stale.
+/// The three Showtime vectors stay empty: a Showtime's display range is derived
+/// from the chart, not transportable content.
+[[nodiscard]] bool build_fragment(const ChartDraft& draft,
+                                  ChartDanceMoveDrillId drill_id,
+                                  ChartClipboardFragment& out) {
+  const auto* drill = find_drill_in(draft, drill_id.value);
+  if (drill == nullptr) {
+    return false;
+  }
+  std::vector<ChartRoleEvent> members;
+  for (const auto& event : draft.role_events()) {
+    if (event.dance_move_drill_id.value == drill_id.value) {
+      members.push_back(event);
+    }
+  }
+  if (members.empty()) {
+    return false;
+  }
+  std::sort(members.begin(), members.end(), role_event_less);
+  const std::uint64_t base_row = members.front().row;
+
+  std::vector<ChartDrillGroupId> group_ids;
+  const auto append_group_id = [&group_ids](ChartDrillGroupId id) {
+    const bool known =
+        std::any_of(group_ids.begin(), group_ids.end(),
+                    [id](ChartDrillGroupId candidate) {
+                      return candidate.value == id.value;
+                    });
+    if (!known) {
+      group_ids.push_back(id);
+    }
+  };
+  for (const auto id : drill->drill_group_ids) {
+    append_group_id(id);
+  }
+  for (const auto& group : draft.drill_groups()) {
+    if (group.dance_move_drill_id.value == drill_id.value) {
+      append_group_id(group.id);
+    }
+  }
+
+  struct CollectedGroup final {
+    ChartDrillGroup group;
+    std::uint64_t first_row;
+  };
+  std::vector<CollectedGroup> collected;
+  for (const auto id : group_ids) {
+    for (const auto& group : draft.drill_groups()) {
+      if (group.id.value != id.value) {
+        continue;
+      }
+      ChartDrillGroup copy = group;
+      copy.dance_move_drill_id = drill_id;
+      copy.npc_event_ids = member_event_ids(group.npc_event_ids, members);
+      copy.player_event_ids = member_event_ids(group.player_event_ids, members);
+      const auto first_row = member_first_row(copy, members);
+      collected.push_back({std::move(copy), first_row});
+      break;
+    }
+  }
+  std::sort(collected.begin(), collected.end(),
+            [](const CollectedGroup& left, const CollectedGroup& right) {
+              return left.first_row != right.first_row
+                         ? left.first_row < right.first_row
+                         : left.group.id.value < right.group.id.value;
+            });
+
+  std::vector<ChartRoleEvent> events;
+  events.reserve(members.size());
+  for (const auto& event : members) {
+    ChartRoleEvent copy = event;
+    copy.row = event.row - base_row;
+    events.push_back(copy);
+  }
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDrillGroupId> ordered_group_ids;
+  groups.reserve(collected.size());
+  ordered_group_ids.reserve(collected.size());
+  for (auto& entry : collected) {
+    ordered_group_ids.push_back(entry.group.id);
+    groups.push_back(std::move(entry.group));
+  }
+
+  ChartDraft content{std::move(events),
+                     {},
+                     {},
+                     std::move(groups),
+                     std::vector<ChartDanceMoveDrill>{ChartDanceMoveDrill{
+                         drill_id, drill->move_n_count,
+                         std::move(ordered_group_ids)}},
+                     {}};
+  out = {base_row, std::move(content)};
+  return true;
 }
 
 void sort_role_events(MutableDraft& draft) {
@@ -878,21 +1079,27 @@ struct CompleteDrill final {
     IdState& ids) {
   auto* showtime = find_showtime(draft, showtime_id.value);
   if (showtime == nullptr ||
-      showtime->start_event_id.value != showtime_start_event_id.value ||
-      showtime->dance_move_drill_ids.size() !=
-          showtime->show_move_event_ids.size()) {
+      showtime->start_event_id.value != showtime_start_event_id.value) {
     return {ChartEditCode::InvalidDraft, false, {0U}};
+  }
+  // The marker pair counts, the recorded dance moves and the move sequence that
+  // the chart would generate now no longer agree. A stale Showtime is not
+  // repaired in place: the user deletes it and places it again, which rebuilds
+  // the whole segment from the current dance moves.
+  if (showtime->dance_move_drill_ids.size() !=
+      showtime->show_move_event_ids.size()) {
+    return {ChartEditCode::ShowtimeContentStale, false, {0U}};
   }
   const auto drills =
       collect_complete_drills(draft, markers, showtime_start_row);
   if (showtime->dance_move_drill_ids.size() > drills.size()) {
-    return {ChartEditCode::InvalidDraft, false, {0U}};
+    return {ChartEditCode::ShowtimeContentStale, false, {0U}};
   }
   for (std::size_t index = 0U; index < showtime->dance_move_drill_ids.size();
        ++index) {
     if (showtime->dance_move_drill_ids[index].value !=
         drills[index].id.value) {
-      return {ChartEditCode::InvalidDraft, false, {0U}};
+      return {ChartEditCode::ShowtimeContentStale, false, {0U}};
     }
   }
   const auto begin = showtime->dance_move_drill_ids.size();
@@ -984,6 +1191,154 @@ struct CompleteDrill final {
     }
   }
   return nullptr;
+}
+
+/// A Showtime whose stored dance moves no longer support it: a referenced drill
+/// is gone, a referenced drill is no longer a complete dance move, or a stored
+/// SHOW-D count no longer matches its drill. Every one of those already fails
+/// the finished-chart rules, so the Showtime can only be rebuilt. A Showtime
+/// that merely cannot be extended any more - the candidate list moved on, or an
+/// imported Showtime carries fewer move markers than drills - is left alone:
+/// its stored content is still consistent, and only continuing it is refused.
+[[nodiscard]] bool showtime_is_stale(MutableDraft& draft,
+                                     const ChartShowtime& showtime) {
+  for (std::size_t index = 0U; index < showtime.dance_move_drill_ids.size();
+       ++index) {
+    const auto* drill =
+        find_drill(draft, showtime.dance_move_drill_ids[index].value);
+    if (drill == nullptr) {
+      return true;
+    }
+    CompleteDrill complete{};
+    if (!complete_drill(draft, *drill, complete)) {
+      return true;
+    }
+    if (index >= showtime.show_move_event_ids.size()) {
+      continue;
+    }
+    const auto* move =
+        find_showtime_move_event(draft, showtime.show_move_event_ids[index]);
+    if (move == nullptr || move->show_n_count != drill->move_n_count) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Drops every stale Showtime together with its start marker and all of its
+/// move markers, so that one edit never leaves Showtime markers behind.
+void prune_stale_showtimes(MutableDraft& draft) {
+  std::size_t index = 0U;
+  while (index < draft.showtimes.size()) {
+    if (!showtime_is_stale(draft, draft.showtimes[index])) {
+      ++index;
+      continue;
+    }
+    const auto showtime_id = draft.showtimes[index].id.value;
+    const auto belongs = [showtime_id](ChartShowtimeId id) {
+      return id.value == showtime_id;
+    };
+    draft.showtime_start_events.erase(
+        std::remove_if(draft.showtime_start_events.begin(),
+                       draft.showtime_start_events.end(),
+                       [&belongs](const ChartShowtimeStartEvent& event) {
+                         return belongs(event.showtime_id);
+                       }),
+        draft.showtime_start_events.end());
+    draft.showtime_move_events.erase(
+        std::remove_if(draft.showtime_move_events.begin(),
+                       draft.showtime_move_events.end(),
+                       [&belongs](const ChartShowtimeMoveEvent& event) {
+                         return belongs(event.showtime_id);
+                       }),
+        draft.showtime_move_events.end());
+    draft.showtimes.erase(draft.showtimes.begin() +
+                          static_cast<std::ptrdiff_t>(index));
+  }
+}
+
+/// Drops a dance move that no longer has any event bound to it. Deleting the
+/// content of a dance move leaves its drill and its groups behind with nothing
+/// left to click, and that leftover still fails the finished-chart rules even
+/// when the chart holds no Showtime at all. A dance move being built always
+/// keeps at least the block start event that created it, so only leftovers go.
+void prune_eventless_drills(MutableDraft& draft) {
+  const auto is_eventless = [&draft](ChartDanceMoveDrillId drill_id) {
+    return std::none_of(draft.role_events.begin(), draft.role_events.end(),
+                        [drill_id](const ChartRoleEvent& event) {
+                          return event.dance_move_drill_id.value ==
+                                 drill_id.value;
+                        });
+  };
+  std::vector<ChartDanceMoveDrillId> dropped;
+  for (const auto& drill : draft.dance_move_drills) {
+    if (is_eventless(drill.id)) {
+      dropped.push_back(drill.id);
+    }
+  }
+  if (dropped.empty()) {
+    return;
+  }
+  const auto is_dropped = [&dropped](ChartDanceMoveDrillId id) {
+    return std::any_of(dropped.begin(), dropped.end(),
+                       [id](ChartDanceMoveDrillId candidate) {
+                         return candidate.value == id.value;
+                       });
+  };
+  draft.drill_groups.erase(
+      std::remove_if(draft.drill_groups.begin(), draft.drill_groups.end(),
+                     [&is_dropped](const ChartDrillGroup& group) {
+                       return is_dropped(group.dance_move_drill_id);
+                     }),
+      draft.drill_groups.end());
+  draft.dance_move_drills.erase(
+      std::remove_if(draft.dance_move_drills.begin(),
+                     draft.dance_move_drills.end(),
+                     [&is_dropped](const ChartDanceMoveDrill& drill) {
+                       return is_dropped(drill.id);
+                     }),
+      draft.dance_move_drills.end());
+}
+
+/// A fully deleted group has no remaining event to edit. Drop it and its
+/// registration, but retain a group with any bound event even when its stored
+/// event lists are incomplete. Membership is authoritative on the events.
+void prune_eventless_groups(MutableDraft& draft) {
+  const auto is_eventless = [&draft](ChartDrillGroupId group_id) {
+    return std::none_of(draft.role_events.begin(), draft.role_events.end(),
+                        [group_id](const ChartRoleEvent& event) {
+                          return event.drill_group_id.value == group_id.value;
+                        });
+  };
+  for (const auto& group : draft.drill_groups) {
+    if (!is_eventless(group.id)) {
+      continue;
+    }
+    for (auto& drill : draft.dance_move_drills) {
+      drill.drill_group_ids.erase(
+          std::remove_if(drill.drill_group_ids.begin(),
+                         drill.drill_group_ids.end(),
+                         [&group](ChartDrillGroupId id) {
+                           return id.value == group.id.value;
+                         }),
+          drill.drill_group_ids.end());
+    }
+  }
+  draft.drill_groups.erase(
+      std::remove_if(draft.drill_groups.begin(), draft.drill_groups.end(),
+                     [&is_eventless](const ChartDrillGroup& group) {
+                       return is_eventless(group.id);
+                     }),
+      draft.drill_groups.end());
+}
+
+[[nodiscard]] ChartDraft MutableDraft::finish() && {
+  prune_eventless_groups(*this);
+  prune_stale_showtimes(*this);
+  prune_eventless_drills(*this);
+  return {std::move(role_events), std::move(showtime_start_events),
+          std::move(showtime_move_events), std::move(drill_groups),
+          std::move(dance_move_drills), std::move(showtimes)};
 }
 
 [[nodiscard]] ChartEditResult click_empty_showtime(
@@ -1192,7 +1547,328 @@ ChartEditResult ChartEditor::commit(ChartDraft draft, ChartEditResult result,
   redo_.clear();
   next_id_ = next_id;
   id_available_ = id_available;
+  revalidate_selection();
   return result;
+}
+
+void ChartEditor::revalidate_selection() noexcept {
+  if (!selection_.active) {
+    return;
+  }
+  ChartSelection derived{};
+  if (!derive_selection(draft_, selection_.drill_id, derived)) {
+    selection_ = ChartSelection{};
+    return;
+  }
+  selection_ = derived;
+}
+
+ChartSessionResult ChartEditor::select(ChartColumn column,
+                                       std::uint64_t row) noexcept {
+  try {
+    std::vector<ChartMarker> markers;
+    ChartEditCode projection_error = ChartEditCode::Success;
+    if (!editable_projection(draft_, markers, projection_error)) {
+      return {projection_error, false, selection_};
+    }
+    const auto* current = marker_at(markers, row);
+    if (current == nullptr || current->column != column) {
+      const bool changed = selection_.active;
+      selection_ = ChartSelection{};
+      return {ChartEditCode::Success, changed, selection_};
+    }
+    ChartDanceMoveDrillId drill_id{0U};
+    if (current->type == ChartMarkerType::ShowtimeStart) {
+      return {ChartEditCode::SelectionUnavailable, false, selection_};
+    }
+    if (current->type == ChartMarkerType::ShowtimeMove) {
+      const auto* event = find_showtime_move_in(draft_, current->id.value);
+      if (event == nullptr) {
+        return {ChartEditCode::InvalidDraft, false, selection_};
+      }
+      drill_id = event->dance_move_drill_id;
+    } else {
+      const auto* event = find_role_event_in(draft_, current->id.value);
+      if (event == nullptr) {
+        return {ChartEditCode::InvalidDraft, false, selection_};
+      }
+      drill_id = event->dance_move_drill_id;
+    }
+    ChartSelection derived{};
+    if (!derive_selection(draft_, drill_id, derived)) {
+      return {ChartEditCode::SelectionUnavailable, false, selection_};
+    }
+    const bool changed =
+        !selection_.active || selection_.drill_id.value != derived.drill_id.value ||
+        selection_.first_row != derived.first_row ||
+        selection_.last_row != derived.last_row;
+    selection_ = derived;
+    return {ChartEditCode::Success, changed, selection_};
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, selection_};
+  }
+}
+
+ChartSessionResult ChartEditor::clear_selection() noexcept {
+  const bool changed = selection_.active;
+  selection_ = ChartSelection{};
+  return {ChartEditCode::Success, changed, selection_};
+}
+
+ChartSessionResult ChartEditor::copy_selection() noexcept {
+  try {
+    if (!selection_.active) {
+      return {ChartEditCode::SelectionUnavailable, false, selection_};
+    }
+    std::vector<ChartMarker> markers;
+    ChartEditCode projection_error = ChartEditCode::Success;
+    if (!editable_projection(draft_, markers, projection_error)) {
+      return {projection_error, false, selection_};
+    }
+    ChartSelection derived{};
+    if (!derive_selection(draft_, selection_.drill_id, derived)) {
+      return {ChartEditCode::SelectionUnavailable, false, selection_};
+    }
+    ChartClipboardFragment fragment{};
+    if (!build_fragment(draft_, selection_.drill_id, fragment)) {
+      return {ChartEditCode::SelectionUnavailable, false, selection_};
+    }
+    clipboard_ = std::move(fragment);
+    has_clipboard_ = true;
+    return {ChartEditCode::Success, true, selection_};
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, selection_};
+  }
+}
+
+ChartSessionResult ChartEditor::clear_clipboard() noexcept {
+  const bool changed = has_clipboard_;
+  clipboard_ = ChartClipboardFragment{};
+  has_clipboard_ = false;
+  return {ChartEditCode::Success, changed, selection_};
+}
+
+/// Copies the selected dance move and then deletes exactly the objects that
+/// fragment owns: its events, its groups and the drill itself. Surviving
+/// relations that pointed at them are stripped, so the cut never leaves a
+/// reference it created behind. It deliberately does not reject a dance move
+/// that a Showtime refers to: generated content only has to hold when it is
+/// generated, and the user can delete and rebuild a Showtime afterwards.
+ChartEditResult ChartEditor::cut_selection() noexcept {
+  try {
+    if (!selection_.active) {
+      return {ChartEditCode::SelectionUnavailable, false, {0U}};
+    }
+    std::vector<ChartMarker> markers;
+    ChartEditCode projection_error = ChartEditCode::Success;
+    if (!editable_projection(draft_, markers, projection_error)) {
+      return {projection_error, false, {0U}};
+    }
+    ChartSelection derived{};
+    if (!derive_selection(draft_, selection_.drill_id, derived)) {
+      return {ChartEditCode::SelectionUnavailable, false, {0U}};
+    }
+    ChartClipboardFragment fragment{};
+    if (!build_fragment(draft_, selection_.drill_id, fragment)) {
+      return {ChartEditCode::SelectionUnavailable, false, {0U}};
+    }
+
+    std::vector<std::uint64_t> erased_events;
+    erased_events.reserve(fragment.content.role_events().size());
+    for (const auto& event : fragment.content.role_events()) {
+      erased_events.push_back(event.id.value);
+    }
+    std::vector<std::uint64_t> erased_groups;
+    erased_groups.reserve(fragment.content.drill_groups().size());
+    for (const auto& group : fragment.content.drill_groups()) {
+      erased_groups.push_back(group.id.value);
+    }
+    const std::uint64_t erased_drill = selection_.drill_id.value;
+    const ChartEventId primary = fragment.content.role_events().front().id;
+    const auto erased_id = [](const std::vector<std::uint64_t>& ids,
+                              std::uint64_t value) {
+      return std::find(ids.begin(), ids.end(), value) != ids.end();
+    };
+
+    MutableDraft candidate{draft_};
+    candidate.role_events.erase(
+        std::remove_if(candidate.role_events.begin(), candidate.role_events.end(),
+                       [&erased_events, &erased_id](const ChartRoleEvent& event) {
+                         return erased_id(erased_events, event.id.value);
+                       }),
+        candidate.role_events.end());
+    candidate.drill_groups.erase(
+        std::remove_if(candidate.drill_groups.begin(),
+                       candidate.drill_groups.end(),
+                       [&erased_groups, &erased_id](const ChartDrillGroup& group) {
+                         return erased_id(erased_groups, group.id.value);
+                       }),
+        candidate.drill_groups.end());
+    candidate.dance_move_drills.erase(
+        std::remove_if(candidate.dance_move_drills.begin(),
+                       candidate.dance_move_drills.end(),
+                       [erased_drill](const ChartDanceMoveDrill& drill) {
+                         return drill.id.value == erased_drill;
+                       }),
+        candidate.dance_move_drills.end());
+    erase_event_references(candidate, erased_events);
+    for (auto& drill : candidate.dance_move_drills) {
+      auto& group_ids = drill.drill_group_ids;
+      group_ids.erase(std::remove_if(group_ids.begin(), group_ids.end(),
+                                     [&erased_groups, &erased_id](
+                                         ChartDrillGroupId id) {
+                                       return erased_id(erased_groups, id.value);
+                                     }),
+                      group_ids.end());
+    }
+
+    const ChartEditResult result{ChartEditCode::Success, true, primary};
+    auto committed =
+        commit(std::move(candidate).finish(), result, next_id_, id_available_);
+    if (!committed.changed) {
+      return committed;
+    }
+    clipboard_ = std::move(fragment);
+    has_clipboard_ = true;
+    return committed;
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, {0U}};
+  }
+}
+
+ChartEditResult ChartEditor::paste(std::uint64_t anchor_row) noexcept {
+  try {
+    const auto& content = clipboard_.content;
+    const auto& source_events = content.role_events();
+    const auto& source_drill = content.dance_move_drills();
+    if (!has_clipboard_ || source_events.empty() || source_drill.empty()) {
+      return {ChartEditCode::ClipboardEmpty, false, {0U}};
+    }
+    std::vector<ChartMarker> markers;
+    ChartEditCode projection_error = ChartEditCode::Success;
+    if (!editable_projection(draft_, markers, projection_error)) {
+      return {projection_error, false, {0U}};
+    }
+
+    const std::uint64_t row_limit =
+        std::numeric_limits<std::uint64_t>::max() - anchor_row;
+    std::uint64_t last_offset = 0U;
+    for (const auto& event : source_events) {
+      if (event.row > row_limit) {
+        return {ChartEditCode::RangeOverflow, false, {0U}};
+      }
+      last_offset = std::max(last_offset, event.row);
+    }
+    const std::uint64_t last_target_row = anchor_row + last_offset;
+    for (const auto& marker : markers) {
+      if (marker.row >= anchor_row && marker.row <= last_target_row) {
+        return {ChartEditCode::PasteRangeOccupied, false, {0U}};
+      }
+    }
+    for (const auto& event : source_events) {
+      if (event.role != ChartRole::Npc ||
+          event.type != ChartRoleEventType::BlockStart) {
+        continue;
+      }
+      ChartEditCode error = ChartEditCode::Success;
+      if (!npc_start_allowed(draft_, anchor_row + event.row, error)) {
+        return {error, false, {0U}};
+      }
+    }
+
+    IdState ids{next_id_, id_available_};
+    std::uint64_t drill_id = 0U;
+    if (!allocate_id(ids, drill_id)) {
+      return {ChartEditCode::IdExhausted, false, {0U}};
+    }
+    std::vector<std::uint64_t> group_ids(content.drill_groups().size(), 0U);
+    std::vector<std::uint64_t> event_ids(source_events.size(), 0U);
+    for (auto& value : group_ids) {
+      if (!allocate_id(ids, value)) {
+        return {ChartEditCode::IdExhausted, false, {0U}};
+      }
+    }
+    for (auto& value : event_ids) {
+      if (!allocate_id(ids, value)) {
+        return {ChartEditCode::IdExhausted, false, {0U}};
+      }
+    }
+
+    const auto mapped_group = [&content, &group_ids](ChartDrillGroupId id) {
+      for (std::size_t index = 0U; index < content.drill_groups().size();
+           ++index) {
+        if (content.drill_groups()[index].id.value == id.value) {
+          return ChartDrillGroupId{group_ids[index]};
+        }
+      }
+      return ChartDrillGroupId{0U};
+    };
+    const auto mapped_event = [&source_events, &event_ids](ChartEventId id) {
+      for (std::size_t index = 0U; index < source_events.size(); ++index) {
+        if (source_events[index].id.value == id.value) {
+          return ChartEventId{event_ids[index]};
+        }
+      }
+      return ChartEventId{0U};
+    };
+
+    MutableDraft candidate{draft_};
+    for (std::size_t index = 0U; index < source_events.size(); ++index) {
+      ChartRoleEvent event = source_events[index];
+      event.id = {event_ids[index]};
+      event.row = anchor_row + source_events[index].row;
+      event.drill_group_id = mapped_group(event.drill_group_id);
+      event.dance_move_drill_id = {drill_id};
+      candidate.role_events.push_back(event);
+    }
+    for (std::size_t index = 0U; index < content.drill_groups().size();
+         ++index) {
+      ChartDrillGroup group = content.drill_groups()[index];
+      group.id = {group_ids[index]};
+      group.dance_move_drill_id = {drill_id};
+      for (auto& id : group.npc_event_ids) {
+        id = mapped_event(id);
+      }
+      for (auto& id : group.player_event_ids) {
+        id = mapped_event(id);
+      }
+      const auto drop_unmapped = [](std::vector<ChartEventId>& ids) {
+        ids.erase(std::remove_if(ids.begin(), ids.end(),
+                                 [](ChartEventId id) {
+                                   return id.value == 0U;
+                                 }),
+                  ids.end());
+      };
+      drop_unmapped(group.npc_event_ids);
+      drop_unmapped(group.player_event_ids);
+      candidate.drill_groups.push_back(std::move(group));
+    }
+    ChartDanceMoveDrill drill{ChartDanceMoveDrillId{drill_id},
+                              source_drill.front().move_n_count, {}};
+    for (const auto id : source_drill.front().drill_group_ids) {
+      drill.drill_group_ids.push_back(mapped_group(id));
+    }
+    const std::size_t drill_index = candidate.dance_move_drills.size();
+    candidate.dance_move_drills.push_back(std::move(drill));
+
+    sort_role_events(candidate);
+    sort_drill_group_ids(candidate, candidate.dance_move_drills[drill_index]);
+
+    const ChartEditResult result{ChartEditCode::Success, true,
+                                 ChartEventId{event_ids.front()}};
+    auto committed =
+        commit(std::move(candidate).finish(), result, ids.next, ids.available);
+    if (!committed.changed) {
+      return committed;
+    }
+    ChartSelection derived{};
+    if (derive_selection(draft_, ChartDanceMoveDrillId{drill_id}, derived)) {
+      selection_ = derived;
+    }
+    return committed;
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, {0U}};
+  }
 }
 
 ChartEditResult ChartEditor::click(ChartColumn column,
@@ -1209,6 +1885,10 @@ ChartEditResult ChartEditor::click(ChartColumn column,
     }
 
     MutableDraft candidate{draft_};
+    // A recovered draft can contain a fully deleted group from an older editor.
+    // Prepare only the candidate so completion sees the remaining live groups;
+    // a rejected click still leaves the authoritative draft untouched.
+    prune_eventless_groups(candidate);
     IdState ids{next_id_, id_available_};
     ChartEditResult result{ChartEditCode::CannotPlace, false, {0U}};
     if (column == ChartColumn::Npc) {
@@ -1258,6 +1938,7 @@ ChartEditResult ChartEditor::undo() noexcept {
   }
   draft_ = std::move(undo_.back());
   undo_.pop_back();
+  revalidate_selection();
   return {ChartEditCode::Success, true, {0U}};
 }
 
@@ -1272,6 +1953,7 @@ ChartEditResult ChartEditor::redo() noexcept {
   }
   draft_ = std::move(redo_.back());
   redo_.pop_back();
+  revalidate_selection();
   return {ChartEditCode::Success, true, {0U}};
 }
 

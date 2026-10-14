@@ -1,6 +1,6 @@
 # 实现状态
 
-更新时间：2026-09-05
+更新时间：2026-10-14
 
 ## 当前阶段
 
@@ -359,7 +359,67 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 
 ## 最后成功验证
 
-2026-09-05 在 arm64 macOS 上运行：
+### 2026-10-14：空演练组清理与 Showtime 再生成
+
+核心在候选草稿与提交边界按角色事件的 `drill_group_id` 删除零绑定事件的演练组，并移除舞步中的组引用，再判断 Showtime 是否失效。删除一组 NPC 后仍保留该组玩家内容；删除其最后一个角色事件后，剩余完整组可以再次生成 `SHOW-D`。存活事件的组即使关系向量为空仍保留，加载、只读查询和失败命令不修改旧快照，撤销/重做精确恢复完整关系。
+
+本次实际执行：
+
+```text
+cmake --build build/selection-native --parallel 4
+ctest --test-dir build/selection-native -R 'av_core.chart_editor|av_c_api.chart_consistency' --output-on-failure
+ctest --test-dir build/selection-native --output-on-failure
+
+cd app/packages/otgy_native
+../../../build/flutter-sdk/bin/dart format test/chart_selection_test.dart
+../../../build/flutter-sdk/bin/dart analyze
+../../../build/flutter-sdk/bin/dart test -r expanded
+
+cd ../..
+../build/flutter-sdk/bin/flutter analyze
+../build/flutter-sdk/bin/flutter test test/chart_selection_test.dart --reporter expanded
+
+git diff --check
+```
+
+结果：原生定向 `2/2`、完整黄金与一致性套件 `50/50` 通过；Dart FFI 分析无问题、完整测试 `16/16` 通过；Flutter 分析无问题、定向交互测试 `7/7` 通过。新增 C ABI 用例逐值比较删除最后组事件、单步撤销/重做与再生成后的完整核心语义；新增 Dart FFI 用例精确比较恢复快照字节，并确认再生成 `SHOW-D` 位于行 `17`、`showNCount` 为 `1`。
+
+独立 Android 集成回归任务 `bmsj7dmuj` 于 2026-10-14 02:09:58.936 UTC 在 `emulator-5556` 启动，三项测试 `3/3` 通过并以退出码 `0` 完成，完成通知时间为 02:10:27.237 UTC；测试覆盖移动端长按与舞步剪贴板、删除最后组事件后的 Showtime 再生成，以及剪切时同一撤销步骤清理失效 Showtime。任务 `brcciq43y` 从仓库根目录误运行 `flutter test`，因找不到 `pubspec.yaml` 以退出码 `1` 结束且测试未开始，不计入验证结果。历史界面的 `engine-7`/`engine-8` 只是描述匹配，缺少直接 alias 字段；因此以原始任务 ID 记录，不声称短标签存在正式映射。
+
+现场数据保留：`build/showtime-user-state.tar` 为 `4608` 字节，SHA-256 为 `86f89d6e5c87f19bba916658b5d4ad2a98e5680c17fda538eb05f7f70047f365`。归档中的恢复记录为 `1266` 字节，时间戳 `2026-10-14T01:37:09.891137Z`，SHA-256 为 `e53dbd3386d6932f4c695d9666d0d4828469f05c1d151be0ba7487de0e992cac`。2026-10-14 实际通过 `adb -s emulator-5554 shell run-as ... ls -l files/OneTwoGoYeah` 与 `exec-out run-as ... dd if=... status=none` 只读核对，当前目录仍只有该恢复记录与 `active-session`，两个文件与归档成员均逐字节一致。本次未安装、卸载、清空、恢复或改写原模拟器数据。独立的 `build/showtime-user-recovery.otgydata` 尾部含 `dd` 统计文本，现场分析只使用归档内干净成员。
+
+归档内恢复 payload 经现有 `decode_recovery_snapshot` 解码后确认：舞步 `6` 登记组 `[5,13]`，其中组 `5` 没有任何绑定角色事件，组 `13` 是完整的 `moveNCount=1` 舞步；另一舞步 `46` 仍是不完整草稿。旧提交 `73064496e27bca7a9abd9357c925d258f424a9ff` 的编辑器对同一快照在 Showtime 行 `17` 和 `32` 均返回 `NoRemainingDanceMoves(9)`，保留 SHOW-C 且不生成 SHOW-D。当前核心对每次独立加载的同一快照，在合法位置删除空组 `5`、把舞步 `6` 的组列表改为 `[13]`，并生成 `showNCount=1` 的 SHOW-D；全部角色事件保持不变，清理与生成共用一条历史，撤销后草稿及 `884` 字节 payload 与原始输入逐字节相同，重做也精确恢复。非法行 `18` 仍返回 `InvalidShowtimePosition(8)`，不清理、不产生历史。这证明保存现场确实包含本修复处理的阻塞状态，且修复可在不丢失用户内容的前提下解除阻塞；恢复记录没有编辑历史或 APK 构建标识，因此不推断空组由哪次具体操作产生，也不声称完整重建了现场 APK。
+
+### 2026-10-13：舞步选择与剪贴板
+
+2026-10-13 更新：舞步单选、复制、剪切、粘贴已贯通核心、C ABI、Dart FFI 和 Flutter。退出模式清空选择及剪贴板；引用舞步失效时整段 Showtime 与触发编辑共用一条历史。工具栏与画布焦点下的选择快捷键均可用，文本输入保留自身剪贴板行为。
+
+本轮在 arm64 macOS 和 Android API 34 模拟器 `emulator-5554` 上运行：
+
+```text
+cmake -S native -B build/selection-native -DBUILD_TESTING=ON
+cmake --build build/selection-native --parallel
+ctest --test-dir build/selection-native --output-on-failure
+
+cd app/packages/otgy_native
+../../../build/flutter-sdk/bin/dart analyze
+../../../build/flutter-sdk/bin/dart test -r expanded
+
+cd ../..
+../build/flutter-sdk/bin/flutter analyze
+../build/flutter-sdk/bin/flutter test --reporter expanded
+../build/flutter-sdk/bin/flutter test integration_test/chart_selection_test.dart -d emulator-5554 --reporter expanded
+```
+
+结果：原生核心、CLI 和 C ABI `50/50` 通过；Dart FFI 分析通过且 `15/15` 测试通过；Flutter 分析通过且 `99/99` 测试通过；Android 真实 App 与原生 FFI 集成测试 `2/2` 通过，覆盖长按选择、模式内点击、复制、重复粘贴、新标识、剪切、单步撤销、占用失败、退出清空剪贴板和 Showtime 同步清理及恢复。最终 Flutter 回归还覆盖工具栏 Tab/Enter 焦点路径、文本剪贴板及无障碍标签。
+
+正常入口 `lib/main.dart` 的 Android Debug APK 已重新构建、安装并启动，产物为 `app/build/app/outputs/flutter-apk/app-debug.apk`。实际执行 `flutter build apk --debug -t lib/main.dart`、`adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-debug.apk`、`adb -s emulator-5554 shell am force-stop io.onetwogoyeah.one_two_go_yeah` 和 `adb -s emulator-5554 shell am start -n io.onetwogoyeah.one_two_go_yeah/.MainActivity`，均成功。
+
+本轮 Android 三 ABI 原生资产检查未完成：首次执行未找到 `readelf`，后续检查命令未获执行许可；设备集成测试通过不能代替该资产检查。Windows、macOS 和 iOS 的本轮安装运行验证未执行。
+
+### 既有发布验证记录
+
+以下是 2026-09-05 的结果，未在本轮重新验证：
 
 ```text
 cmake -S native -B build/stage9-native -DBUILD_TESTING=ON
@@ -403,6 +463,6 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 ## 唯一下一步
 
-继续阶段 9 的跨环境验证：在 Windows x86-64/ARM64、Android 真机或模拟器和
-真实 iOS 设备上安装对应 Release/Profile 产物，运行完整黄金与平台集成套件；
-随后由发布者注入正式签名凭据并重新生成可公开分发的 Android/macOS 构建。
+本轮 Showtime 阻塞问题已闭环：保存现场的原生解码确认残留空组是直接阻塞条件，当前核心在原始 payload 的内存副本上完成无损清理与 SHOW-D 再生成，独立 Android 模拟器三项真实 App/FFI 集成回归 `3/3` 通过，原 `emulator-5554` 保存文件保持逐字节不变。
+
+唯一下一步是继续阶段 9 的跨环境发布验证；三 ABI 原生资产检查与正式签名仍按上面的已知问题处理，不将本轮 Debug 模拟器验证视为这些发布检查已经完成。
