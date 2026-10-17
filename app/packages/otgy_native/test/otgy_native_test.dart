@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 void main() {
   test('stable ABI creates and edits an empty chart', () {
-    expect(OtgyNative.apiVersion, 1);
+    expect(OtgyNative.apiVersion, 2);
     expect(OtgyNative.coreVersion, isNotEmpty);
 
     final editor = NativeChartEditor.createEmpty();
@@ -32,6 +32,95 @@ void main() {
     editor.undo();
     expect(editor.markers(), hasLength(1));
     expect(editor.canRedo, isTrue);
+  });
+
+  test('multi-selection and preview values outlive native handles', () {
+    final editor = NativeChartEditor.createEmpty();
+    for (final firstRow in [0, 32]) {
+      for (final row in [0, 2, 4, 6, 6]) {
+        expect(
+          editor.click(OTGY_CHART_COLUMN_NPC, firstRow + row).changed,
+          isTrue,
+        );
+      }
+      for (final row in [8, 10]) {
+        expect(
+          editor.click(OTGY_CHART_COLUMN_PLAYER, firstRow + row).changed,
+          isTrue,
+        );
+      }
+    }
+    editor.select(OTGY_CHART_COLUMN_NPC, 32);
+    editor.select(OTGY_CHART_COLUMN_NPC, 0);
+    final selected = editor.selections;
+    expect(selected.map((item) => item.firstRow), [0, 32]);
+    expect(editor.selectionCount, 2);
+    editor.select(OTGY_CHART_COLUMN_SHOWTIME, 200);
+    expect(editor.selectionCount, 2);
+    final before = editor.encodeRecovery();
+    expect(editor.copySelection().code, 0);
+    expect(editor.clipboardCount, 2);
+    final preview = editor.pastePreview(100);
+    expect(preview.valid, isTrue);
+    expect(preview.firstRow, 100);
+    expect(preview.lastRow, 146);
+    expect(preview.selections.map((item) => item.firstRow), [100, 132]);
+    final ghostRows = preview.markers.map((item) => item.row).toList();
+    expect(ghostRows, [
+      100,
+      102,
+      104,
+      106,
+      108,
+      110,
+      112,
+      114,
+      132,
+      134,
+      136,
+      138,
+      140,
+      142,
+      144,
+      146,
+    ]);
+    expect(editor.encodeRecovery(), before);
+    expect(() => selected.clear(), throwsUnsupportedError);
+    expect(() => preview.markers.clear(), throwsUnsupportedError);
+    expect(() => preview.selections.clear(), throwsUnsupportedError);
+    expect(editor.paste(100).changed, isTrue);
+    editor.clearSelection();
+    editor.clearClipboard();
+    editor.dispose();
+    expect(selected.map((item) => item.firstRow), [0, 32]);
+    expect(preview.markers.map((item) => item.row), ghostRows);
+  });
+
+  test('cut preparation preserves source until one atomic placement', () {
+    final editor = NativeChartEditor.createEmpty();
+    addTearDown(editor.dispose);
+    editor.click(OTGY_CHART_COLUMN_NPC, 0);
+    editor.click(OTGY_CHART_COLUMN_NPC, 4);
+    editor.select(OTGY_CHART_COLUMN_NPC, 0);
+    final before = editor.encodeRecovery();
+    final sourceIds = editor.markers().map((marker) => marker.id).toSet();
+    expect(editor.cutSelection().code, 0);
+    expect(editor.cutPending, isTrue);
+    expect(editor.encodeRecovery(), before);
+    expect(editor.pastePreview(2).valid, isTrue);
+    expect(editor.paste(2).changed, isTrue);
+    expect(editor.markers().map((marker) => marker.row), [2, 6]);
+    expect(editor.markers().every((m) => !sourceIds.contains(m.id)), isTrue);
+    expect(editor.cutPending, isFalse);
+    editor.undo();
+    expect(editor.encodeRecovery(), before);
+    expect(editor.cutPending, isFalse);
+    expect(editor.paste(20).changed, isTrue);
+    expect(editor.markers().map((marker) => marker.row), [0, 4, 20, 24]);
+    final after = editor.encodeRecovery();
+    expect(editor.pastePreview(0).valid, isFalse);
+    expect(editor.paste(0).changed, isFalse);
+    expect(editor.encodeRecovery(), after);
   });
 
   test('formal and recovery payloads preserve incomplete native drafts', () {
@@ -178,6 +267,47 @@ void main() {
     expect(OtgyNative.pausePlayback(advanced).isPlaying, isFalse);
     expect(OtgyNative.coordinateApplicationOperation(mode: 1, operation: 0), 1);
     expect(OtgyNative.coordinateApplicationOperation(mode: 1, operation: 2), 0);
+    // A selection or paste-pending session keeps its own commands, navigation
+    // and history navigation, and rejects everything else.
+    expect(
+      OtgyNative.coordinateApplicationOperation(
+        mode: OTGY_APPLICATION_MODE_CHART_INTERACTION,
+        operation: OTGY_APPLICATION_OPERATION_GENERAL,
+      ),
+      OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE,
+    );
+    for (final operation in [
+      OTGY_APPLICATION_OPERATION_SELECTION_COMMAND,
+      OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW,
+      OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION,
+      OTGY_APPLICATION_OPERATION_TOGGLE_WAVEFORM,
+      OTGY_APPLICATION_OPERATION_PAUSE_PLAYBACK,
+    ]) {
+      expect(
+        OtgyNative.coordinateApplicationOperation(
+          mode: OTGY_APPLICATION_MODE_CHART_INTERACTION,
+          operation: operation,
+        ),
+        OTGY_APPLICATION_OPERATION_ALLOWED,
+      );
+    }
+    // Idle keeps allowing the new classes, and the constants stay stable.
+    for (final operation in [
+      OTGY_APPLICATION_OPERATION_SELECTION_COMMAND,
+      OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW,
+      OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION,
+    ]) {
+      expect(
+        OtgyNative.coordinateApplicationOperation(
+          mode: OTGY_APPLICATION_MODE_IDLE,
+          operation: operation,
+        ),
+        OTGY_APPLICATION_OPERATION_ALLOWED,
+      );
+    }
+    expect(OTGY_APPLICATION_MODE_CHART_INTERACTION, 3);
+    expect(OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION, 6);
+    expect(OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE, 5);
 
     final defaultWaveform = audio.generateWaveform(
       zoom: 11,

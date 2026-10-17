@@ -594,16 +594,16 @@ void main() {
       'markerCount': 4,
       'showtimeMoveCount': 1,
       'hasAudio': true,
-      'canUndo': true,
+      'canUndo': false,
       'canRedo': false,
-      'selectionMode': true,
+      'interactionMode': 'pastePending',
+      'selectionCount': 2,
+      'hasSelection': true,
       'hasClipboard': true,
-      'selection': {
-        'active': true,
-        'danceMoveDrillId': 9,
-        'firstRow': 2,
-        'lastRow': 7,
-      },
+      'clipboardCount': 2,
+      'cutPending': true,
+      'pastePreviewAnchorRow': 48,
+      'pastePreviewCode': 19,
     };
     await File('${directory.path}/diagnostics-0.jsonl').writeAsString(
       '${jsonEncode({
@@ -615,7 +615,11 @@ void main() {
             'draftName': 'private draft',
             'path': '/Users/private/chart.slk',
             'unknown': {'title': 'private-song.mp3'},
-            'selection': {...safeState['selection'] as Map, 'message': 'private-song.mp3', 'unknown': 'private draft'},
+            'selectionMode': true,
+            'objectId': 'PRIVATE_OBJECT_ID_9d3e',
+            'danceMoveDrillId': 'PRIVATE_DRILL_ID_9d3e',
+            'clipboard': 'PRIVATE_CLIPBOARD_PAYLOAD_9d3e',
+            'selection': {'active': true, 'danceMoveDrillId': 'PRIVATE_DRILL_ID_9d3e', 'firstRow': 2, 'lastRow': 7, 'message': 'private-song.mp3', 'nested': 'PRIVATE_SELECTION_9d3e'},
           },
         },
       })}\n${jsonEncode({
@@ -633,9 +637,19 @@ void main() {
             'canUndo': [],
             'canRedo': null,
             'selectionMode': 'private-song.mp3',
+            'interactionMode': 'private-song.mp3',
+            'selectionCount': 1.5,
+            'hasSelection': 'private draft',
             'hasClipboard': {},
+            'clipboardCount': false,
+            'cutPending': [],
+            'pastePreviewAnchorRow': 1.5,
+            'pastePreviewCode': 'private draft',
             'sourceKind': 'private draft',
-            'selection': {'active': 'private draft', 'danceMoveDrillId': 1.5, 'firstRow': 'private-song.mp3', 'lastRow': {}},
+            'objectId': 'PRIVATE_OBJECT_ID_9d3e',
+            'danceMoveDrillId': 'PRIVATE_DRILL_ID_9d3e',
+            'clipboardPayload': 'PRIVATE_CLIPBOARD_PAYLOAD_9d3e',
+            'selection': {'active': 'private draft', 'danceMoveDrillId': 'PRIVATE_DRILL_ID_9d3e', 'nested': 'PRIVATE_SELECTION_9d3e'},
           },
         },
       })}\n',
@@ -645,9 +659,14 @@ void main() {
       'state': {
         ...safeState,
         'unknown': _UnprintableError(),
+        'selectionMode': true,
+        'objectId': 'PRIVATE_OBJECT_ID_9d3e',
+        'danceMoveDrillId': 'PRIVATE_DRILL_ID_9d3e',
+        'clipboardPayload': 'PRIVATE_CLIPBOARD_PAYLOAD_9d3e',
         'selection': {
-          ...safeState['selection'] as Map,
-          'unknown': _UnprintableError(),
+          'active': true,
+          'danceMoveDrillId': 'PRIVATE_DRILL_ID_9d3e',
+          'nested': _UnprintableError(),
         },
       },
     });
@@ -656,7 +675,7 @@ void main() {
     });
     final logs = records(await bundle(logger));
     expect((logs[0]['fields'] as Map)['state'], safeState);
-    expect((logs[1]['fields'] as Map)['state'], {'selection': {}});
+    expect((logs[1]['fields'] as Map)['state'], isEmpty);
     expect((logs[2]['fields'] as Map)['state'], safeState);
     expect((logs[3]['fields'] as Map)['state'], isEmpty);
     expect(logger.droppedRecords, 0);
@@ -665,6 +684,19 @@ void main() {
     expect(encoded, isNot(contains('private-song.mp3')));
     expect(encoded, isNot(contains('/Users/private')));
     expect(encoded, isNot(contains('unknown')));
+    for (final forbidden in [
+      'PRIVATE_OBJECT_ID_9d3e',
+      'PRIVATE_DRILL_ID_9d3e',
+      'PRIVATE_CLIPBOARD_PAYLOAD_9d3e',
+      'PRIVATE_SELECTION_9d3e',
+      'objectId',
+      'danceMoveDrillId',
+      'clipboardPayload',
+      'selectionMode',
+      '"selection":',
+    ]) {
+      expect(encoded, isNot(contains(forbidden)), reason: forbidden);
+    }
   });
 
   test('storage failures retain only types and safe codes', () async {

@@ -123,6 +123,18 @@ struct otgy_chart_markers final {
   std::vector<otgy_chart_marker> value;
 };
 
+struct otgy_chart_selections final {
+  std::vector<otgy_chart_selection> value;
+};
+
+struct otgy_chart_paste_preview final {
+  std::uint32_t code;
+  std::uint64_t first_row;
+  std::uint64_t last_row;
+  std::vector<otgy_chart_selection> selections;
+  std::vector<otgy_chart_marker> markers;
+};
+
 struct otgy_showtime_moves final {
   std::vector<otgy_showtime_move> value;
 };

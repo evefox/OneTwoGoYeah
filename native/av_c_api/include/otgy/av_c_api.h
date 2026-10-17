@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define OTGY_C_API_VERSION UINT32_C(1)
+#define OTGY_C_API_VERSION UINT32_C(2)
 
 typedef uint32_t otgy_status;
 #define OTGY_STATUS_OK UINT32_C(0)
@@ -78,7 +78,7 @@ typedef struct otgy_byte_view {
 } otgy_byte_view;
 
 /*
- * Ownership contract for ABI version 1:
+ * Ownership contract for ABI version 2:
  *
  * - Every non-null opaque handle returned through an out parameter is owned
  *   by the caller and has exactly one matching *_destroy function.
@@ -108,6 +108,8 @@ typedef struct otgy_timing_grid otgy_timing_grid;
 typedef struct otgy_chart otgy_chart;
 typedef struct otgy_chart_semantics otgy_chart_semantics;
 typedef struct otgy_chart_markers otgy_chart_markers;
+typedef struct otgy_chart_selections otgy_chart_selections;
+typedef struct otgy_chart_paste_preview otgy_chart_paste_preview;
 typedef struct otgy_showtime_moves otgy_showtime_moves;
 typedef struct otgy_chart_editor otgy_chart_editor;
 typedef struct otgy_chart_validation otgy_chart_validation;
@@ -547,15 +549,20 @@ OTGY_C_API otgy_status otgy_coordinate_application_operation(
 #define OTGY_APPLICATION_MODE_IDLE UINT32_C(0)
 #define OTGY_APPLICATION_MODE_PLAYING UINT32_C(1)
 #define OTGY_APPLICATION_MODE_EXPORTING_AUDIO UINT32_C(2)
+#define OTGY_APPLICATION_MODE_CHART_INTERACTION UINT32_C(3)
 #define OTGY_APPLICATION_OPERATION_GENERAL UINT32_C(0)
 #define OTGY_APPLICATION_OPERATION_PAUSE_PLAYBACK UINT32_C(1)
 #define OTGY_APPLICATION_OPERATION_TOGGLE_WAVEFORM UINT32_C(2)
 #define OTGY_APPLICATION_OPERATION_CANCEL_AUDIO_EXPORT UINT32_C(3)
+#define OTGY_APPLICATION_OPERATION_SELECTION_COMMAND UINT32_C(4)
+#define OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW UINT32_C(5)
+#define OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION UINT32_C(6)
 #define OTGY_APPLICATION_OPERATION_ALLOWED UINT32_C(0)
 #define OTGY_APPLICATION_OPERATION_PLAYBACK_ACTIVE UINT32_C(1)
 #define OTGY_APPLICATION_OPERATION_AUDIO_EXPORT_ACTIVE UINT32_C(2)
 #define OTGY_APPLICATION_OPERATION_INVALID_MODE UINT32_C(3)
 #define OTGY_APPLICATION_OPERATION_INVALID_OPERATION UINT32_C(4)
+#define OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE UINT32_C(5)
 
 typedef struct otgy_chart_marker {
   uint64_t id;
@@ -765,6 +772,7 @@ typedef struct otgy_chart_edit_result {
 #define OTGY_CHART_EDIT_CLIPBOARD_EMPTY UINT32_C(18)
 #define OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED UINT32_C(19)
 #define OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE UINT32_C(20)
+#define OTGY_CHART_EDIT_CUT_SOURCE_CHANGED UINT32_C(21)
 
 OTGY_C_API otgy_status otgy_chart_editor_click(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
@@ -779,8 +787,7 @@ OTGY_C_API otgy_status otgy_chart_editor_redo(
     otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
     otgy_error** out_error);
 
-/// Selection of one dance move in the current editor session. A selection is
-/// session state: it is never persisted and never produces history.
+/// One selected dance move, projected from session state.
 typedef struct otgy_chart_selection {
   uint8_t active;
   uint64_t dance_move_drill_id;
@@ -788,24 +795,25 @@ typedef struct otgy_chart_selection {
   uint64_t last_row;
 } otgy_chart_selection;
 
-/// Result of a session command. `changed` describes the selection or clipboard,
-/// never the chart draft; use otgy_chart_edit_result for commands that edit the
-/// draft, so the two meanings are never confused.
+/// Session commands change selection or clipboard only, without draft history.
 typedef struct otgy_chart_session_result {
   uint32_t code;
   uint8_t changed;
-  otgy_chart_selection selection;
 } otgy_chart_session_result;
 
-/// Session commands never edit the chart draft and never add history. They
-/// clear every out parameter before validating arguments, so a failed call
-/// never leaves an older value readable. otgy_chart_editor_cut_selection and
-/// otgy_chart_editor_paste edit the draft and therefore report through
-/// otgy_chart_edit_result, but they clear that out parameter on failure the
-/// same way.
-OTGY_C_API otgy_status otgy_chart_editor_get_selection(
-    const otgy_chart_editor* editor, otgy_chart_selection* out_selection,
+/// Copies the ordered selection into an independently owned handle. All out
+/// parameters are cleared before argument validation.
+OTGY_C_API otgy_status otgy_chart_editor_copy_selections(
+    const otgy_chart_editor* editor, otgy_chart_selections** out_selections,
     otgy_error** out_error);
+OTGY_C_API void otgy_chart_selections_destroy(otgy_chart_selections* selections);
+OTGY_C_API const otgy_chart_selection* otgy_chart_selections_get_data(
+    const otgy_chart_selections* selections);
+OTGY_C_API uint64_t otgy_chart_selections_get_count(
+    const otgy_chart_selections* selections);
+OTGY_C_API uint64_t otgy_chart_editor_selection_count(
+    const otgy_chart_editor* editor);
+/// Toggles the drill at an exact marker row from any valid chart column.
 OTGY_C_API otgy_status otgy_chart_editor_select(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
     otgy_chart_session_result* out_result, otgy_error** out_error);
@@ -813,33 +821,52 @@ OTGY_C_API otgy_status otgy_chart_editor_clear_selection(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error);
 
-/// Returns 1 when the session clipboard holds a copied dance move. A null
-/// editor returns 0, matching otgy_chart_editor_can_undo.
+/// Null editors return zero for all session scalar queries.
 OTGY_C_API uint8_t otgy_chart_editor_has_clipboard(
+    const otgy_chart_editor* editor);
+OTGY_C_API uint64_t otgy_chart_editor_clipboard_count(
+    const otgy_chart_editor* editor);
+OTGY_C_API uint8_t otgy_chart_editor_cut_pending(
     const otgy_chart_editor* editor);
 OTGY_C_API otgy_status otgy_chart_editor_copy_selection(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error);
-
-/// Drops the session clipboard without touching the draft, the history or the
-/// selection. Leaving selection mode uses this command.
 OTGY_C_API otgy_status otgy_chart_editor_clear_clipboard(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error);
 
-/// Copies the selected dance move into the clipboard and deletes it. One
-/// successful call is exactly one history entry, and it reports through
-/// otgy_chart_edit_result because the draft changed.
+/// Prepares a batch cut without deleting source content or adding history.
 OTGY_C_API otgy_status otgy_chart_editor_cut_selection(
-    otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error);
 
-/// One successful call is exactly one history entry. The fragment's smallest
-/// row lands on anchor_row; every event keeps its column and role and only
-/// rows are translated.
+/// Each success adds one history entry. First cut placement atomically removes
+/// the verified source and inserts the batch; subsequent placements are copies.
 OTGY_C_API otgy_status otgy_chart_editor_paste(
     otgy_chart_editor* editor, uint64_t anchor_row,
     otgy_chart_edit_result* out_result, otgy_error** out_error);
+
+/// Read-only core placement plan. Invalid plans still expose available target
+/// geometry. The owned projection remains valid after editor changes/destruction.
+OTGY_C_API otgy_status otgy_chart_editor_preview_paste(
+    const otgy_chart_editor* editor, uint64_t anchor_row,
+    otgy_chart_paste_preview** out_preview, otgy_error** out_error);
+OTGY_C_API void otgy_chart_paste_preview_destroy(
+    otgy_chart_paste_preview* preview);
+OTGY_C_API uint32_t otgy_chart_paste_preview_get_code(
+    const otgy_chart_paste_preview* preview);
+OTGY_C_API uint64_t otgy_chart_paste_preview_get_first_row(
+    const otgy_chart_paste_preview* preview);
+OTGY_C_API uint64_t otgy_chart_paste_preview_get_last_row(
+    const otgy_chart_paste_preview* preview);
+OTGY_C_API const otgy_chart_selection* otgy_chart_paste_preview_get_selections(
+    const otgy_chart_paste_preview* preview);
+OTGY_C_API uint64_t otgy_chart_paste_preview_get_selection_count(
+    const otgy_chart_paste_preview* preview);
+OTGY_C_API const otgy_chart_marker* otgy_chart_paste_preview_get_markers(
+    const otgy_chart_paste_preview* preview);
+OTGY_C_API uint64_t otgy_chart_paste_preview_get_marker_count(
+    const otgy_chart_paste_preview* preview);
 
 typedef struct otgy_chart_diagnostic {
   uint32_t code;

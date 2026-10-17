@@ -373,6 +373,9 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _analyzeAudio() async {
+    if (!_controller.generalActionsEnabled) {
+      return;
+    }
     if (!_controller.hasAudio) {
       _controller.showNotice('加载音频');
       return;
@@ -975,6 +978,9 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   Future<void> _exportSlk() async {
+    if (!_controller.generalActionsEnabled) {
+      return;
+    }
     final result = _controller.exportSlk();
     if (!result.isFinished) {
       await showDialog<void>(
@@ -1095,6 +1101,10 @@ class _EditorScreenState extends State<EditorScreen>
       }
       if (choice == _UnsavedChoice.discard && _controller.isDirty) {
         await _store?.deleteRecovery();
+      }
+      if (_controller.chartInteractionMode !=
+          EditorChartInteractionMode.normal) {
+        _controller.exitChartInteraction();
       }
       await _store?.endSessionNormally();
       if (!mounted) {
@@ -1247,7 +1257,7 @@ class _EditorScreenState extends State<EditorScreen>
   }
 
   KeyEventResult _handleSelectionShortcut(FocusNode node, KeyEvent event) {
-    if (!_controller.selectionMode) {
+    if (_controller.chartInteractionMode == EditorChartInteractionMode.normal) {
       return KeyEventResult.ignored;
     }
     final focusContext = FocusManager.instance.primaryFocus?.context;
@@ -1255,20 +1265,18 @@ class _EditorScreenState extends State<EditorScreen>
       return KeyEventResult.ignored;
     }
     final bindings = <ShortcutActivator, VoidCallback>{
-      const SingleActivator(LogicalKeyboardKey.keyC, control: true):
-          _controller.copySelection,
-      const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
-          _controller.copySelection,
-      const SingleActivator(LogicalKeyboardKey.keyX, control: true):
-          _controller.cutSelection,
-      const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
-          _controller.cutSelection,
-      const SingleActivator(LogicalKeyboardKey.keyV, control: true):
-          _controller.pasteAtCursor,
-      const SingleActivator(LogicalKeyboardKey.keyV, meta: true):
-          _controller.pasteAtCursor,
+      if (_controller.selectionMode) ...{
+        const SingleActivator(LogicalKeyboardKey.keyC, control: true):
+            _controller.copySelection,
+        const SingleActivator(LogicalKeyboardKey.keyC, meta: true):
+            _controller.copySelection,
+        const SingleActivator(LogicalKeyboardKey.keyX, control: true):
+            _controller.cutSelection,
+        const SingleActivator(LogicalKeyboardKey.keyX, meta: true):
+            _controller.cutSelection,
+      },
       const SingleActivator(LogicalKeyboardKey.escape):
-          _controller.exitSelectionMode,
+          _controller.exitChartInteraction,
     };
     for (final binding in bindings.entries) {
       if (binding.key.accepts(event, HardwareKeyboard.instance)) {
@@ -1589,32 +1597,47 @@ class _StatusBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Tooltip(
-            message: '点击跳转到歌曲时间',
-            child: TextButton(
-              key: const ValueKey('song-time'),
-              onPressed: controller.generalActionsEnabled ? onJumpToTime : null,
-              style: TextButton.styleFrom(
-                foregroundColor: EditorColors.text,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                textStyle: Theme.of(context).textTheme.bodySmall,
+          Expanded(
+            flex: 3,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Tooltip(
+                message: '点击跳转到歌曲时间',
+                child: TextButton(
+                  key: const ValueKey('song-time'),
+                  onPressed: controller.navigationEnabled ? onJumpToTime : null,
+                  style: TextButton.styleFrom(
+                    foregroundColor: EditorColors.text,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  child: Text(_formatSongTime(controller.currentSongSeconds)),
+                ),
               ),
-              child: Text(_formatSongTime(controller.currentSongSeconds)),
             ),
           ),
-          const Spacer(),
-          Text(
-            controller.isPlaying
-                ? '播放视图 ${controller.playbackVisualPixelsPerSecond.toStringAsFixed(0)} px/s'
-                : 'Zoom ${controller.zoom.toStringAsFixed(2)}',
-            style: Theme.of(context).textTheme.bodySmall,
+          Expanded(
+            flex: 2,
+            child: Text(
+              controller.isPlaying
+                  ? '播放视图 ${controller.playbackVisualPixelsPerSecond.toStringAsFixed(0)} px/s'
+                  : 'Zoom ${controller.zoom.toStringAsFixed(2)}',
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
-          const SizedBox(width: 14),
-          Text(
-            'Scale ${controller.scale.toStringAsFixed(2)}',
-            style: Theme.of(context).textTheme.bodySmall,
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Scale ${controller.scale.toStringAsFixed(2)}',
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ],
       ),

@@ -33,6 +33,7 @@ enum class ChartEditCode : std::uint8_t {
   ClipboardEmpty = 18,
   PasteRangeOccupied = 19,
   ShowtimeContentStale = 20,
+  CutSourceChanged = 21,
 };
 
 [[nodiscard]] constexpr std::string_view chart_edit_code_message(
@@ -80,6 +81,8 @@ enum class ChartEditCode : std::uint8_t {
       return "pasted dance move range is occupied";
     case ChartEditCode::ShowtimeContentStale:
       return "the Showtime content no longer matches its dance moves";
+    case ChartEditCode::CutSourceChanged:
+      return "the pending cut source has changed";
   }
   return "unknown chart edit result";
 }
@@ -104,11 +107,10 @@ struct ChartSelection final {
   std::uint64_t last_row{0U};
 };
 
-/// Session clipboard payload. `content` is a minimal ChartDraft holding exactly
-/// one dance move: its drill, its drill groups and both roles' events, with row
-/// numbers normalized to offsets from `base_row` (the smallest offset is always
-/// zero) and the three Showtime vectors always empty. The payload never reaches
-/// the project file and never uses a platform clipboard API.
+/// Independent session snapshot of all selected dance moves. Rows are offsets
+/// from their shared smallest source row, preserving gaps between moves. The
+/// three Showtime vectors are empty. Never persisted or sent to a platform
+/// clipboard.
 struct ChartClipboardFragment final {
   std::uint64_t base_row{0U};
   ChartDraft content{{}, {}, {}, {}, {}, {}};
@@ -120,7 +122,21 @@ struct ChartClipboardFragment final {
 struct ChartSessionResult final {
   ChartEditCode code;
   bool changed;
-  ChartSelection selection;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return code == ChartEditCode::Success;
+  }
+};
+
+/// Read-only paste assessment. Spans and ghost IDs refer to clipboard objects,
+/// never newly allocated chart objects. Representable geometry is returned even
+/// for an occupied destination or a changed cut source.
+struct ChartPastePreview final {
+  ChartEditCode code{ChartEditCode::ClipboardEmpty};
+  std::uint64_t anchor_row{0U};
+  std::uint64_t last_row{0U};
+  std::vector<ChartSelection> spans;
+  std::vector<ChartMarker> ghost_markers;
 
   [[nodiscard]] explicit operator bool() const noexcept {
     return code == ChartEditCode::Success;
@@ -138,9 +154,10 @@ class ChartEditor final {
   [[nodiscard]] bool can_redo() const noexcept { return !redo_.empty(); }
   [[nodiscard]] std::size_t undo_count() const noexcept { return undo_.size(); }
   [[nodiscard]] std::size_t redo_count() const noexcept { return redo_.size(); }
-  [[nodiscard]] const ChartSelection& selection() const noexcept {
-    return selection_;
+  [[nodiscard]] const std::vector<ChartSelection>& selections() const noexcept {
+    return selections_;
   }
+  [[nodiscard]] bool has_pending_cut() const noexcept { return pending_cut_; }
   [[nodiscard]] const ChartClipboardFragment& clipboard() const noexcept {
     return clipboard_;
   }
@@ -159,12 +176,23 @@ class ChartEditor final {
   [[nodiscard]] ChartSessionResult copy_selection() noexcept;
   [[nodiscard]] ChartSessionResult clear_clipboard() noexcept;
 
-  /// Commands that edit the draft: one successful call is exactly one history
-  /// entry. `cut_selection` copies the selected dance move into the clipboard
-  /// and deletes it, and `paste` anchors the fragment's smallest row on
-  /// `anchor_row`; both keep every event's column and role and translate rows
-  /// only.
-  [[nodiscard]] ChartEditResult cut_selection() noexcept;
+  /// Prepares a pending cut without changing the draft or its history. The first
+  /// successful paste verifies and removes all sources in the same transaction
+  /// as insertion, then turns the clipboard into an ordinary copy. Undo never
+  /// restores pending-cut state. `changed` here describes session state only.
+  [[nodiscard]] ChartSessionResult cut_selection() noexcept;
+
+  /// Toggles the drill at an exact marker row from any valid chart column;
+  /// empty rows and unselectable markers retain the set.
+  [[nodiscard]] ChartSessionResult toggle_selection(ChartColumn column,
+                                                   std::uint64_t row) noexcept {
+    return select(column, row);
+  }
+  [[nodiscard]] ChartPastePreview preview_paste(
+      std::uint64_t anchor_row) const noexcept;
+
+  /// Translates all clipboard content in one history entry. The smallest source
+  /// row is anchored on anchor_row; roles, columns and relative gaps survive.
   [[nodiscard]] ChartEditResult paste(std::uint64_t anchor_row) noexcept;
 
  private:
@@ -173,9 +201,10 @@ class ChartEditor final {
                                        std::uint64_t next_id,
                                        bool id_available) noexcept;
 
-  /// Re-derives the selected row span from the current draft and drops the
-  /// selection when the dance move no longer has any bound event. Allocates
-  /// nothing, so it is safe to call from every draft-changing command.
+  [[nodiscard]] ChartSessionResult prepare_clipboard(bool cut) noexcept;
+
+  /// Re-derives each selected span and drops only members with no bound event.
+  /// Allocates nothing, including when called after history navigation.
   void revalidate_selection() noexcept;
 
   ChartDraft draft_;
@@ -183,9 +212,11 @@ class ChartEditor final {
   std::vector<ChartDraft> redo_;
   std::uint64_t next_id_;
   bool id_available_;
-  ChartSelection selection_{};
+  std::vector<ChartSelection> selections_;
   ChartClipboardFragment clipboard_{};
+  ChartDraft cut_source_{{}, {}, {}, {}, {}, {}};
   bool has_clipboard_{false};
+  bool pending_cut_{false};
 };
 
 }  // namespace otgy::core

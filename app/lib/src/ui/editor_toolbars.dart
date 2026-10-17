@@ -262,7 +262,8 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           controller.hasAudio &&
               controller.bpm > 0 &&
               !controller.isChartPlaying &&
-              (!controller.isBusy || controller.isRhythmTesting)
+              (controller.isRhythmTesting ||
+                  (controller.generalActionsEnabled && !controller.isBusy))
           ? controller.toggleRhythmTest
           : null,
       tooltip: controller.isRhythmTesting
@@ -273,6 +274,8 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           ? '请先加载音频'
           : controller.bpm == 0
           ? '请先设置 BPM'
+          : !controller.generalActionsEnabled
+          ? '请先退出选择或粘贴模式'
           : '节奏测试',
       style: _toolbarIconButtonStyle,
       icon: controller.isRhythmTesting
@@ -493,67 +496,48 @@ class _ChartToolbar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Stack(
-              children: [
-                MenuAnchor(
-                  menuChildren: [
-                    MenuItemButton(
-                      leadingIcon: const Icon(Icons.file_open_outlined),
-                      onPressed: onImportSlk,
-                      child: const Text('导入 SLK'),
-                    ),
-                    MenuItemButton(
-                      leadingIcon: const Icon(Icons.folder_open_outlined),
-                      onPressed: onOpenDrafts,
-                      child: const Text('打开草稿'),
-                    ),
-                    MenuItemButton(
-                      key: const ValueKey('export-diagnostics'),
-                      leadingIcon: const Icon(Icons.bug_report_outlined),
-                      onPressed: enabled ? onExportDiagnostics : null,
-                      child: const Text('导出诊断包（含当前谱面）'),
-                    ),
-                  ],
-                  builder: (context, menu, child) => TextButton(
-                    key: const ValueKey('chart-menu'),
-                    onPressed: enabled
-                        ? () => menu.isOpen ? menu.close() : menu.open()
-                        : null,
-                    style: _toolbarFileButtonStyle,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.description_outlined, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              '$chartLabel${controller.isDirty ? '  • 未保存' : ''}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 40),
-                      ],
-                    ),
-                  ),
+            child: MenuAnchor(
+              menuChildren: [
+                MenuItemButton(
+                  leadingIcon: const Icon(Icons.file_open_outlined),
+                  onPressed: enabled ? onImportSlk : null,
+                  child: const Text('导入 SLK'),
                 ),
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  child: IconButton(
-                    key: const ValueKey('selection-mode'),
-                    onPressed: enabled ? controller.toggleSelectionMode : null,
-                    tooltip: controller.selectionMode ? '退出选择' : '选择',
-                    isSelected: controller.selectionMode,
-                    style: _toolbarIconButtonStyle,
-                    icon: const Icon(Icons.highlight_alt_outlined, size: 20),
-                    selectedIcon: const Icon(Icons.deselect_outlined, size: 20),
-                  ),
+                MenuItemButton(
+                  leadingIcon: const Icon(Icons.folder_open_outlined),
+                  onPressed: enabled ? onOpenDrafts : null,
+                  child: const Text('打开草稿'),
+                ),
+                MenuItemButton(
+                  key: const ValueKey('export-diagnostics'),
+                  leadingIcon: const Icon(Icons.bug_report_outlined),
+                  onPressed: enabled ? onExportDiagnostics : null,
+                  child: const Text('导出诊断包（含当前谱面）'),
                 ),
               ],
+              builder: (context, menu, child) => TextButton(
+                key: const ValueKey('chart-menu'),
+                onPressed: enabled
+                    ? () => menu.isOpen ? menu.close() : menu.open()
+                    : null,
+                style: _toolbarFileButtonStyle,
+                child: Row(
+                  children: [
+                    const Icon(Icons.description_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '$chartLabel${controller.isDirty ? '  • 未保存' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           SizedBox(width: mobile ? 4 : 6),

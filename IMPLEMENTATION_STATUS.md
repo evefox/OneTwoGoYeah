@@ -1,6 +1,6 @@
 # 实现状态
 
-更新时间：2026-10-14
+更新时间：2026-10-17
 
 ## 当前阶段
 
@@ -8,50 +8,48 @@
 
 ## 阶段 9：发布前兼容验证（进行中）
 
-本轮先完成可在当前 Apple Silicon 主机上闭环的发布核查；Windows、真实
-iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境补齐。
+已有发布核查覆盖当前 Apple Silicon 主机；Windows、真实 iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境补齐。以下发布产物与核查数据来自既有阶段 9 记录，未包含本轮多选与延迟剪切改动；本轮实测进度见文末“当前工作与待验证项”。
 
 ### 已完成
 
 - 发布资料已纳入仓库：`LICENSES/GPL-3.0.txt` 为完整 GPLv3 正文，
-  `LICENSES/FLUTTER-BSD-3-CLAUSE.txt` 为 Flutter 相关 BSD 3-Clause 文本，
-  `THIRD_PARTY_NOTICES.md` 汇总固定的 libmad/libogg/libVorbis、Flutter 和
-  Dart 依赖声明；示例音频、参考音效和本地导出文件仍由 Git 忽略。
+`LICENSES/FLUTTER-BSD-3-CLAUSE.txt` 为 Flutter 相关 BSD 3-Clause 文本，
+`THIRD_PARTY_NOTICES.md` 汇总固定的 libmad/libogg/libVorbis、Flutter 和
+Dart 依赖声明；示例音频、参考音效和本地导出文件仍由 Git 忽略。
 - 原生 CMake/CTest 黄金与一致性套件 `50/50` 通过；Dart FFI 分析和测试
-  `7/7` 通过；Flutter 分析无问题，Flutter 回归 `92/92` 通过。
+`7/7` 通过；Flutter 分析无问题，Flutter 回归 `92/92` 通过。
 - ARM64 与 x86-64 原生构建均通过完整 `50/50` 黄金与一致性套件。为消除固定
-  libVorbis 在两种 ISA 上的 libm 低位、浮点收缩/向量化和 x86 专用
-  `vorbis_ftoi` 差异，第三方边界现在使用统一 binary64 量化、严格浮点编译选项
-  和标量参考转换；Ogg 解码/编码以及依赖其 PCM 的 BPM/联合分析共用一套更新后
-  黄金，未放宽任何比较容差。
+libVorbis 在两种 ISA 上的 libm 低位、浮点收缩/向量化和 x86 专用
+`vorbis_ftoi` 差异，第三方边界现在使用统一 binary64 量化、严格浮点编译选项
+和标量参考转换；Ogg 解码/编码以及依赖其 PCM 的 BPM/联合分析共用一套更新后
+黄金，未放宽任何比较容差。
 - Android Release APK 已使用 Flutter `3.47.2`、Dart `3.13.2`、SDK `36`
-  和 NDK `28.2.13676358` 构建，包含 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`
-  三种 ABI；原生资产检查确认三种 ABI 均导出 `otgy_chart_create_empty`，且
-  不依赖或打包 `libc++_shared.so`。包版本为 `1.0.0 (versionCode 1)`，APK
-  大小为 `59,333,139` 字节，当前使用本地 Debug signing key，仅适合个人真机
-  测试，不适合商店发布。
+和 NDK `28.2.13676358` 构建，包含 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`
+三种 ABI；原生资产检查确认三种 ABI 均导出 `otgy_chart_create_empty`，且
+不依赖或打包 `libc++_shared.so`。包版本为 `1.0.0 (versionCode 1)`，APK
+大小为 `59,333,139` 字节，当前使用本地 Debug signing key，仅适合个人真机
+测试，不适合商店发布。
 - macOS Release App 已使用 Xcode `26.6`（macOS SDK `26.5`）构建；主程序为
-  `x86_64 + arm64` Universal，版本为 `1.0.0 (1)`。`codesign --verify` 通过，
-  但当前为本机 Ad Hoc 签名，保留 `com.apple.security.files.user-selected.read-write`
-  和开发调试 entitlement；对外分发仍需 Developer ID 签名和 notarization。
+`x86_64 + arm64` Universal，版本为 `1.0.0 (1)`。`codesign --verify` 通过，
+但当前为本机 Ad Hoc 签名，保留 `com.apple.security.files.user-selected.read-write`
+和开发调试 entitlement；对外分发仍需 Developer ID 签名和 notarization。
 - iOS 真机目标 Release 无签名构建通过，产物为 `arm64`、版本 `1.0.0 (1)`；
-  Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败项。当前尚未
-  在真实 iOS 设备上完成签名安装和运行冒烟。
+Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败项。当前尚未
+在真实 iOS 设备上完成签名安装和运行冒烟。
 - 已在 `build/releases/` 生成带离线许可证资料的本地归档（该目录被 Git 忽略）：
-  `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
-  `OneTwoGoYeah-1.0.0+1-android-release.apk`、
-  `OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
-  `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
+`OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
+`OneTwoGoYeah-1.0.0+1-android-release.apk`、
+`OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
+`OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
+    ```text
+    f92c30eca6682a0fc87510d0f7e8c35c296fa9f685f523b5b958c0090031899b  OneTwoGoYeah-1.0.0+1-android-release.apk
+    79418516971a076c253f8831e82f83f95a78551113ef28adf3d3a991a9a0e978  OneTwoGoYeah-1.0.0+1-android-bundle.zip
+    3bfbbf0f2c3f8c63386353e5275d76dec0fb8c2fa14a0545ff54affea20ce1aa  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
+    9ab041eacc50b8a8a4d58182c175b3ffc394428033f5a5bae1eff392d2f43f4a  OneTwoGoYeah-1.0.0+1-macos-universal-release.zip
+    ```
 
-  ```text
-  f92c30eca6682a0fc87510d0f7e8c35c296fa9f685f523b5b958c0090031899b  OneTwoGoYeah-1.0.0+1-android-release.apk
-  79418516971a076c253f8831e82f83f95a78551113ef28adf3d3a991a9a0e978  OneTwoGoYeah-1.0.0+1-android-bundle.zip
-  3bfbbf0f2c3f8c63386353e5275d76dec0fb8c2fa14a0545ff54affea20ce1aa  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
-  9ab041eacc50b8a8a4d58182c175b3ffc394428033f5a5bae1eff392d2f43f4a  OneTwoGoYeah-1.0.0+1-macos-universal-release.zip
-  ```
-
-  三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
-  `x86_64` 和 `arm64`。
+    三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
+    `x86_64` 和 `arm64`。
 
 ## 阶段 8.5：macOS 体验微调验收
 
@@ -88,7 +86,6 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 - Offset 直接输入采用相同的编辑结束提交规则；画布当前时间光标/播放判定线移到高度 `25%`，移除三列内部纵向分割线并增强小节线、拍线；悬浮控件脱离画布手势命中层以稳定单击。`SHOW-D` 常规范围与最后半小节改为不重叠的深、浅填充，像素回归锁定由深到浅的视觉层级。
 - 播放画布使用屏幕帧同步的独立绘制位置，在设备帧确认之间连续插值且最多预测 `50ms`；重复确认不会延长预测窗口，暂停、结束或中断立即恢复设备权威行，逐帧更新限制在画布 `RepaintBoundary` 内。
 - 增加谱面播放音效：右侧波形按钮下方提供中文/英文、4K/8K 和切换音效设置；`av_core` 唯一实现 WAV PCM16 解码、固定种子随机、NPC 使用 `m1`、玩家使用关联 `f1` 的 N/S 音效配对、SHOW 音效、确定性重采样和饱和混音，暂停续播保持同一音效计划。两套 46 个 WAV 已随 App 离线打包，macOS Debug 构建与完整核心/C ABI/Flutter 回归通过。
-
 - 增加稳定实施计划和可跨会话读取的状态文件。
 - 增加 Git 忽略与 SLK 二进制属性规则。
 - 建立可直接调用的 C++ 核心、CLI 和最小测试。
@@ -196,11 +193,11 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。
 - 增加四份 1x、四份 2x、四份 3x 与四份 4x、共十六份 65536 字节 CC0 Alpha 黄金夹具，固定 UI Zoom `11`、Scale `4`、block `1` 的左右声道逐字节结果及 SHA-256；每个新组合都重新逐字节验证全部既有输出，并覆盖均匀亮度 2x 的 `0/63/127/191/255`、均匀亮度 3x 的 `0/28/56/85/113/141/170/198/226/255`、均匀亮度 4x 的 `0/15/31/47/63/79/95/111/127/143/159/175/191/207/223/239/255`、振幅亮度 2x/3x/4x 的超采样行亮度与整数平均、1x 每行单一振幅 Alpha、中心对称、形状/亮度/采样差异、末帧限制和最小 Scale 下的 `247/239` 亮度边界。
 - 增加 `calculate_chart_timeline_range` 模型入口，在 `av_core` 内统一投影并扫描全部谱面事件与 `SHOW-D.rangeEnd`；C ABI 只传入 `ChartDraft` 句柄，不重复领域扫描。
-- 增加 `native/av_c_api` 动态库目标 `otgy_c_api`，ABI 与共享库主版本固定为 `1`；公共头只使用 C 类型，Windows 与其他平台均显式控制导出可见性。
+- 增加 `native/av_c_api` 动态库目标 `otgy_c_api`，ABI 与共享库主版本为 `2`；公共头只使用 C 类型，Windows 与其他平台均显式控制导出可见性。
 - C ABI 使用统一状态码、稳定领域/领域内错误、拥有型 `otgy_error`、显式 `uint64_t` 长度、不透明拥有句柄和匹配销毁函数；全部有状态入口封闭 C++ 异常，失败不发布部分拥有结果。
 - ABI 覆盖 PCM、MP3/Ogg 解码、哈希、Offset、文件名、品质、不可变 Ogg 导出、十六种波形、起音/BPM/Offset/联合分析、六个时序换算、网格、谱面模型时间线范围、导航、播放、操作门控、谱面编辑与历史、校验、项目负载、SLK 导入/导出和位置换算。
 - 增加拥有型扁平谱面语义快照，逐项保存显式角色事件、演练组、舞步演练、Showtime、`showNCount` 和引用切片；不从 SLK 行、列位置或简称重建语义。
-- 增加纯 C 头链接测试、音频一致性测试和谱面一致性测试；公共头预处理后的 162 个函数声明与动态库 162 个 `otgy_*` 导出符号完全一致，其中包含宏展开的 16 个波形入口、播放 PCM/按帧推进和四个音频导出取消句柄入口。
+- 增加纯 C 头链接测试、音频一致性测试和谱面一致性测试；ABI v2 公共头预处理后的 191 个函数声明与本机动态库 191 个 `otgy_*` 导出符号逐项一致，其中包含宏展开的 16 个波形入口、播放 PCM/按帧推进、四个音频导出取消句柄入口及多选与粘贴预览拥有句柄入口。
 - 波形过滤和未固定契约的额外 CLI 命令不属于阶段 8；当前产品工作流、播放 PCM/设备输出、平台草稿索引、原子文件发布及 Flutter 四平台适配均已实现。
 
 ## 工具链
@@ -359,6 +356,34 @@ iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境
 
 ## 最后成功验证
 
+### 2026-10-15：Showtime 失效判定的引用归属
+
+`showtime_is_stale` 原先按位置把登记舞步与登记 `SHOW-D` 一一配对比较，并在登记舞步数量之外的 `SHOW-D` 上直接跳过。这与规格不符：`SHOW-D` 自身保存舞步引用，`showNCount` 只能与它自己指向的舞步的 `moveNCount` 比较；已登记的 `SHOW-D` 事件缺失同样应判为失效。现在分两轮独立检查——先按登记舞步逐项要求存在且仍是完整舞步（导入的 `SHOW-D` 少于舞步仍合法），再按登记 `SHOW-D` 逐项要求事件存在、指向舞步存在且完整、`showNCount` 等于该舞步的 `moveNCount`。核心、C ABI、Dart FFI 与 Flutter 仍调用同一处实现，未新增第二处判定。当前剪切准备不触发删除或清理；首次成功落点时，被引用舞步的删除、失效 Showtime 清理与目标插入共用一条历史，撤销一次同时恢复。
+
+本次实际执行：
+
+```text
+cmake --build build/selection-native --parallel 4
+ctest --test-dir build/selection-native --output-on-failure
+
+cd app/packages/otgy_native
+../../../build/flutter-sdk/bin/dart analyze
+../../../build/flutter-sdk/bin/dart test test/chart_selection_test.dart -r expanded
+
+cd ../..
+../build/flutter-sdk/bin/flutter analyze --no-pub
+../build/flutter-sdk/bin/flutter test --no-pub --reporter expanded
+
+cd ..
+git diff --check
+```
+
+结果：原生完整黄金与一致性套件 `50/50` 通过；Dart FFI 分析无问题、舞步选择与剪贴板测试 `9/9` 通过；Flutter 分析无问题、默认配置完整回归 `164/164` 通过；`git diff --check` 无空白问题。Dart 原生资产构建钩子输出了 clang 的未使用链接参数警告（`-lc++`、`-Wl,-encryptable`），未导致测试失败，不将这次验证描述为全部构建无警告。
+
+两个新用例是真实回归测试：把 `native/av_core/src/chart/chart_editor.cpp` 还原到 `HEAD` 版本后，用例 (g) 断言失败于 `chart_editor_test.cpp:1488`，只保留用例 (h) 时失败于 `chart_editor_test.cpp:1489`；恢复修复后两者通过。用例 (g) 构造“`SHOW-D` 指向第二个舞步、计数仍取自第一个舞步”的草稿，用例 (h) 构造“登记的 `SHOW-D` 已不存在且落在登记舞步数量之外”的草稿。`test_paste_failures_preserve_state` 同时补上三项失败保护断言：非空重做分支在失败后仍可重放并还原同一草稿、失败后剪贴板内容仍能粘出与未失败对照编辑器逐值相同的结果、在已分配部分新标识后才发现标识耗尽时草稿/历史/剪贴板/标识游标全不变且下一条成功命令分配到的标识与对照编辑器逐值相同。
+
+验证边界：本轮没有找到能由正常界面操作生成这两个畸形状态的复现序列；两个新用例按既有先例直接构造草稿，用于验证提交边界的防御性清理，不据此断言已穷尽所有可达路径。C ABI 层只转发同一条核心命令，这一轮失效判定修复未新增 ABI 专用用例，由核心用例与 `av_c_api.chart_consistency` 的既有逐值对照覆盖。本轮为本地主机单元与 FFI/Widget 回归，没有构建发布包、安装或操作设备，也没有改动已保存的设备草稿。
+
 ### 2026-10-14：离线本地诊断与验收构建入口
 
 已接通 `OTGY_DIAGNOSTICS` 编译期开关、本地有界 JSONL、构建身份、编辑命令与结果、保存恢复及异常日志，以及普通/验收构建共有的“导出诊断包（含当前谱面）”。主动导出使用共享核心恢复编码的原始字节，不调用成品校验或 SLK 导出；日志不包含谱面负载、音频、文件/草稿名或剪贴板内容。异常不读取 message/details，不 stringify 未知对象；历史异常状态按类型与字段白名单再次过滤。移动端在 finish 返回后与 commit 前检查取消，失败先尝试未提交文档清理，再显示原有可复制错误弹窗。
@@ -415,11 +440,11 @@ git diff --check
 
 归档内恢复 payload 经现有 `decode_recovery_snapshot` 解码后确认：舞步 `6` 登记组 `[5,13]`，其中组 `5` 没有任何绑定角色事件，组 `13` 是完整的 `moveNCount=1` 舞步；另一舞步 `46` 仍是不完整草稿。旧提交 `73064496e27bca7a9abd9357c925d258f424a9ff` 的编辑器对同一快照在 Showtime 行 `17` 和 `32` 均返回 `NoRemainingDanceMoves(9)`，保留 SHOW-C 且不生成 SHOW-D。当前核心对每次独立加载的同一快照，在合法位置删除空组 `5`、把舞步 `6` 的组列表改为 `[13]`，并生成 `showNCount=1` 的 SHOW-D；全部角色事件保持不变，清理与生成共用一条历史，撤销后草稿及 `884` 字节 payload 与原始输入逐字节相同，重做也精确恢复。非法行 `18` 仍返回 `InvalidShowtimePosition(8)`，不清理、不产生历史。这证明保存现场确实包含本修复处理的阻塞状态，且修复可在不丢失用户内容的前提下解除阻塞；恢复记录没有编辑历史或 APK 构建标识，因此不推断空组由哪次具体操作产生，也不声称完整重建了现场 APK。
 
-### 2026-10-13：舞步选择与剪贴板
+### 既有舞步选择验证记录
 
-2026-10-13 更新：舞步单选、复制、剪切、粘贴已贯通核心、C ABI、Dart FFI 和 Flutter。退出模式清空选择及剪贴板；引用舞步失效时整段 Showtime 与触发编辑共用一条历史。工具栏与画布焦点下的选择快捷键均可用，文本输入保留自身剪贴板行为。
+以下是 2026-10-13 多选变更前的验证证据，不代表当前多选、延迟剪切和点击落点流程已经通过设备验收。当前交互契约以 `FUNCTIONAL_SPEC.md` 的“选择模式与舞步剪贴板”为准。
 
-本轮在 arm64 macOS 和 Android API 34 模拟器 `emulator-5554` 上运行：
+当时在 arm64 macOS 和 Android API 34 模拟器 `emulator-5554` 上运行：
 
 ```text
 cmake -S native -B build/selection-native -DBUILD_TESTING=ON
@@ -485,9 +510,31 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 - 本机不是 Windows 环境，也没有已连接的 Android 真机或已签名 iOS 真机；Windows x86-64/ARM64、Android 真机/模拟器 Release 冒烟和 iOS 真机安装运行仍需在对应设备或 CI 完成。
 - Flutter 不支持 iOS simulator 的 Release 构建；模拟器验证应使用 Debug/Profile 构建，不能把 `flutter build ios --simulator --release` 作为发布产物。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
+- 移动端固定判定线锚点受时间线末尾限制。`calculate_timeline_range()` 始终以四小节基础范围为基础取最晚者（`native/av_core/src/timing/timeline_range.cpp:13`），时间光标被限制在 `endRow` 以内（`app/lib/src/application/editor_controller.dart:1348`），而目标闭区间 `[锚点行, 锚点行 + 最大偏移]` 必须三列全空。因此在没有音频、末尾已有内容的项目里，把批次粘贴到时间线末尾后末尾行被该批次占用，判定线无法再移到末尾之后，无法在同一末尾继续追加；需要加载音频或存在更晚标记/`SHOW-D` 才能继续。本轮用一次性 Dart 诊断（已删除）在真实 `NativeChartEditor` 上测得：无音频空项目 `endRow = 64.0`（四小节基础范围）；在锚点 `64` 首次粘贴成功并提交一次修订，`endRow` 增长到 `78.0`；此后 `moveToRow(1000)` 被限制为 `78.0`；对可达末尾区间 `72/74/75/76/77/78` 逐行调用 `updatePastePreview()` 全部返回 `PasteRangeOccupied`（`19`，“粘贴范围内存在其他标记”），在末尾再调用 `pasteAtRow()` 修订数不变、返回同一稳定错误。该限制来自既有 `FUNCTIONAL_SPEC.md` 条款，本轮未改动这些契约，是否允许锚点越过末尾待产品决定。
 
-## 唯一下一步
+## 当前工作与待验证项
 
-本地诊断实现、规格、状态保护测试和验收打包入口已完成；最终静态检查、默认配置完整 Flutter 回归 `164/164`、开启诊断的六文件定向回归 `76/76` 与四平台脚本测试 `5/5` 均通过。
+全平台长按进入多选、点击切换舞步、复制/剪切准备、点击画布落点和持续待粘贴流程已贯通各层。C ABI 已迁移至 v2，拥有型选择集合与只读预览经 Dart 复制为不可变值；Flutter 使用普通、选择、待粘贴三态。首次剪切落点才删除源并插入目标，成功后快照继续用于复制。Flutter 门控、键盘焦点、诊断脱敏和应用自动化交互验收已完成。
 
-唯一下一步是在另行授权后使用验收入口构建新的诊断 Release，并在对应环境完成跨平台运行验证。本轮不打包、不安装、不操作设备；三 ABI 原生资产检查与正式签名仍按上面的已知问题处理，脚本 dry-run、既有 Debug 模拟器和历史 Release 结果不代表新的诊断构建已经通过发布验收。
+2026-10-16 本轮已执行并通过：原生 CMake 配置与完整构建；核心、黄金、CLI 和 C ABI 全套 `50/50`；Dart FFI 分析与完整测试 `19/19`；`ffigen` 重新生成绑定；Flutter 分析无问题；Flutter 全量测试 `178/178`；启用诊断的定向测试 `63/63`（`flutter test --dart-define=OTGY_DIAGNOSTICS=true` 加五个 `*diagnostic*` 测试文件）；最终源码 Android Debug 集成测试 `5/5`（连续两次运行）；最终源码 macOS Debug 集成测试 `5/5`。Android 普通入口 Debug APK 已重新构建，三 ABI 原生资产检查通过，最终 APK SHA-256 为 `c64dee169df732fe96648a47d5f6b95fa650ee744348877c1f7f68870ac5786e`。
+
+选择模式使用精确标记行跨列命中：`ChartEditor::select(column, row)` 保留合法列检查及 `marker_at()` 的精确行查询，六类 NPC/玩家标记和 `SHOW-D` 均可从任意一列切换所属完整舞步。三列全空行及高亮跨度内无标记行不命中，`SHOW-C` 从三列输入均不可选；普通编辑仍按列返回占用冲突。行为只在 `av_core` 实现，C ABI、FFI 和 Flutter 原样透传，无公开接口、ABI 版本或生成绑定变更。
+
+2026-10-17 跨列选择验证：原生选择及 C ABI 定向 `2/2`，完整核心/黄金/CLI/C ABI `50/50`；Dart FFI 选择定向 `11/11`、完整 `20/20`，分析无问题；Flutter 选择定向 `22/22`、完整 `180/180`，分析无问题；macOS 真实 App 集成测试 `6/6`。新增回归覆盖三列选中/取消、玩家实际标记、`SHOW-D`、`SHOW-C`、跨度内空白行、非法列、普通编辑错列占用及草稿/历史不变性；Android 与 macOS widget 布局均验证真实画布坐标路径。普通入口 macOS Debug 已使用当前脏工作树、离线诊断及构建身份 `cf460bf499386a3ccd6c9e41ab2f711928cc5f43-dirty-20261017T085409.776260Z` 构建并通过 `open -n` 打开，新进程 `39638`，原 Debug 进程 `53982` 保留。本次未运行 Android/iOS/Windows 设备验证，未提交或推送。
+
+音频导出测试使用 `tester.runAsync` 与 `pump` 交替等待真实后台 isolate，保持进度、取消及失败传播的精确断言。会话内音频导出被拒绝，退出会话后才能开始导出；导出期间阻塞界面的实时区域与“取消导出”可访问，编辑器下层输入不可达，长按、选择和剪贴板命令均不改变草稿与历史。导出结束后可重新进入会话。
+
+选择/待粘贴会话统一门控已接通：核心新增 `ChartInteraction` 模式、选择命令/导航视图/历史导航分类与 `ChartInteractionActive` 拒绝码，C ABI 与 Dart FFI 只转发；同宽度追加常量不改变 ABI 版本 `2`。Flutter 会话内禁用音频、项目、保存/导出、播放与音效入口，保留导航、波形设置、历史导航及会话自身操作；已打开的谱面菜单与音效面板也按同一规则禁用。分析、SLK 导出及音效控制器直调有对应守卫。状态栏时间、Zoom 与 Scale 使用有界弹性布局，覆盖窄 Mac 窗口缩放时的溢出回归。
+
+2026-10-17 门控最终验证：原生定向 `3/3`、完整核心/黄金/CLI/C ABI `50/50`、Dart FFI 完整 `20/20`、Flutter 完整 `189/189`、启用诊断的五文件定向测试 `63/63` 全部通过；Flutter 与 Dart FFI 静态分析无问题，`git diff --check` 通过。新增白名单、控制器拒绝不变性、键盘、已打开菜单禁用与窄窗口布局回归。用户已确认 macOS Debug 门控体验验收通过，并授权提交；分析任务复用、音效已打开菜单和窄窗口布局另由自动回归覆盖。未重新运行本次门控的 macOS/Android 设备集成，避免干扰用户的验收窗口与模拟器；前述 `6/6` 是跨列选择阶段的设备结果，不作为本次门控设备验证。
+
+`MouseRegion.onEnter` 与 `onHover` 继续复用悬停投影入口。会话内音频导出被门控、音频导出期间不能进入会话，因此原来“待粘贴中触发导出 busy 遮罩”的用例已不再属于合法 UI 路径。对应测试改为断言会话内导出被拒绝、保存回调不执行且预览保持；静止鼠标下导航和缩放后的预览重投影回归继续保留。
+
+Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多选高亮和待粘贴预览三种状态截图写到系统临时目录。Android 包在集成测试结束时被卸载，设备内文件随之消失，因此本轮在测试运行期间用 `adb exec-out run-as … cat` 轮询 `code_cache/`，以 PNG 魔数校验后把三张 `1080x2337` 设备截图复制到主机临时目录保留；macOS 三张 `800x600` 截图保留在沙盒容器 `Data/tmp/`。本会话的图像工具无法呈现图像（`read_image` 返回 "cannot get property \"attachments\" without inject"），因此不能声明视觉布局、ghost、焦点环、提示文本或遮挡情况已通过人工视觉审查，该缺口继续保留。已取得的替代证据是程序化解码与几何测量：
+
+- 平台路由：移动端提交按钮的填充色 `#82D3E0` 只出现在 Android 待粘贴截图，边界框 `x=[207,659] y=[2001,2126]`，即 `172.6x48.0` 逻辑像素（与 `ValueKey('paste-at-current-cursor')` 的 `minimumSize: Size(0, 48)` 一致）；该颜色在 Android 焦点截图与多选截图中为 `0` 像素，可确认归属；在 macOS 三张截图中同样为 `0` 像素，桌面端未绘制该移动端按钮。
+- 固定判定线：`judgement` `#E6B75A` 在 Android 待粘贴与多选截图中为 `x=[0,1079] y=[866,880]`（整宽 `411.4` 逻辑像素、高 `5.7`），macOS 对应截图为 `x=[0,799] y=[208,212]`（整宽、高 `5.0`）；Android 焦点截图中该色带扩展到 `y=[816,930]`，与 `app/lib/src/ui/editor_canvas.dart:1005` 的标记焦点绘制一致。
+- 待粘贴预览：两个平台的待粘贴截图都出现同一合成色 `#162A27`，与 `markerPlayer` `#3BAA73` 叠加在画布 `#10151A` 上得到的绿色带一致，且横跨整个画布宽度（Android `x=[3,1076] y=[814,2273]`，macOS `x=[1,798] y=[284,575]`），在多选与焦点截图中为 `0` 像素；三张截图中 `danger` `#E07B84` 均为 `0` 像素，说明捕获的是合法预览而非冲突预览。
+- 其余主色与 `app/lib/src/ui/editor_theme.dart` 一致：画布 `#10151A`、面板 `#171D23`、抬升面 `#202831`、边框 `#34404A`；多选跨度上的主导色 `#19252B`（Android）与 `#18252B`（macOS）等于 `accent` `#65B8C5` 以 `0.10` 叠加画布。
+
+上述测量只能排除截图全黑并确认颜色、平台路由与几何量级，不能代替对排版、遮挡、ghost 轮廓、焦点环形状和文本内容的视觉审查。Windows、iOS、Release 运行时和真实 Android 设备未在本轮执行。既有 `NPC-S` 拆分、边界删除合并和 Showtime 清理改动继续保留；既有 Release 进程与原模拟器数据保持原状。本轮未提交或推送。

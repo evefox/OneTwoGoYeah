@@ -18,6 +18,28 @@ import 'package:one_two_go_yeah/src/ui/editor_screen.dart';
 import 'package:one_two_go_yeah/src/ui/editor_theme.dart';
 import 'package:otgy_native/otgy_native.dart';
 
+List<Object?> _pastePreviewState(ChartPastePreview preview) => [
+  preview.code,
+  preview.firstRow,
+  preview.lastRow,
+  for (final selection in preview.selections)
+    [
+      selection.active,
+      selection.danceMoveDrillId,
+      selection.firstRow,
+      selection.lastRow,
+    ],
+  for (final marker in preview.markers)
+    [
+      marker.id,
+      marker.row,
+      marker.column,
+      marker.type,
+      marker.showNCount,
+      marker.ordinal,
+    ],
+];
+
 void main() {
   late Directory temporaryDirectory;
   late LocalProjectStore store;
@@ -2089,30 +2111,41 @@ void main() {
     final selectedDraft = controller.encodeFormalDraft();
     final selectedRevision = controller.projectRevision;
     await pumpEditor(tester);
+    await tester.pumpAndSettle();
+    controller.updatePastePreview(40);
+    final selectedPreview = controller.pastePreview;
 
+    await controller.togglePlayback();
+    expect(controller.isPlaying, isFalse);
+    expect(output.bytes, isEmpty);
+    expect(controller.notice?.message, '请先退出选择或粘贴模式');
+    expect(controller.pastePreview, same(selectedPreview));
+    expect(controller.pastePreviewAnchorRow, 40);
+    expect(controller.pastePending, isTrue);
+    expect(controller.canPaste, isTrue);
+    expect(controller.projectRevision, selectedRevision);
+    expect(controller.encodeFormalDraft(), orderedEquals(selectedDraft));
+    controller.exitChartInteraction();
+    await tester.pumpAndSettle();
     await controller.togglePlayback();
     await tester.pump();
     expect(controller.isPlaying, isTrue);
-    for (final key in [
-      'selection-mode',
-      'selection-copy',
-      'selection-cut',
-      'selection-paste',
-    ]) {
-      expect(
-        tester.widget<IconButton>(find.byKey(ValueKey(key))).onPressed,
-        isNull,
-      );
-    }
+    expect(find.byKey(const ValueKey('paste-pending-controls')), findsNothing);
     controller.toggleSelectionMode();
-    controller.exitSelectionMode();
     controller.selectAt(OTGY_CHART_COLUMN_NPC, 40);
     controller.copySelection();
     controller.cutSelection();
-    controller.pasteAtCursor();
-    expect(controller.selectionMode, isTrue);
-    expect(controller.selection.firstRow, 0);
-    expect(controller.canPaste, isTrue);
+    controller.updatePastePreview(48);
+    controller.clearPastePreview();
+    controller.exitChartInteraction();
+    controller.pasteAtRow(40);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(controller.pastePreview, isNull);
+    expect(controller.pastePreviewAnchorRow, isNull);
+    expect(controller.chartInteractionMode, EditorChartInteractionMode.normal);
+    expect(controller.selections, isEmpty);
+    expect(controller.canPaste, isFalse);
     expect(controller.projectRevision, selectedRevision);
     expect(controller.encodeFormalDraft(), orderedEquals(selectedDraft));
     expect(
@@ -2152,6 +2185,18 @@ void main() {
           .onPressed,
       isNotNull,
     );
+    controller.enterSelectionMode();
+    await tester.pump();
+    final exitFinder = find.byKey(const ValueKey('selection-exit'));
+    expect(tester.widget<IconButton>(exitFinder).onPressed, isNotNull);
+    final enabledExitSemantics = tester
+        .getSemantics(exitFinder)
+        .getSemanticsData();
+    expect(enabledExitSemantics.flagsCollection.isEnabled, ui.Tristate.isTrue);
+    expect(enabledExitSemantics.hasAction(SemanticsAction.tap), isTrue);
+    await tester.tap(exitFinder);
+    await tester.pump();
+    expect(controller.chartInteractionMode, EditorChartInteractionMode.normal);
     expect(
       controller.currentRow,
       OtgyNative.secondsToSixteenthRow(
@@ -2486,15 +2531,65 @@ void main() {
     expect(controller.isDirty, isTrue);
   });
 
-  test(
+  testWidgets(
     'audio export stays gated through saving and supports cancellation',
-    () async {
+    (tester) async {
       final audio = File(
         '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
       ).readAsBytesSync();
       await controller.loadAudioBytes(audio, 'fixture.mp3');
+      controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
+      controller.enterSelectionMode();
+      controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
+      controller.cutSelection();
+      final draft = controller.encodeFormalDraft();
+      final revision = controller.projectRevision;
+      await pumpEditor(tester);
+      final exitFinder = find.byKey(const ValueKey('selection-exit'));
+      final sessionExit = tester.widget<IconButton>(exitFinder);
+      expect(sessionExit.onPressed, isNotNull);
+      // The first frame after the draft edit re-derives the preview from the
+      // canvas' own anchor, so the settled instance and anchor are captured here
+      // and every later assertion compares against what the canvas is actually
+      // holding.
+      final preview = controller.pastePreview;
+      final anchorRow = controller.pastePreviewAnchorRow;
+      expect(preview, isNotNull);
+      var blockedSaveCalls = 0;
+      await expectLater(
+        controller.exportAudio(
+          quality: 1,
+          baseName: 'fixture',
+          save: (_, _, _) async => blockedSaveCalls++,
+        ),
+        throwsStateError,
+      );
+      expect(blockedSaveCalls, 0);
+      expect(controller.isExportingAudio, isFalse);
+      expect(controller.pastePreview, same(preview));
+      expect(controller.pastePreviewAnchorRow, anchorRow);
+      expect(controller.cutPending, isTrue);
+      expect(controller.pastePending, isTrue);
+      expect(controller.projectRevision, revision);
+      expect(controller.encodeFormalDraft(), orderedEquals(draft));
+      controller.exitChartInteraction();
+      await tester.pumpAndSettle();
       final saveEntered = Completer<void>();
       final releaseSave = Completer<void>();
+      // A testWidgets body runs inside the framework fake async zone, while the
+      // export completes on a real background isolate. Its reply is therefore
+      // only observable after real time passes and the zone is flushed with a
+      // pump, so every wait on a real async result alternates the two.
+      Future<void> pumpUntil(bool Function() done) async {
+        final stopwatch = Stopwatch()..start();
+        while (!done() && stopwatch.elapsed < const Duration(seconds: 30)) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        expect(done(), isTrue);
+      }
 
       final export = controller.exportAudio(
         quality: 1,
@@ -2508,17 +2603,105 @@ void main() {
           }
         },
       );
-      await saveEntered.future;
+      await pumpUntil(() => saveEntered.isCompleted);
+      await tester.pump();
       expect(controller.isExportingAudio, isTrue);
       expect(controller.generalActionsEnabled, isFalse);
       expect(controller.audioExportProgress?.stage, AudioExportStage.saving);
+      expect(controller.isBusy, isTrue);
+      expect(controller.selectionCommandEnabled, isFalse);
+      expect(find.byKey(const ValueKey('selection-exit')), findsNothing);
+      sessionExit.onPressed!();
+      final exportFinder = find.byKey(const ValueKey('export-audio'));
+      expect(tester.widget<IconButton>(exportFinder).onPressed, isNull);
+      // The blocking export UI owns the semantics tree while it is visible;
+      // the progress live region and its cancel action remain reachable.
+      expect(find.text('正在导出 Ogg 音频'), findsOneWidget);
+      expect(find.text('保存中'), findsOneWidget);
+      final progressSemantics = tester
+          .getSemantics(find.bySemanticsLabel(RegExp('音频导出进度')))
+          .getSemanticsData();
+      expect(progressSemantics.flagsCollection.isLiveRegion, isTrue);
+      expect(
+        tester
+            .getSemantics(find.text('取消导出'))
+            .getSemanticsData()
+            .flagsCollection
+            .isEnabled,
+        ui.Tristate.isTrue,
+      );
+      // The barrier absorbs pointer events over the editor controls.
+      await tester.tap(exportFinder, warnIfMissed: false);
+      await tester.pump();
+      expect(controller.pastePending, isFalse);
+      expect(
+        controller.chartInteractionMode,
+        EditorChartInteractionMode.normal,
+      );
+      controller.enterSelectionMode();
+      controller.updatePastePreview(48);
+      controller.clearPastePreview();
+      controller.exitChartInteraction();
+      controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
+      controller.copySelection();
+      controller.cutSelection();
+      controller.pasteAtRow(40);
+      expect(controller.pastePreview, isNull);
+      expect(controller.pastePreviewAnchorRow, isNull);
+      expect(controller.cutPending, isFalse);
+      expect(controller.pastePending, isFalse);
+      expect(
+        controller.chartInteractionMode,
+        EditorChartInteractionMode.normal,
+      );
+      expect(controller.projectRevision, revision);
+      expect(controller.encodeFormalDraft(), orderedEquals(draft));
 
       controller.cancelAudioExport();
       expect(controller.audioExportCancellationRequested, isTrue);
+      final cancelled = expectLater(
+        export,
+        throwsA(isA<AudioExportCancelled>()),
+      );
       releaseSave.complete();
-      await expectLater(export, throwsA(isA<AudioExportCancelled>()));
+      await pumpUntil(() => !controller.isExportingAudio);
+      await cancelled;
+      await tester.pump();
       expect(controller.isExportingAudio, isFalse);
       expect(controller.generalActionsEnabled, isTrue);
+      expect(controller.pastePreview, isNull);
+      controller.enterSelectionMode();
+      controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
+      controller.cutSelection();
+      controller.updatePastePreview(anchorRow!);
+      await tester.pumpAndSettle();
+      expect(
+        _pastePreviewState(controller.pastePreview!),
+        _pastePreviewState(preview!),
+      );
+      expect(controller.pastePreviewAnchorRow, anchorRow);
+      expect(controller.cutPending, isTrue);
+      expect(controller.pastePending, isTrue);
+      expect(controller.projectRevision, revision);
+      expect(controller.encodeFormalDraft(), orderedEquals(draft));
+      expect(tester.widget<IconButton>(exitFinder).onPressed, isNotNull);
+      final enabledExitSemantics = tester
+          .getSemantics(exitFinder)
+          .getSemanticsData();
+      expect(
+        enabledExitSemantics.flagsCollection.isEnabled,
+        ui.Tristate.isTrue,
+      );
+      expect(enabledExitSemantics.hasAction(SemanticsAction.tap), isTrue);
+      controller.pasteAtRow(40);
+      expect(controller.cutPending, isFalse);
+      expect(controller.pastePending, isTrue);
+      expect(controller.projectRevision, revision + 1);
+      controller.exitChartInteraction();
+      expect(
+        controller.chartInteractionMode,
+        EditorChartInteractionMode.normal,
+      );
     },
   );
 }

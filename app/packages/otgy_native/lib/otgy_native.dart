@@ -10,6 +10,18 @@ import 'otgy_native_bindings_generated.dart' as native;
 
 export 'otgy_native_bindings_generated.dart'
     show
+        OTGY_APPLICATION_MODE_CHART_INTERACTION,
+        OTGY_APPLICATION_MODE_EXPORTING_AUDIO,
+        OTGY_APPLICATION_MODE_IDLE,
+        OTGY_APPLICATION_MODE_PLAYING,
+        OTGY_APPLICATION_OPERATION_ALLOWED,
+        OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE,
+        OTGY_APPLICATION_OPERATION_GENERAL,
+        OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION,
+        OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW,
+        OTGY_APPLICATION_OPERATION_PAUSE_PLAYBACK,
+        OTGY_APPLICATION_OPERATION_SELECTION_COMMAND,
+        OTGY_APPLICATION_OPERATION_TOGGLE_WAVEFORM,
         OTGY_CHART_COLUMN_NPC,
         OTGY_CHART_COLUMN_PLAYER,
         OTGY_CHART_COLUMN_SHOWTIME,
@@ -112,15 +124,28 @@ final class ChartSelection {
 }
 
 final class SessionResult {
-  const SessionResult({
-    required this.code,
-    required this.changed,
-    required this.selection,
-  });
+  const SessionResult({required this.code, required this.changed});
 
   final int code;
   final bool changed;
-  final ChartSelection selection;
+}
+
+final class ChartPastePreview {
+  ChartPastePreview({
+    required this.code,
+    required this.firstRow,
+    required this.lastRow,
+    required List<ChartSelection> selections,
+    required List<ChartMarker> markers,
+  }) : selections = List.unmodifiable(selections),
+       markers = List.unmodifiable(markers);
+
+  final int code;
+  final int firstRow;
+  final int lastRow;
+  final List<ChartSelection> selections;
+  final List<ChartMarker> markers;
+  bool get valid => code == native.OTGY_CHART_EDIT_SUCCESS;
 }
 
 final class TimelineRange {
@@ -1118,23 +1143,88 @@ final class NativeChartEditor {
   bool get canUndo => native.otgy_chart_editor_can_undo(_requireEditor()) != 0;
   bool get canRedo => native.otgy_chart_editor_can_redo(_requireEditor()) != 0;
 
-  ChartSelection get selection => using((arena) {
-    final result = arena<native.otgy_chart_selection>();
+  List<ChartSelection> get selections => using((arena) {
+    final result = arena<Pointer<native.otgy_chart_selections>>();
     final error = arena<Pointer<native.otgy_error>>();
     try {
       _checkStatus(
-        native.otgy_chart_editor_get_selection(_requireEditor(), result, error),
+        native.otgy_chart_editor_copy_selections(
+          _requireEditor(),
+          result,
+          error,
+        ),
         error,
       );
-      return ChartSelection._fromNative(result.ref);
+      final handle = result.value;
+      final data = native.otgy_chart_selections_get_data(handle);
+      return List<ChartSelection>.unmodifiable([
+        for (var i = 0; i < native.otgy_chart_selections_get_count(handle); i++)
+          ChartSelection._fromNative(data[i]),
+      ]);
     } finally {
+      native.otgy_chart_selections_destroy(result.value);
       _destroyError(error);
     }
   });
 
-  bool get hasSelection => selection.active;
+  int get selectionCount =>
+      native.otgy_chart_editor_selection_count(_requireEditor());
+  bool get hasSelection => selectionCount != 0;
   bool get hasClipboard =>
       native.otgy_chart_editor_has_clipboard(_requireEditor()) != 0;
+  int get clipboardCount =>
+      native.otgy_chart_editor_clipboard_count(_requireEditor());
+  bool get cutPending =>
+      native.otgy_chart_editor_cut_pending(_requireEditor()) != 0;
+
+  ChartPastePreview pastePreview(int anchorRow) => using((arena) {
+    final result = arena<Pointer<native.otgy_chart_paste_preview>>();
+    final error = arena<Pointer<native.otgy_error>>();
+    try {
+      _checkStatus(
+        native.otgy_chart_editor_preview_paste(
+          _requireEditor(),
+          anchorRow,
+          result,
+          error,
+        ),
+        error,
+      );
+      final handle = result.value;
+      final selections = native.otgy_chart_paste_preview_get_selections(handle);
+      final markers = native.otgy_chart_paste_preview_get_markers(handle);
+      return ChartPastePreview(
+        code: native.otgy_chart_paste_preview_get_code(handle),
+        firstRow: native.otgy_chart_paste_preview_get_first_row(handle),
+        lastRow: native.otgy_chart_paste_preview_get_last_row(handle),
+        selections: [
+          for (
+            var i = 0;
+            i < native.otgy_chart_paste_preview_get_selection_count(handle);
+            i++
+          )
+            ChartSelection._fromNative(selections[i]),
+        ],
+        markers: [
+          for (
+            var i = 0;
+            i < native.otgy_chart_paste_preview_get_marker_count(handle);
+            i++
+          )
+            ChartMarker(
+              id: markers[i].id,
+              row: markers[i].row,
+              column: markers[i].column,
+              type: markers[i].type,
+              showNCount: markers[i].show_n_count,
+            ),
+        ],
+      );
+    } finally {
+      native.otgy_chart_paste_preview_destroy(result.value);
+      _destroyError(error);
+    }
+  });
 
   SessionResult select(int column, int row) => _session(
     (result, error) => native.otgy_chart_editor_select(
@@ -1185,7 +1275,6 @@ final class NativeChartEditor {
         return SessionResult(
           code: result.ref.code,
           changed: result.ref.changed != 0,
-          selection: ChartSelection._fromNative(result.ref.selection),
         );
       } finally {
         _destroyError(error);
@@ -1193,7 +1282,7 @@ final class NativeChartEditor {
     });
   }
 
-  EditResult cutSelection() => _edit(
+  SessionResult cutSelection() => _session(
     (result, error) =>
         native.otgy_chart_editor_cut_selection(_requireEditor(), result, error),
   );

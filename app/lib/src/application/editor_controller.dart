@@ -15,6 +15,8 @@ enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
 
 enum EditorPlaybackMode { idle, chartPreview, rhythmTest }
 
+enum EditorChartInteractionMode { normal, selection, pastePending }
+
 const double targetEditorRowSpacing = 46;
 const double playbackVisualZoom = 8;
 
@@ -159,7 +161,10 @@ class EditorController extends ChangeNotifier {
   bool _audioExportCancellationRequested = false;
   EditorPlaybackMode _playbackMode = EditorPlaybackMode.idle;
   bool _isDirty = false;
-  bool _selectionMode = false;
+  EditorChartInteractionMode _chartInteractionMode =
+      EditorChartInteractionMode.normal;
+  ChartPastePreview? _pastePreview;
+  int? _pastePreviewAnchorRow;
   bool _waveformVisible = true;
   WaveformFilter _waveformFilter = WaveformFilter.none;
   double _waveformFilterStrength = 0.75;
@@ -203,30 +208,28 @@ class EditorController extends ChangeNotifier {
   AudioExportCancellation? _audioExportCancellation;
   AudioExportProgress? _audioExportProgress;
 
-  Map<String, Object?> get diagnosticState {
-    final selected = _editor.selection;
-    return Map<String, Object?>.unmodifiable({
-      'revision': _projectRevision,
-      'dirty': _isDirty,
-      'sourceKind': _sourceKind.name,
-      'hasAudio': hasAudio,
-      'bpm': _bpm,
-      'offset': _offset,
-      'currentRow': _currentRow,
-      'markerCount': _markers.length,
-      'showtimeMoveCount': _showtimeMoves.length,
-      'canUndo': canUndo,
-      'canRedo': canRedo,
-      'selectionMode': _selectionMode,
-      'selection': Map<String, Object?>.unmodifiable({
-        'active': selected.active,
-        'danceMoveDrillId': selected.danceMoveDrillId,
-        'firstRow': selected.firstRow,
-        'lastRow': selected.lastRow,
-      }),
-      'hasClipboard': _editor.hasClipboard,
-    });
-  }
+  Map<String, Object?> get diagnosticState =>
+      Map<String, Object?>.unmodifiable({
+        'revision': _projectRevision,
+        'dirty': _isDirty,
+        'sourceKind': _sourceKind.name,
+        'hasAudio': hasAudio,
+        'bpm': _bpm,
+        'offset': _offset,
+        'currentRow': _currentRow,
+        'markerCount': _markers.length,
+        'showtimeMoveCount': _showtimeMoves.length,
+        'canUndo': canUndo,
+        'canRedo': canRedo,
+        'interactionMode': _chartInteractionMode.name,
+        'selectionCount': selectionCount,
+        'hasSelection': hasSelection,
+        'hasClipboard': hasClipboard,
+        'clipboardCount': clipboardCount,
+        'cutPending': cutPending,
+        'pastePreviewAnchorRow': _pastePreviewAnchorRow,
+        'pastePreviewCode': _pastePreview?.code,
+      });
 
   /// Callers use static event identifiers and diagnostic metadata only.
   void recordDiagnostic(
@@ -241,7 +244,6 @@ class EditorController extends ChangeNotifier {
         'row',
         'anchorRow',
         'code',
-        'primaryEventId',
         'domain',
         'status',
         'candidateCount',
@@ -324,7 +326,6 @@ class EditorController extends ChangeNotifier {
       ...parameters,
       'code': result.code,
       'changed': result.changed,
-      'primaryEventId': result.primaryEventId,
     });
   }
 
@@ -361,16 +362,54 @@ class EditorController extends ChangeNotifier {
   bool get isPlaying => _playbackMode != EditorPlaybackMode.idle;
   bool get isChartPlaying => _playbackMode == EditorPlaybackMode.chartPreview;
   bool get isRhythmTesting => _playbackMode == EditorPlaybackMode.rhythmTest;
-  bool get generalActionsEnabled =>
+
+  /// The single global application-operation mode. Playback and audio export
+  /// outrank the chart interaction session, so an active session can never
+  /// widen what a running playback or export allows.
+  int get _applicationOperationMode {
+    if (isPlaying) {
+      return OTGY_APPLICATION_MODE_PLAYING;
+    }
+    if (_isExportingAudio) {
+      return OTGY_APPLICATION_MODE_EXPORTING_AUDIO;
+    }
+    if (_chartInteractionMode != EditorChartInteractionMode.normal) {
+      return OTGY_APPLICATION_MODE_CHART_INTERACTION;
+    }
+    return OTGY_APPLICATION_MODE_IDLE;
+  }
+
+  bool _operationAllowed(int operation) =>
       OtgyNative.coordinateApplicationOperation(
-        mode: isPlaying
-            ? 1
-            : _isExportingAudio
-            ? 2
-            : 0,
-        operation: 0,
+        mode: _applicationOperationMode,
+        operation: operation,
       ) ==
-      0;
+      OTGY_APPLICATION_OPERATION_ALLOWED;
+
+  /// Audio, chart data, persistence, export and playback control. This is the
+  /// safe default, and every selection or paste session rejects it.
+  bool get generalActionsEnabled =>
+      _operationAllowed(OTGY_APPLICATION_OPERATION_GENERAL);
+
+  /// Selection switching, clipboard preparation, paste submission and exit.
+  bool get selectionCommandEnabled =>
+      _operationAllowed(OTGY_APPLICATION_OPERATION_SELECTION_COMMAND);
+
+  /// Timeline movement, Zoom, Scale, page navigation, time jump and the
+  /// waveform settings panel. Kept available during a session so the target row
+  /// stays reachable.
+  bool get navigationEnabled =>
+      _operationAllowed(OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW);
+
+  /// Markers stay focusable and activatable whenever their own mode's command
+  /// is allowed: plain cell activation in normal mode, and the selection toggle
+  /// inside a chart interaction session.
+  bool get markerInteractionEnabled =>
+      generalActionsEnabled || selectionCommandEnabled;
+
+  /// Undo and redo.
+  bool get historyNavigationEnabled =>
+      _operationAllowed(OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION);
   bool get isDirty => _isDirty;
   bool get waveformVisible => _waveformVisible;
   WaveformFilter get waveformFilter => _waveformFilter;
@@ -381,14 +420,24 @@ class EditorController extends ChangeNotifier {
   PlaybackDanceMode get playbackDanceMode => _playbackDanceMode;
   bool get transitionSoundsEnabled => _transitionSoundsEnabled;
   bool get hasAudio => _audio != null;
-  bool get canUndo => _editor.canUndo;
-  bool get canRedo => _editor.canRedo;
-  bool get selectionMode => _selectionMode;
-  ChartSelection get selection => _editor.selection;
+  bool get canUndo => !cutPending && _editor.canUndo;
+  bool get canRedo => !cutPending && _editor.canRedo;
+  EditorChartInteractionMode get chartInteractionMode => _chartInteractionMode;
+  bool get selectionMode =>
+      _chartInteractionMode == EditorChartInteractionMode.selection;
+  bool get pastePending =>
+      _chartInteractionMode == EditorChartInteractionMode.pastePending;
+  List<ChartSelection> get selections => _editor.selections;
+  int get selectionCount => _editor.selectionCount;
   bool get hasSelection => _editor.hasSelection;
-  bool get canCopySelection => _selectionMode && hasSelection;
-  bool get canCutSelection => _selectionMode && hasSelection;
-  bool get canPaste => _selectionMode && _editor.hasClipboard;
+  bool get hasClipboard => _editor.hasClipboard;
+  int get clipboardCount => _editor.clipboardCount;
+  bool get cutPending => _editor.cutPending;
+  ChartPastePreview? get pastePreview => _pastePreview;
+  int? get pastePreviewAnchorRow => _pastePreviewAnchorRow;
+  bool get canCopySelection => selectionMode && hasSelection;
+  bool get canCutSelection => selectionMode && hasSelection;
+  bool get canPaste => pastePending && hasClipboard;
   String? get audioFileName => _audioFileName;
   String get chartName => _sourceName ?? '未命名草稿';
   WorkspaceSourceKind get sourceKind => _sourceKind;
@@ -610,29 +659,37 @@ class EditorController extends ChangeNotifier {
   }
 
   void toggleSelectionMode() {
-    if (_isBusy || !generalActionsEnabled) {
+    if (_isBusy || !selectionCommandEnabled) {
       recordDiagnostic('selectionMode.toggle', {'blocked': true});
       return;
     }
-    if (_selectionMode) {
-      exitSelectionMode();
-    } else {
+    if (_chartInteractionMode == EditorChartInteractionMode.normal) {
       enterSelectionMode();
+    } else {
+      exitChartInteraction();
     }
   }
 
   void enterSelectionMode() {
-    if (_isBusy || !generalActionsEnabled || _selectionMode) {
+    if (_isBusy ||
+        !selectionCommandEnabled ||
+        _chartInteractionMode != EditorChartInteractionMode.normal) {
       recordDiagnostic('selectionMode.enter', {'blocked': true});
       return;
     }
-    _selectionMode = true;
+    _chartInteractionMode = EditorChartInteractionMode.selection;
+    _pastePreview = null;
+    _pastePreviewAnchorRow = null;
     notifyListeners();
     recordDiagnostic('selectionMode.enter', {'enabled': true, 'changed': true});
   }
 
-  void exitSelectionMode() {
-    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+  void exitSelectionMode() => exitChartInteraction();
+
+  void exitChartInteraction() {
+    if (_isBusy ||
+        !selectionCommandEnabled ||
+        _chartInteractionMode == EditorChartInteractionMode.normal) {
       recordDiagnostic('selectionMode.exit', {'blocked': true});
       return;
     }
@@ -644,7 +701,9 @@ class EditorController extends ChangeNotifier {
       'clipboard.clear',
       _editor.clearClipboard,
     );
-    _selectionMode = false;
+    _chartInteractionMode = EditorChartInteractionMode.normal;
+    _pastePreview = null;
+    _pastePreviewAnchorRow = null;
     notifyListeners();
     recordDiagnostic('selection.clear', {
       'code': clearedSelection.code,
@@ -658,7 +717,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void selectAt(int column, int row) {
-    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+    if (_isBusy || !selectionCommandEnabled || !selectionMode) {
       recordDiagnostic('select', {
         'column': column,
         'row': row,
@@ -683,12 +742,16 @@ class EditorController extends ChangeNotifier {
   }
 
   void copySelection() {
-    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+    if (_isBusy || !selectionCommandEnabled || !selectionMode) {
       recordDiagnostic('copy', {'blocked': true});
       return;
     }
     final result = _diagnosticCall('copy', _editor.copySelection);
-    if (result.code != 0) {
+    if (result.code == 0) {
+      _chartInteractionMode = EditorChartInteractionMode.pastePending;
+      _pastePreview = null;
+      _pastePreviewAnchorRow = null;
+    } else {
       _notice = EditorNotice(_editMessage(result.code));
     }
     notifyListeners();
@@ -696,28 +759,53 @@ class EditorController extends ChangeNotifier {
   }
 
   void cutSelection() {
-    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
+    if (_isBusy || !selectionCommandEnabled || !selectionMode) {
       recordDiagnostic('cut', {'blocked': true});
       return;
     }
     final result = _diagnosticCall('cut', _editor.cutSelection);
-    if (result.changed) {
-      _refreshProjection();
-      _commitChartChange();
+    if (result.code == 0) {
+      _chartInteractionMode = EditorChartInteractionMode.pastePending;
+      _pastePreview = null;
+      _pastePreviewAnchorRow = null;
     } else {
       _notice = EditorNotice(_editMessage(result.code));
-      notifyListeners();
     }
-    _recordEdit('cut', result);
+    notifyListeners();
+    recordDiagnostic('cut', {'code': result.code, 'changed': result.changed});
   }
 
-  void pasteAtCursor() {
-    if (_isBusy || !generalActionsEnabled || !_selectionMode) {
-      recordDiagnostic('paste', {'blocked': true});
+  void updatePastePreview(int anchorRow) {
+    if (_isBusy || !selectionCommandEnabled || !pastePending) {
       return;
     }
-    final anchorRow = math.max(0, _currentRow.round());
-    final result = _diagnosticCall('paste', () => _editor.paste(anchorRow));
+    final row = math.max(0, anchorRow);
+    final preview = _diagnosticCall(
+      'paste.preview',
+      () => _editor.pastePreview(row),
+    );
+    _pastePreview = preview;
+    _pastePreviewAnchorRow = row;
+    notifyListeners();
+    recordDiagnostic('paste.preview', {'anchorRow': row, 'code': preview.code});
+  }
+
+  void clearPastePreview() {
+    if (_isBusy || !selectionCommandEnabled || _pastePreview == null) {
+      return;
+    }
+    _pastePreview = null;
+    _pastePreviewAnchorRow = null;
+    notifyListeners();
+  }
+
+  void pasteAtRow(int anchorRow) {
+    if (_isBusy || !selectionCommandEnabled || !pastePending) {
+      recordDiagnostic('paste', {'anchorRow': anchorRow, 'blocked': true});
+      return;
+    }
+    final row = math.max(0, anchorRow);
+    final result = _diagnosticCall('paste', () => _editor.paste(row));
     if (result.changed) {
       _refreshProjection();
       _commitChartChange();
@@ -725,11 +813,17 @@ class EditorController extends ChangeNotifier {
       _notice = EditorNotice(_editMessage(result.code));
       notifyListeners();
     }
-    _recordEdit('paste', result, {'anchorRow': anchorRow});
+    _pastePreview = _diagnosticCall(
+      'paste.preview',
+      () => _editor.pastePreview(row),
+    );
+    _pastePreviewAnchorRow = row;
+    notifyListeners();
+    _recordEdit('paste', result, {'anchorRow': row});
   }
 
   void undo() {
-    if (!canUndo || _isBusy || !generalActionsEnabled) {
+    if (!canUndo || _isBusy || !historyNavigationEnabled) {
       recordDiagnostic('undo', {'blocked': true});
       return;
     }
@@ -740,7 +834,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void redo() {
-    if (!canRedo || _isBusy || !generalActionsEnabled) {
+    if (!canRedo || _isBusy || !historyNavigationEnabled) {
       recordDiagnostic('redo', {'blocked': true});
       return;
     }
@@ -764,6 +858,9 @@ class EditorController extends ChangeNotifier {
   }
 
   Future<List<AudioAnalysisCandidate>> analyzeAudio() {
+    if (!generalActionsEnabled) {
+      return Future.error(StateError('Audio analysis is not allowed now.'));
+    }
     final cached = _analysisCandidates;
     if (cached != null) {
       recordDiagnostic('audio.analysis', {
@@ -1053,7 +1150,12 @@ class EditorController extends ChangeNotifier {
 
   Uint8List encodeRecoverySnapshot() => _editor.encodeRecovery();
 
-  SlkExport exportSlk() => _editor.exportSlk();
+  SlkExport exportSlk() {
+    if (_isBusy || !generalActionsEnabled) {
+      throw StateError('SLK export is not allowed now.');
+    }
+    return _editor.exportSlk();
+  }
 
   void markSaved({
     required String draftId,
@@ -1110,8 +1212,12 @@ class EditorController extends ChangeNotifier {
 
   Future<void> _startPlayback(EditorPlaybackMode mode) async {
     final audio = _audio;
-    if (audio == null || !generalActionsEnabled) {
+    if (audio == null) {
       showNotice('请先加载音频');
+      return;
+    }
+    if (!generalActionsEnabled) {
+      showNotice('请先退出选择或粘贴模式');
       return;
     }
     if (_isBusy) {
@@ -1298,7 +1404,7 @@ class EditorController extends ChangeNotifier {
   }
 
   Future<void> setWaveformFilter(WaveformFilter value) async {
-    if (!generalActionsEnabled ||
+    if (!navigationEnabled ||
         isPlaying ||
         _isBusy ||
         value == _waveformFilter) {
@@ -1310,7 +1416,7 @@ class EditorController extends ChangeNotifier {
 
   Future<void> setWaveformFilterStrength(double value) async {
     final next = value.clamp(0.0, 1.0).toDouble();
-    if (!generalActionsEnabled ||
+    if (!navigationEnabled ||
         isPlaying ||
         _isBusy ||
         next == _waveformFilterStrength) {
@@ -1325,7 +1431,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void setWaveformOverlayOriginal(bool value) {
-    if (!generalActionsEnabled ||
+    if (!navigationEnabled ||
         isPlaying ||
         _isBusy ||
         value == _waveformOverlayOriginal) {
@@ -1336,7 +1442,10 @@ class EditorController extends ChangeNotifier {
   }
 
   void setPlaybackSoundLanguage(PlaybackSoundLanguage value) {
-    if (isPlaying || _isBusy || value == _playbackSoundLanguage) {
+    if (!generalActionsEnabled ||
+        isPlaying ||
+        _isBusy ||
+        value == _playbackSoundLanguage) {
       return;
     }
     _playbackSoundLanguage = value;
@@ -1345,7 +1454,10 @@ class EditorController extends ChangeNotifier {
   }
 
   void setPlaybackDanceMode(PlaybackDanceMode value) {
-    if (isPlaying || _isBusy || value == _playbackDanceMode) {
+    if (!generalActionsEnabled ||
+        isPlaying ||
+        _isBusy ||
+        value == _playbackDanceMode) {
       return;
     }
     _playbackDanceMode = value;
@@ -1354,7 +1466,10 @@ class EditorController extends ChangeNotifier {
   }
 
   void setTransitionSoundsEnabled(bool value) {
-    if (isPlaying || _isBusy || value == _transitionSoundsEnabled) {
+    if (!generalActionsEnabled ||
+        isPlaying ||
+        _isBusy ||
+        value == _transitionSoundsEnabled) {
       return;
     }
     _transitionSoundsEnabled = value;
@@ -1363,7 +1478,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void moveToRow(double value) {
-    if (!generalActionsEnabled) {
+    if (!navigationEnabled) {
       return;
     }
     final end = timelineRange.endRow;
@@ -1377,7 +1492,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void moveToSongSeconds(double seconds) {
-    if (!seconds.isFinite || seconds < 0 || !generalActionsEnabled) {
+    if (!seconds.isFinite || seconds < 0 || !navigationEnabled) {
       return;
     }
     final row = OtgyNative.secondsToSixteenthRow(
@@ -1398,7 +1513,7 @@ class EditorController extends ChangeNotifier {
   Future<void> setZoom(double value) async {
     final next = (value * 4).round() / 4;
     final clamped = next.clamp(1, 19).toDouble();
-    if (clamped == _zoom || _isBusy || !generalActionsEnabled) {
+    if (clamped == _zoom || _isBusy || !navigationEnabled) {
       return;
     }
     _editZoomAutomatic = false;
@@ -1409,7 +1524,7 @@ class EditorController extends ChangeNotifier {
   Future<void> setScale(double value) async {
     final next = (value * 4).round() / 4;
     final clamped = next.clamp(1, 10).toDouble();
-    if (clamped == _scale || _isBusy || !generalActionsEnabled) {
+    if (clamped == _scale || _isBusy || !navigationEnabled) {
       return;
     }
     _scale = clamped;
@@ -1588,7 +1703,9 @@ class EditorController extends ChangeNotifier {
   void _replaceEditor(NativeChartEditor pending) {
     final previous = _editor;
     _editor = pending;
-    _selectionMode = false;
+    _chartInteractionMode = EditorChartInteractionMode.normal;
+    _pastePreview = null;
+    _pastePreviewAnchorRow = null;
     _refreshProjection();
     _invalidatePlaybackSoundSession();
     previous.dispose();
@@ -1701,6 +1818,7 @@ class EditorController extends ChangeNotifier {
     18 => '剪贴板为空',
     19 => '粘贴范围内存在其他标记',
     20 => 'Showtime 内容不一致，请删除后重新生成',
+    21 => '剪切来源已变化，原内容未删除',
     _ => '没有可应用的修改',
   };
 

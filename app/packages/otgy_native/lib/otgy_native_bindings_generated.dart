@@ -1508,25 +1508,44 @@ external int otgy_chart_editor_redo(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
-/// Session commands never edit the chart draft and never add history. They
-/// clear every out parameter before validating arguments, so a failed call
-/// never leaves an older value readable. otgy_chart_editor_cut_selection and
-/// otgy_chart_editor_paste edit the draft and therefore report through
-/// otgy_chart_edit_result, but they clear that out parameter on failure the
-/// same way.
+/// Copies the ordered selection into an independently owned handle. All out
+/// parameters are cleared before argument validation.
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
-    ffi.Pointer<otgy_chart_selection>,
+    ffi.Pointer<ffi.Pointer<otgy_chart_selections>>,
     ffi.Pointer<ffi.Pointer<otgy_error>>,
   )
 >()
-external int otgy_chart_editor_get_selection(
+external int otgy_chart_editor_copy_selections(
   ffi.Pointer<otgy_chart_editor> editor,
-  ffi.Pointer<otgy_chart_selection> out_selection,
+  ffi.Pointer<ffi.Pointer<otgy_chart_selections>> out_selections,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+@ffi.Native<ffi.Void Function(ffi.Pointer<otgy_chart_selections>)>()
+external void otgy_chart_selections_destroy(
+  ffi.Pointer<otgy_chart_selections> selections,
+);
+
+@ffi.Native<
+  ffi.Pointer<otgy_chart_selection> Function(ffi.Pointer<otgy_chart_selections>)
+>()
+external ffi.Pointer<otgy_chart_selection> otgy_chart_selections_get_data(
+  ffi.Pointer<otgy_chart_selections> selections,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_selections>)>()
+external int otgy_chart_selections_get_count(
+  ffi.Pointer<otgy_chart_selections> selections,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_editor>)>()
+external int otgy_chart_editor_selection_count(
+  ffi.Pointer<otgy_chart_editor> editor,
+);
+
+/// Toggles the drill at an exact marker row from any valid chart column.
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
@@ -1557,10 +1576,19 @@ external int otgy_chart_editor_clear_selection(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
-/// Returns 1 when the session clipboard holds a copied dance move. A null
-/// editor returns 0, matching otgy_chart_editor_can_undo.
+/// Null editors return zero for all session scalar queries.
 @ffi.Native<ffi.Uint8 Function(ffi.Pointer<otgy_chart_editor>)>()
 external int otgy_chart_editor_has_clipboard(
+  ffi.Pointer<otgy_chart_editor> editor,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_editor>)>()
+external int otgy_chart_editor_clipboard_count(
+  ffi.Pointer<otgy_chart_editor> editor,
+);
+
+@ffi.Native<ffi.Uint8 Function(ffi.Pointer<otgy_chart_editor>)>()
+external int otgy_chart_editor_cut_pending(
   ffi.Pointer<otgy_chart_editor> editor,
 );
 
@@ -1577,8 +1605,6 @@ external int otgy_chart_editor_copy_selection(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
-/// Drops the session clipboard without touching the draft, the history or the
-/// selection. Leaving selection mode uses this command.
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
@@ -1592,25 +1618,22 @@ external int otgy_chart_editor_clear_clipboard(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
-/// Copies the selected dance move into the clipboard and deletes it. One
-/// successful call is exactly one history entry, and it reports through
-/// otgy_chart_edit_result because the draft changed.
+/// Prepares a batch cut without deleting source content or adding history.
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
-    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<otgy_chart_session_result>,
     ffi.Pointer<ffi.Pointer<otgy_error>>,
   )
 >()
 external int otgy_chart_editor_cut_selection(
   ffi.Pointer<otgy_chart_editor> editor,
-  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<otgy_chart_session_result> out_result,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
-/// One successful call is exactly one history entry. The fragment's smallest
-/// row lands on anchor_row; every event keeps its column and role and only
-/// rows are translated.
+/// Each success adds one history entry. First cut placement atomically removes
+/// the verified source and inserts the batch; subsequent placements are copies.
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
@@ -1624,6 +1647,70 @@ external int otgy_chart_editor_paste(
   int anchor_row,
   ffi.Pointer<otgy_chart_edit_result> out_result,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Read-only core placement plan. Invalid plans still expose available target
+/// geometry. The owned projection remains valid after editor changes/destruction.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint64,
+    ffi.Pointer<ffi.Pointer<otgy_chart_paste_preview>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_preview_paste(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int anchor_row,
+  ffi.Pointer<ffi.Pointer<otgy_chart_paste_preview>> out_preview,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<otgy_chart_paste_preview>)>()
+external void otgy_chart_paste_preview_destroy(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<ffi.Uint32 Function(ffi.Pointer<otgy_chart_paste_preview>)>()
+external int otgy_chart_paste_preview_get_code(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_paste_preview>)>()
+external int otgy_chart_paste_preview_get_first_row(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_paste_preview>)>()
+external int otgy_chart_paste_preview_get_last_row(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<
+  ffi.Pointer<otgy_chart_selection> Function(
+    ffi.Pointer<otgy_chart_paste_preview>,
+  )
+>()
+external ffi.Pointer<otgy_chart_selection>
+otgy_chart_paste_preview_get_selections(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_paste_preview>)>()
+external int otgy_chart_paste_preview_get_selection_count(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<
+  ffi.Pointer<otgy_chart_marker> Function(ffi.Pointer<otgy_chart_paste_preview>)
+>()
+external ffi.Pointer<otgy_chart_marker> otgy_chart_paste_preview_get_markers(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_paste_preview>)>()
+external int otgy_chart_paste_preview_get_marker_count(
+  ffi.Pointer<otgy_chart_paste_preview> preview,
 );
 
 @ffi.Native<
@@ -1883,6 +1970,10 @@ final class otgy_chart extends ffi.Opaque {}
 final class otgy_chart_semantics extends ffi.Opaque {}
 
 final class otgy_chart_markers extends ffi.Opaque {}
+
+final class otgy_chart_selections extends ffi.Opaque {}
+
+final class otgy_chart_paste_preview extends ffi.Opaque {}
 
 final class otgy_showtime_moves extends ffi.Opaque {}
 
@@ -2289,8 +2380,7 @@ final class otgy_chart_edit_result extends ffi.Struct {
   external int primary_event_id;
 }
 
-/// Selection of one dance move in the current editor session. A selection is
-/// session state: it is never persisted and never produces history.
+/// One selected dance move, projected from session state.
 final class otgy_chart_selection extends ffi.Struct {
   @ffi.Uint8()
   external int active;
@@ -2305,17 +2395,13 @@ final class otgy_chart_selection extends ffi.Struct {
   external int last_row;
 }
 
-/// Result of a session command. `changed` describes the selection or clipboard,
-/// never the chart draft; use otgy_chart_edit_result for commands that edit the
-/// draft, so the two meanings are never confused.
+/// Session commands change selection or clipboard only, without draft history.
 final class otgy_chart_session_result extends ffi.Struct {
   @ffi.Uint32()
   external int code;
 
   @ffi.Uint8()
   external int changed;
-
-  external otgy_chart_selection selection;
 }
 
 final class otgy_chart_diagnostic extends ffi.Struct {
@@ -2346,7 +2432,7 @@ final class otgy_slk_position extends ffi.Struct {
   external int total_sixteenth;
 }
 
-const int OTGY_C_API_VERSION = 1;
+const int OTGY_C_API_VERSION = 2;
 
 const int OTGY_STATUS_OK = 0;
 
@@ -2544,6 +2630,8 @@ const int OTGY_APPLICATION_MODE_PLAYING = 1;
 
 const int OTGY_APPLICATION_MODE_EXPORTING_AUDIO = 2;
 
+const int OTGY_APPLICATION_MODE_CHART_INTERACTION = 3;
+
 const int OTGY_APPLICATION_OPERATION_GENERAL = 0;
 
 const int OTGY_APPLICATION_OPERATION_PAUSE_PLAYBACK = 1;
@@ -2551,6 +2639,12 @@ const int OTGY_APPLICATION_OPERATION_PAUSE_PLAYBACK = 1;
 const int OTGY_APPLICATION_OPERATION_TOGGLE_WAVEFORM = 2;
 
 const int OTGY_APPLICATION_OPERATION_CANCEL_AUDIO_EXPORT = 3;
+
+const int OTGY_APPLICATION_OPERATION_SELECTION_COMMAND = 4;
+
+const int OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW = 5;
+
+const int OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION = 6;
 
 const int OTGY_APPLICATION_OPERATION_ALLOWED = 0;
 
@@ -2561,6 +2655,8 @@ const int OTGY_APPLICATION_OPERATION_AUDIO_EXPORT_ACTIVE = 2;
 const int OTGY_APPLICATION_OPERATION_INVALID_MODE = 3;
 
 const int OTGY_APPLICATION_OPERATION_INVALID_OPERATION = 4;
+
+const int OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE = 5;
 
 const int OTGY_CHART_COLUMN_NPC = 0;
 
@@ -2635,6 +2731,8 @@ const int OTGY_CHART_EDIT_CLIPBOARD_EMPTY = 18;
 const int OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED = 19;
 
 const int OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE = 20;
+
+const int OTGY_CHART_EDIT_CUT_SOURCE_CHANGED = 21;
 
 const int OTGY_CHART_DIAGNOSTIC_EMPTY_CHART = 0;
 

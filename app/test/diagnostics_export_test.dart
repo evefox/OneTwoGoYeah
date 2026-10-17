@@ -29,6 +29,28 @@ Map<String, List<int>> storedFiles(Directory directory) => {
     file.uri.pathSegments.last: file.readAsBytesSync(),
 };
 
+List<List<Object?>> markerState(Iterable<ChartMarker> markers) => [
+  for (final marker in markers)
+    [
+      marker.id,
+      marker.row,
+      marker.column,
+      marker.type,
+      marker.showNCount,
+      marker.ordinal,
+    ],
+];
+
+List<List<Object>> selectionState(EditorController controller) => [
+  for (final selection in controller.selections)
+    [
+      selection.active,
+      selection.danceMoveDrillId,
+      selection.firstRow,
+      selection.lastRow,
+    ],
+];
+
 List<Object?> editorState(EditorController controller) => [
   controller.encodeFormalDraft().toList(),
   controller.encodeRecoverySnapshot().toList(),
@@ -38,11 +60,15 @@ List<Object?> editorState(EditorController controller) => [
   controller.projectRevision,
   controller.canUndo,
   controller.canRedo,
-  controller.selectionMode,
-  controller.selection.active,
-  controller.selection.danceMoveDrillId,
-  controller.selection.firstRow,
-  controller.selection.lastRow,
+  controller.chartInteractionMode,
+  selectionState(controller),
+  controller.selectionCount,
+  controller.hasSelection,
+  controller.hasClipboard,
+  controller.clipboardCount,
+  controller.cutPending,
+  controller.pastePreviewAnchorRow,
+  controller.pastePreview?.code,
   controller.canPaste,
 ];
 
@@ -145,20 +171,34 @@ void main() {
     await tester.pump();
   }
 
-  void prepareClipboard(EditorController target, {bool extended = false}) {
-    for (final row in extended ? [0, 2, 4, 6, 6] : [3]) {
-      target.clickCell(OTGY_CHART_COLUMN_NPC, row);
-    }
-    if (extended) {
-      for (final row in [8, 10]) {
-        target.clickCell(OTGY_CHART_COLUMN_PLAYER, row);
-      }
-    }
+  void restoreClipboard(EditorController target, {bool extended = false}) {
     target.enterSelectionMode();
     target.selectAt(OTGY_CHART_COLUMN_NPC, extended ? 0 : 3);
-    target.copySelection();
-    target.clickCell(OTGY_CHART_COLUMN_NPC, 30);
-    target.undo();
+    if (extended) {
+      target.selectAt(OTGY_CHART_COLUMN_PLAYER, 40);
+    }
+    target.cutSelection();
+    expect(
+      target.chartInteractionMode,
+      EditorChartInteractionMode.pastePending,
+    );
+    expect(target.selectionCount, extended ? 2 : 1);
+    expect(target.hasSelection, isTrue);
+    expect(target.hasClipboard, isTrue);
+    expect(target.clipboardCount, extended ? 2 : 1);
+    expect(target.cutPending, isTrue);
+  }
+
+  void prepareClipboard(EditorController target, {bool extended = false}) {
+    for (final base in extended ? [0, 32] : [3]) {
+      for (final row in [0, 2, 4, 6, 6]) {
+        target.clickCell(OTGY_CHART_COLUMN_NPC, base + row);
+      }
+      for (final row in [8, 10]) {
+        target.clickCell(OTGY_CHART_COLUMN_PLAYER, base + row);
+      }
+    }
+    restoreClipboard(target, extended: extended);
   }
 
   Future<void> expectClipboardPreserved(
@@ -170,14 +210,21 @@ void main() {
     final reference = EditorController();
     try {
       prepareClipboard(reference, extended: extended);
-      expect(controller.encodeFormalDraft(), reference.encodeFormalDraft());
+      final previewAnchorRow = controller.pastePreviewAnchorRow;
+      if (previewAnchorRow != null) {
+        reference.updatePastePreview(previewAnchorRow);
+      }
+      final beforePaste = editorState(controller);
+      expect(beforePaste, editorState(reference));
       final revision = controller.projectRevision;
-      controller.moveToRow(30);
-      reference.moveToRow(30);
-      controller.pasteAtCursor();
-      reference.pasteAtCursor();
+      const anchorRow = 96;
+      controller.pasteAtRow(anchorRow);
+      reference.pasteAtRow(anchorRow);
       expect(controller.projectRevision, revision + 1);
-      expect(controller.encodeFormalDraft(), reference.encodeFormalDraft());
+      expect(controller.cutPending, isFalse);
+      expect(controller.hasClipboard, isTrue);
+      expect(controller.clipboardCount, extended ? 2 : 1);
+      expect(editorState(controller), editorState(reference));
       expect(
         controller.encodeRecoverySnapshot(),
         reference.encodeRecoverySnapshot(),
@@ -217,8 +264,25 @@ void main() {
             : null;
         await pumpScreen(tester, diagnostics: logger);
         prepareClipboard(controller);
+        controller.moveToRow(47);
         await tester.pump();
+        await tester.pump();
+        expect(controller.pastePreviewAnchorRow, 47);
+        expect(controller.pastePreview, isNotNull);
+        final sessionBefore = editorState(controller);
+        final sessionCaptureState = controller.diagnosticState;
+        final sessionPreviewCode = controller.pastePreview!.code;
+        expect(controller.generalActionsEnabled, isFalse);
+        expect(
+          tester
+              .widget<TextButton>(find.byKey(const ValueKey('chart-menu')))
+              .onPressed,
+          isNull,
+        );
+        controller.exitChartInteraction();
+        await tester.pumpAndSettle();
         final before = editorState(controller);
+        final markersBefore = markerState(controller.markers);
         final filesBefore = storedFiles(directory);
         final methods = <String>[];
         final written = BytesBuilder();
@@ -318,10 +382,64 @@ void main() {
             controller.encodeRecoverySnapshot(),
           );
           expect(bundle['captureState'], controller.diagnosticState);
+          final captureState = bundle['captureState'] as Map;
+          expect(
+            captureState.keys,
+            unorderedEquals([
+              'revision',
+              'dirty',
+              'sourceKind',
+              'hasAudio',
+              'bpm',
+              'offset',
+              'currentRow',
+              'markerCount',
+              'showtimeMoveCount',
+              'canUndo',
+              'canRedo',
+              'interactionMode',
+              'selectionCount',
+              'hasSelection',
+              'hasClipboard',
+              'clipboardCount',
+              'cutPending',
+              'pastePreviewAnchorRow',
+              'pastePreviewCode',
+            ]),
+          );
+          expect(captureState['interactionMode'], 'normal');
+          expect(captureState['selectionCount'], 0);
+          expect(captureState['hasSelection'], isFalse);
+          expect(captureState['hasClipboard'], isFalse);
+          expect(captureState['clipboardCount'], 0);
+          expect(captureState['cutPending'], isFalse);
+          expect(captureState['pastePreviewAnchorRow'], isNull);
+          expect(captureState['pastePreviewCode'], isNull);
+          expect(sessionCaptureState['interactionMode'], 'pastePending');
+          expect(sessionCaptureState['selectionCount'], 1);
+          expect(sessionCaptureState['hasSelection'], isTrue);
+          expect(sessionCaptureState['hasClipboard'], isTrue);
+          expect(sessionCaptureState['clipboardCount'], 1);
+          expect(sessionCaptureState['cutPending'], isTrue);
+          expect(sessionCaptureState['pastePreviewAnchorRow'], 47);
+          expect(
+            sessionCaptureState['pastePreviewCode'],
+            sessionPreviewCode,
+          );
+          for (final forbidden in [
+            'markers',
+            'rowDelta',
+            'objectId',
+            'danceMoveDrillId',
+            'clipboardPayload',
+            '"selection":',
+          ]) {
+            expect(jsonEncode(captureState), isNot(contains(forbidden)));
+          }
           final restored = NativeChartEditor.decodeRecovery(
             base64Decode((bundle['snapshot'] as Map)['payload'] as String),
           );
-          expect(restored.markers(), hasLength(1));
+          expect(markerState(restored.markers()), equals(markersBefore));
           restored.dispose();
           expect(find.text('诊断包已导出'), findsOneWidget);
         } else if (outcome == 'cancel') {
@@ -364,6 +482,9 @@ void main() {
           }
         }
         expect(tester.takeException(), isNull);
+        restoreClipboard(controller);
+        await tester.pumpAndSettle();
+        expect(editorState(controller), sessionBefore);
         await expectClipboardPreserved(tester);
       },
     );
@@ -378,11 +499,25 @@ void main() {
       ))!;
       await pumpScreen(tester, storage: false, diagnostics: logger);
       prepareClipboard(controller, extended: true);
+      controller.moveToRow(48);
       await tester.pump();
-      expect(controller.selection.active, isTrue);
-      expect(controller.canPaste, isTrue);
-      expect(controller.canUndo, isTrue);
-      expect(controller.canRedo, isTrue);
+      await tester.pump();
+      expect(
+        controller.chartInteractionMode,
+        EditorChartInteractionMode.pastePending,
+      );
+      expect(controller.selectionCount, 2);
+      expect(controller.hasSelection, isTrue);
+      expect(controller.hasClipboard, isTrue);
+      expect(controller.clipboardCount, 2);
+      expect(controller.cutPending, isTrue);
+      expect(controller.pastePreviewAnchorRow, 48);
+      expect(controller.pastePreview, isNotNull);
+      expect(controller.canUndo, isFalse);
+      expect(controller.canRedo, isFalse);
+      final sessionBefore = editorState(controller);
+      controller.exitChartInteraction();
+      await tester.pumpAndSettle();
       final before = editorState(controller);
       const uri = 'content://test/detached.json';
       final finishEntered = Completer<void>();
@@ -468,6 +603,10 @@ void main() {
         expect(find.text('诊断包已导出'), findsNothing);
         expect(find.text('诊断包导出失败'), findsNothing);
         expect(tester.takeException(), isNull);
+        restoreClipboard(controller, extended: true);
+        controller.updatePastePreview(48);
+        await tester.pumpAndSettle();
+        expect(editorState(controller), sessionBefore);
         await expectClipboardPreserved(tester, extended: true);
       } finally {
         if (!finishReleased.isCompleted) finishReleased.complete();

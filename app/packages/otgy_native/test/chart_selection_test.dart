@@ -33,82 +33,107 @@ void main() {
     final source = NativeChartEditor.createEmpty();
     addTearDown(source.dispose);
     addDanceMove(source, 16);
+    addDanceMove(source, 48);
     final snapshot = source.encodeRecovery();
     final editor = NativeChartEditor.decodeRecovery(snapshot);
     addTearDown(editor.dispose);
-
-    expect(editor.hasSelection, isFalse);
-    expect(editor.hasClipboard, isFalse);
-    expect(selectionFields(editor.selection), [false, 0, 0, 0]);
+    expect(editor.selections, isEmpty);
     expect(editor.copySelection().code, 17);
+    expect(editor.cutSelection().code, 17);
     expect(editor.clearSelection().changed, isFalse);
     expect(editor.clearClipboard().changed, isFalse);
-
-    expect(editor.click(OTGY_CHART_COLUMN_NPC, 200).changed, isTrue);
+    editor.click(OTGY_CHART_COLUMN_NPC, 200);
     final future = editor.encodeRecovery();
     editor.undo();
     expect(editor.canUndo, isFalse);
     expect(editor.canRedo, isTrue);
 
-    final selected = editor.select(OTGY_CHART_COLUMN_PLAYER, 24);
-    expect(selected.code, 0);
-    expect(selected.changed, isTrue);
-    expect(selected.selection.active, isTrue);
-    expect(selected.selection.danceMoveDrillId, greaterThan(0));
-    expect(selected.selection.firstRow, 16);
-    expect(selected.selection.lastRow, 30);
-    final savedSelection = editor.selection;
-    expect(editor.hasSelection, isTrue);
-    expect(editor.select(OTGY_CHART_COLUMN_NPC, 16).changed, isFalse);
+    expect(editor.select(OTGY_CHART_COLUMN_PLAYER, 56).changed, isTrue);
+    expect(editor.select(OTGY_CHART_COLUMN_NPC, 16).changed, isTrue);
+    final savedSelection = editor.selections;
+    expect(savedSelection.map((s) => s.firstRow), [16, 48]);
+    expect(savedSelection.map((s) => s.lastRow), [30, 62]);
+    expect(editor.select(OTGY_CHART_COLUMN_SHOWTIME, 16).changed, isTrue);
+    expect(editor.selections.map((s) => s.firstRow), [48]);
+    expect(editor.select(OTGY_CHART_COLUMN_PLAYER, 16).changed, isTrue);
+    expect(editor.select(OTGY_CHART_COLUMN_NPC, 17).changed, isFalse);
+    expect(editor.select(OTGY_CHART_COLUMN_NPC, 999).changed, isFalse);
+    expect(
+      editor.selections.map(selectionFields),
+      savedSelection.map(selectionFields),
+    );
+    expect(editor.select(OTGY_CHART_COLUMN_PLAYER, 24).changed, isTrue);
+    expect(editor.selections.single.firstRow, 48);
+    editor.select(OTGY_CHART_COLUMN_NPC, 16);
     expect(editor.copySelection().code, 0);
-    expect(editor.hasClipboard, isTrue);
-
-    final cleared = editor.clearClipboard();
-    expect(cleared.code, 0);
-    expect(cleared.changed, isTrue);
-    expect(selectionFields(cleared.selection), selectionFields(savedSelection));
-    expect(selectionFields(editor.selection), selectionFields(savedSelection));
+    expect(editor.clipboardCount, 2);
+    expect(editor.cutPending, isFalse);
+    expect(editor.cutSelection().code, 0);
+    expect(editor.cutPending, isTrue);
+    expect(editor.clearClipboard().changed, isTrue);
     expect(editor.hasClipboard, isFalse);
-    expect(editor.clearClipboard().changed, isFalse);
+    expect(editor.cutPending, isFalse);
+    expect(
+      editor.selections.map(selectionFields),
+      savedSelection.map(selectionFields),
+    );
     expect(editor.clearSelection().changed, isTrue);
     expect(editor.clearSelection().changed, isFalse);
-    expect(editor.copySelection().code, 17);
-    expect(editor.cutSelection().code, 17);
     expect(editor.paste(300).code, 18);
-    expect(editor.hasSelection, isFalse);
-    expect(editor.select(OTGY_CHART_COLUMN_NPC, 999).changed, isFalse);
-    editor.select(OTGY_CHART_COLUMN_NPC, 16);
-    expect(editor.select(OTGY_CHART_COLUMN_SHOWTIME, 16).changed, isTrue);
-    expect(editor.hasSelection, isFalse);
-
     expect(editor.encodeRecovery(), snapshot);
     expect(editor.canUndo, isFalse);
     expect(editor.canRedo, isTrue);
-    expect(editor.redo().changed, isTrue);
+    editor.redo();
     expect(editor.encodeRecovery(), future);
-    expect(editor.undo().changed, isTrue);
+    editor.undo();
     expect(editor.encodeRecovery(), snapshot);
-    expect(editor.undo().code, 15);
-    // Both getter and command results own values after their native arena ends.
-    expect(
-      selectionFields(selected.selection),
-      selectionFields(savedSelection),
-    );
-    expect(savedSelection.firstRow, 16);
-    expect(savedSelection.lastRow, 30);
+    expect(savedSelection.map((s) => s.firstRow), [16, 48]);
   });
+
+  test(
+    'exact marker rows select across all columns without selecting gaps',
+    () {
+      final editor = NativeChartEditor.createEmpty();
+      addTearDown(editor.dispose);
+      addDanceMove(editor, 0);
+      expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 16).changed, isTrue);
+      final before = editor.encodeRecovery();
+      final markers = editor.markers();
+      const columns = [
+        OTGY_CHART_COLUMN_NPC,
+        OTGY_CHART_COLUMN_SHOWTIME,
+        OTGY_CHART_COLUMN_PLAYER,
+      ];
+      final showStart = markers.singleWhere(
+        (marker) => marker.type == OTGY_CHART_MARKER_SHOWTIME_START,
+      );
+      for (final marker in markers.where(
+        (marker) => marker.type != OTGY_CHART_MARKER_SHOWTIME_START,
+      )) {
+        for (final column in columns) {
+          expect(editor.select(column, marker.row).changed, isTrue);
+          expect(editor.selections.single.firstRow, 0);
+          expect(editor.selections.single.lastRow, 14);
+          final selected = editor.selections.map(selectionFields).toList();
+          expect(editor.select(column, 5).changed, isFalse);
+          expect(editor.select(column, showStart.row).code, 17);
+          expect(editor.selections.map(selectionFields), selected);
+          expect(editor.select(column, marker.row).changed, isTrue);
+          expect(editor.selections, isEmpty);
+        }
+      }
+      expect(editor.encodeRecovery(), before);
+    },
+  );
 
   test('an incomplete draft can be selected and clipboard stays local', () {
     final editor = NativeChartEditor.createEmpty();
     addTearDown(editor.dispose);
     editor.click(OTGY_CHART_COLUMN_NPC, 3);
-    final selected = editor.select(OTGY_CHART_COLUMN_NPC, 3);
-    expect(selected.code, 0);
-    expect(selected.selection.firstRow, 3);
-    expect(selected.selection.lastRow, 3);
+    expect(editor.select(OTGY_CHART_COLUMN_NPC, 3).code, 0);
+    expect(editor.selections.single.firstRow, 3);
+    expect(editor.selections.single.lastRow, 3);
     expect(editor.copySelection().changed, isTrue);
-    expect(editor.hasClipboard, isTrue);
-
     final loaded = NativeChartEditor.decodeRecovery(editor.encodeRecovery());
     addTearDown(loaded.dispose);
     expect(loaded.hasSelection, isFalse);
@@ -121,75 +146,38 @@ void main() {
     expect(editor.markers().single.row, 50);
   });
 
-  test('repeated pastes preserve offsets and allocate new identities', () {
+  test('repeated batch pastes preserve gaps and allocate new identities', () {
     final editor = NativeChartEditor.createEmpty();
     addTearDown(editor.dispose);
     addDanceMove(editor, 16);
+    addDanceMove(editor, 48);
     final source = editor.markers();
     final before = editor.encodeRecovery();
-    final originalSelection = editor
-        .select(OTGY_CHART_COLUMN_NPC, 16)
-        .selection;
+    editor.select(OTGY_CHART_COLUMN_NPC, 48);
+    editor.select(OTGY_CHART_COLUMN_NPC, 16);
     editor.copySelection();
-
-    final first = editor.paste(200);
-    expect(first.code, 0);
-    expect(first.changed, isTrue);
-    final firstSelection = editor.selection;
-    expect(firstSelection.firstRow, 200);
-    expect(firstSelection.lastRow, 214);
-    expect(
-      firstSelection.danceMoveDrillId,
-      isNot(originalSelection.danceMoveDrillId),
-    );
+    final preview = editor.pastePreview(200);
+    expect(preview.valid, isTrue);
+    expect(preview.selections.map((s) => s.firstRow), [200, 232]);
+    expect(preview.lastRow, 246);
+    expect(editor.paste(200).changed, isTrue);
     final afterFirst = editor.encodeRecovery();
-    final second = editor.paste(300);
-    expect(second.code, 0);
-    expect(second.changed, isTrue);
-    expect(editor.selection.firstRow, 300);
-    expect(editor.selection.lastRow, 314);
-    expect(
-      editor.selection.danceMoveDrillId,
-      isNot(
-        isIn([
-          originalSelection.danceMoveDrillId,
-          firstSelection.danceMoveDrillId,
-        ]),
-      ),
-    );
-
+    expect(editor.paste(300).changed, isTrue);
     final markers = editor.markers();
-    final firstMarkers = markers
-        .where((marker) => marker.row >= 200 && marker.row <= 214)
-        .toList();
-    final secondMarkers = markers
-        .where((marker) => marker.row >= 300 && marker.row <= 314)
-        .toList();
-    final geometry = source
-        .map((marker) => markerGeometry(marker, 16))
-        .toList();
-    expect(firstMarkers.map((marker) => markerGeometry(marker, 200)), geometry);
-    expect(
-      secondMarkers.map((marker) => markerGeometry(marker, 300)),
-      geometry,
-    );
-    expect(
-      markers.map((marker) => marker.id).toSet(),
-      hasLength(source.length * 3),
-    );
-    expect(
-      firstMarkers.map((marker) => marker.id),
-      contains(first.primaryEventId),
-    );
-    expect(
-      secondMarkers.map((marker) => marker.id),
-      contains(second.primaryEventId),
-    );
+    final geometry = source.map((marker) => markerGeometry(marker, 16));
+    for (final anchor in [200, 300]) {
+      expect(
+        markers
+            .where((m) => m.row >= anchor && m.row <= anchor + 46)
+            .map((m) => markerGeometry(m, anchor)),
+        geometry,
+      );
+    }
+    expect(markers.map((m) => m.id).toSet(), hasLength(source.length * 3));
     expect(editor.hasClipboard, isTrue);
-
-    expect(editor.undo().changed, isTrue);
+    editor.undo();
     expect(editor.encodeRecovery(), afterFirst);
-    expect(editor.undo().changed, isTrue);
+    editor.undo();
     expect(editor.encodeRecovery(), before);
   });
 
@@ -201,28 +189,46 @@ void main() {
     editor.select(OTGY_CHART_COLUMN_NPC, 16);
     editor.copySelection();
     final before = editor.encodeRecovery();
+    final selected = editor.selections.map(selectionFields).toList();
     final refused = editor.paste(20);
     expect(refused.code, 19);
     expect(refused.changed, isFalse);
     expect(refused.primaryEventId, 0);
     expect(editor.encodeRecovery(), before);
-    expect(editor.selection.firstRow, 16);
-    expect(editor.hasClipboard, isTrue);
-
+    expect(editor.selections.map(selectionFields), selected);
     editor.click(OTGY_CHART_COLUMN_NPC, 16);
     expect(editor.paste(200).changed, isTrue);
     expect(
       editor
           .markers()
-          .where((marker) => marker.row >= 200)
-          .map((marker) => markerGeometry(marker, 200)),
-      source.map((marker) => markerGeometry(marker, 16)),
+          .where((m) => m.row >= 200)
+          .map((m) => markerGeometry(m, 200)),
+      source.map((m) => markerGeometry(m, 16)),
     );
   });
 
+  test(
+    'changed cut source rejects placement without losing pending intent',
+    () {
+      final editor = NativeChartEditor.createEmpty();
+      addTearDown(editor.dispose);
+      addDanceMove(editor, 16);
+      editor.select(OTGY_CHART_COLUMN_NPC, 16);
+      editor.cutSelection();
+      editor.click(OTGY_CHART_COLUMN_NPC, 16);
+      final changed = editor.encodeRecovery();
+      expect(editor.pastePreview(200).code, 21);
+      expect(editor.paste(200).code, 21);
+      expect(editor.cutPending, isTrue);
+      expect(editor.encodeRecovery(), changed);
+      editor.clearClipboard();
+      expect(editor.cutPending, isFalse);
+    },
+  );
+
   for (final cut in [false, true]) {
     test(
-      '${cut ? 'cut' : 'edit'} deletes invalidated Showtime with one undo',
+      '${cut ? 'cut placement' : 'edit'} removes invalidated Showtime in one undo',
       () {
         final editor = NativeChartEditor.createEmpty();
         addTearDown(editor.dispose);
@@ -231,45 +237,39 @@ void main() {
         expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 32).changed, isTrue);
         expect(editor.showtimeMoves(), hasLength(2));
         final showStart = editor.markers().singleWhere(
-          (marker) => marker.type == OTGY_CHART_MARKER_SHOWTIME_START,
+          (m) => m.type == OTGY_CHART_MARKER_SHOWTIME_START,
         );
-        final move = editor.showtimeMoves().last;
-        final selected = editor.select(OTGY_CHART_COLUMN_SHOWTIME, move.row);
-        final retainedSelection = selected.selection;
-        expect(retainedSelection.firstRow, 16);
-        expect(retainedSelection.lastRow, 30);
+        editor.select(
+          OTGY_CHART_COLUMN_SHOWTIME,
+          editor.showtimeMoves().last.row,
+        );
+        final retained = editor.selections.map(selectionFields).toList();
         expect(
           editor.select(OTGY_CHART_COLUMN_SHOWTIME, showStart.row).code,
           17,
         );
-        expect(
-          selectionFields(editor.selection),
-          selectionFields(retainedSelection),
-        );
+        expect(editor.selections.map(selectionFields), retained);
         final before = editor.encodeRecovery();
-
-        final result = cut
-            ? editor.cutSelection()
-            : editor.click(OTGY_CHART_COLUMN_NPC, 16);
-        expect(result.code, 0);
-        expect(result.changed, isTrue);
+        if (cut) {
+          expect(editor.cutSelection().code, 0);
+          expect(editor.encodeRecovery(), before);
+          expect(editor.showtimeMoves(), hasLength(2));
+          expect(editor.paste(200).changed, isTrue);
+          expect(editor.cutPending, isFalse);
+          expect(editor.hasClipboard, isTrue);
+        } else {
+          expect(editor.click(OTGY_CHART_COLUMN_NPC, 16).changed, isTrue);
+        }
         expect(editor.showtimeMoves(), isEmpty);
         expect(
-          editor.markers().where(
-            (marker) => marker.column == OTGY_CHART_COLUMN_SHOWTIME,
-          ),
+          editor.markers().where((m) => m.column == OTGY_CHART_COLUMN_SHOWTIME),
           isEmpty,
         );
-        if (cut) {
-          expect(editor.hasClipboard, isTrue);
-          expect(editor.hasSelection, isFalse);
-          expect(editor.markers().every((marker) => marker.row < 16), isTrue);
-        }
         final after = editor.encodeRecovery();
-        expect(editor.undo().changed, isTrue);
+        editor.undo();
         expect(editor.encodeRecovery(), before);
         expect(editor.showtimeMoves(), hasLength(2));
-        expect(editor.redo().changed, isTrue);
+        editor.redo();
         expect(editor.encodeRecovery(), after);
       },
     );
@@ -297,15 +297,15 @@ void main() {
     final before = editor.encodeRecovery();
     expect(editor.click(OTGY_CHART_COLUMN_PLAYER, 6).changed, isTrue);
     final remaining = editor.encodeRecovery();
-    expect(editor.undo().changed, isTrue);
+    editor.undo();
     expect(editor.encodeRecovery(), orderedEquals(before));
-    expect(editor.redo().changed, isTrue);
+    editor.redo();
     expect(editor.encodeRecovery(), orderedEquals(remaining));
     expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 16).changed, isTrue);
     final move = editor.showtimeMoves().single;
     expect(move.row, 17);
     expect(move.showNCount, 1);
-    expect(editor.undo().changed, isTrue);
+    editor.undo();
     expect(editor.encodeRecovery(), orderedEquals(remaining));
   });
 
@@ -328,14 +328,18 @@ void main() {
     final editor = NativeChartEditor.createEmpty();
     editor.dispose();
     for (final operation in <Object? Function()>[
-      () => editor.selection,
+      () => editor.selections,
+      () => editor.selectionCount,
       () => editor.hasSelection,
       () => editor.hasClipboard,
+      () => editor.clipboardCount,
+      () => editor.cutPending,
       () => editor.select(OTGY_CHART_COLUMN_NPC, 0),
       editor.clearSelection,
       editor.copySelection,
       editor.clearClipboard,
       editor.cutSelection,
+      () => editor.pastePreview(100),
       () => editor.paste(100),
     ]) {
       expect(operation, throwsStateError);

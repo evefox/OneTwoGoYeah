@@ -292,13 +292,13 @@ App 启动时直接创建 BPM 为精确 `100`、Offset 为精确 `0` 的 `Untitl
 
 当前只读入口 `project_chart_markers(draft)` 把三个底层事件容器统一投影为按行和稳定事件 ID 排序的 `ChartMarker` 自有数组；列和 `NPC-C/N/S`、`PLY-C/N/S`、`SHOW-C/D` 类型均从权威角色/事件类型派生，不保存第二份列状态。`previous_chart_marker`、`previous_chart_marker_in_column` 和 `next_chart_marker` 只消费该数组，底层容器顺序不影响结果。`project_showtime_moves` 从相同全局顺序派生连续 `SHOW-D` 的首尾状态，并从自身 `showNCount` 生成展示范围；`chart_note_ordinal` 按同角色最近 `S` 边界派生 N 编号。所有结果拥有独立内存，不引用 `ChartDraft` 容器。
 
-`ChartDraft` 对规范谱面时间行施加全局唯一约束：一个时间行在 NPC、玩家和 Showtime 三列合计最多拥有一个事件。该约束必须由 `av_core` 的所有上下文放置和自动生成命令统一维护，不能仅由 Flutter 命中测试或成品校验阻止。点击某列的空白区域但同一时间行已被其他列占用时，核心返回稳定的“位置已占用”结果，不替换已有事件，也不提交部分修改。
+`ChartDraft` 对规范谱面时间行施加全局唯一约束：一个时间行在 NPC、玩家和 Showtime 三列合计最多拥有一个事件。该约束必须由 `av_core` 的所有上下文放置和自动生成命令统一维护，不能仅由 Flutter 命中测试或成品校验阻止。普通编辑的 `ChartEditor::click` 点击某列的空白区域但同一时间行已被其他列占用时，核心返回稳定的“位置已占用”结果，不替换已有事件，也不提交部分修改；选择命令按精确目标行命中，不受点击列限制。
 
 所有自动生成器都是一次性编辑命令，不是响应式约束系统。命令只使用开始执行时的 `ChartDraft` 快照计算结果，并把生成事件、必要数值快照、来源关系和一条历史原子提交。提交之后，来源关系仅服务于来源追踪与校验，不能触发观察器、级联命令或隐式历史；后续编辑不得自动移动、增加、删除、转换或重新生成其他存活事件，也不得因为会造成演示、练习、舞步或 Showtime 不匹配而拒绝。删除源对象时可以清理悬空关系，但必须保留其他存活事件。唯一例外是内容已经失效的 Showtime，以及不再绑定任何角色事件的舞步演练或演练组：引用舞步消失、被引用舞步不再满足完整性判断、已登记的 `SHOW-D` 事件不存在、或其 `showNCount` 与引用舞步当前 `moveNCount` 不一致的 Showtime 已经没有可扩展的内容，它与不再绑定任何角色事件、因而无法被点击的舞步演练一起在触发它的那一次提交里删除，并与该提交共用同一条历史。其他所有允许不匹配的内容——比如候选列表变化、未被 Showtime 引用的舞步缺少 `NPC-S`、记录舞步数与 `SHOW-D` 数不同但引用内容仍有效的 Showtime——必须保留。原生草稿序列化与恢复必须原样往返这些允许不匹配的内容，只有 `FinishedChart` 构造和兼容 SLK 导出要求它们重新一致。
 
 NPC 列上下文点击是 `av_core` 中的领域命令，不是 Flutter 条件分支。空白行命令接收规范时间位置，按功能规格的固定优先级查询前后事件并返回放置 `NPC-C`、`NPC-N`、`NPC-S` 或稳定错误码。无上一个事件时放置 `NPC-C`。`NPC-N` 的自动结束分支只统计点击位置之前、最近 `NPC-S` 之后的 NPC 列事件，跳过 `NPC-C` 和其他列事件；少于 11 个时放置 `NPC-N`，达到或超过 11 个时放置 `NPC-S`。若全局下一个事件是 `NPC-N` 或 `NPC-S`，则优先放置 `NPC-N` 并跳过数量限制。
 
-点击已有 `NPC-C` 的领域命令以该事件为起点，在全局时间顺序中删除随后连续的 `NPC-N/NPC-S`，遇到任何其他事件停止。事件删除、失效关系清理和历史记录必须形成一个原子事务；玩家的事件不得级联删除，失去完整关系的内容继续作为草稿保存，引用舞步因此失效的 Showtime 按上文一次性生成器例外整段删除。点击已有 `NPC-N` 只改变其类型为 `NPC-S`，点击已有 `NPC-S` 只删除该事件。Flutter 只负责命中事件、发送事件稳定 ID 或空白行位置、展示结果与本地化错误文本，不得重复实现判断或扫描算法。
+点击已有 `NPC-C` 的领域命令以该事件为起点，在全局时间顺序中删除随后连续的 `NPC-N/NPC-S`，遇到任何其他事件停止。事件删除、失效关系清理和历史记录必须形成一个原子事务；玩家的事件不得级联删除，失去完整关系的内容继续作为草稿保存，引用舞步因此失效的 Showtime 按上文一次性生成器例外整段删除。点击已有 `NPC-N` 时，如果当前组之后仍有同舞步演练的组，核心先为全部后继组创建一个新的 `DanceMoveDrill`，保持后继组和角色事件标识不变并原子改写其舞步引用，再把当前事件改为 `NPC-S`。点击已有 `NPC-S` 时，如果当前组为当前舞步演练的末组、时间上的下一演练组属于另一舞步演练且两组间没有 Showtime 标记，核心先把后继舞步的全部组及角色事件引用并入当前舞步并删除后继舞步对象，再删除当前事件；存在 Showtime 阶段边界时不得合并。两条命令都重算受影响 `moveNCount`，不移动、生成或转换其他存活事件；关系变换、事件修改、失效 Showtime 清理和历史提交必须原子完成。Flutter 只负责命中事件、发送事件稳定 ID 或空白行位置、展示结果与本地化错误文本，不得重复实现判断或扫描算法。
 
 玩家列上下文点击和自动生成同样属于 `av_core`。只有上一个全局事件为 NPC 列事件时，空白行点击才创建 `PLY-C`；上一个事件为 `PLY-C` 时，点击位置成为首个 `PLY-N` 的目标锚点；其他情况返回稳定的不可放置错误。生成器以当前 `PLY-C` 之前最近的 `NPC-C` 为源块开始，以两者之间的第一个 `NPC-N` 为源锚点，并读取从该锚点开始的全局连续 `NPC-N/NPC-S`。各目标行通过源行相对源锚点的整数 1/16 行差平移得到，事件类型按 `NPC-N -> PLY-N`、`NPC-S -> PLY-S` 映射。找不到源锚点时返回稳定错误，保留 `PLY-C`，不生成部分结果。
 
@@ -318,7 +318,7 @@ NPC 空白点击命令在创建 `NPC-C` 前查询核心维护的 `SHOW-D` 展示
 
 当前可撤销领域入口为拥有单一 `ChartDraft` 的 `ChartEditor`。`click(column, row)` 先消费统一 `ChartMarker` 投影执行全局单行占用检查，再在候选草稿副本中完成 NPC、玩家或 Showtime 的全部事件与关系变化；只有完整结果可提交时才替换权威草稿。每次成功点击、整批生成、整段删除或清空把修改前的完整草稿作为一条历史，撤销/重做因此逐值恢复事件、稳定标识、显式角色和全部关系；失败不创建历史，新修改清空重做分支。历史和会话内标识分配状态不进入项目持久化。
 
-编辑器创建 `NPC-C` 时同时创建或延续显式 `DrillGroup`/`DanceMoveDrill`：前一舞步尚未出现 NPC `S` 且未被 Showtime 使用时，新组延续该舞步；否则开始新舞步。NPC `N/S` 与玩家生成内容直接加入对应关系。NPC 修改只重算当前舞步的 NPC `N` 总数，不移动或重建既有玩家/Showtime；删除只从关系数组移除已删除事件引用，其他角色内容和允许不完整的关系对象继续保留，只有不再被任何角色事件引用的舞步演练连同它的演练组一起删除（见上文一次性生成器例外）。
+编辑器创建 `NPC-C` 时同时创建或延续显式 `DrillGroup`/`DanceMoveDrill`：前一舞步尚未出现 NPC `S` 且未被 Showtime 使用时，新组延续该舞步；否则开始新舞步。NPC `N/S` 与玩家生成内容直接加入对应关系。NPC 修改重算受影响舞步的 NPC `N` 总数；除上述由 S 边界直接定义的舞步演练拆分/合并外，不移动或重建既有玩家/Showtime。拆分/合并只改写存活组和事件的舞步演练引用，稳定事件与演练组标识保持不变。删除只从关系数组移除已删除事件引用，其他角色内容和允许不完整的关系对象继续保留，只有不再被任何角色事件引用的舞步演练连同它的演练组一起删除（见上文一次性生成器例外）。
 
 Showtime 补全只选择上一 Showtime `SHOW-D` 边界之后、当前 `SHOW-C` 之前按关系顺序完整且 NPC/玩家块匹配的 `DanceMoveDrill`。已有 `SHOW-D` 必须对应候选前缀，生成器从余下候选复制当前 `moveNCount` 为独立 `showNCount`，预先计算全部锚点和展示范围并一次提交。新建 `SHOW-C` 后没有候选或范围冲突时只提交 `SHOW-C` 的单条历史；手动补全的相同失败不修改草稿。已有 `SHOW-D` 与候选列表的对应关系在补全前显式校验：记录的舞步数量与 `SHOW-D` 数量不相等，或记录的舞步不是候选列表的等长前缀时，返回稳定的内容不一致错误而不是笼统的草稿错误；这类 Showtime 仍然保留在草稿中，可以删除后重新放置 `SHOW-C`；恢复候选前缀与数量一致性后也可继续补全。
 
@@ -363,7 +363,7 @@ App 私有存储中最多存在一个恢复快照。每次已提交的谱面修�
 
 `LocalDiagnostics` 的生产上限是 `4` 个轮换文件，每文件 `262144` 字节，等待写入队列 `128` 条，单条 JSONL UTF-8 记录含换行最多 `16384` 字节。写入顺序按会话和序号保持，先检查字节上限再轮换，不拆出半条 JSON 记录。超长记录通过缩减字段并标记 `truncated`/`originalBytes` 保持合法 JSON；无法容纳或队列满时增加 `droppedRecords`。写入与导出读取串行化；读取损坏行时跳过并增加 `corruptLines`，存储错误以 `storageFailed` 和脱敏 `failure` 保留。日志队列、轮换与错误统计不得依赖 `LocalProjectStore`。
 
-`main` 捕获 Flutter 框架错误和平台异步错误时先记录脱敏异常，再链接原处理器；已有处理器的返回语义与默认错误报告必须保留，诊断自身失败不得导致递归报告。应用控制器通过白名单记录命令 `code`、`changed`、明确允许的参数和记录时的单份 `state`；正常编辑在更新投影和修订号后记录操作后状态，阻止或异常路径记录当时状态，保存与恢复路径也记录结果。状态包含谱面计数、修订号、dirty、来源类型、BPM/Offset 数值、当前行、undo/redo、选择模式与范围、是否有音频和剪贴板，但不得转储任意控制器对象、来源名称、草稿 ID、文件名、完整路径/URI、音频或任何剪贴板负载。新异常记录只保留类型、原生 domain/code/status、OS 数值代码、白名单平台代码与脱敏堆栈，不读取异常 message、details 或调用 error.toString()；非白名单平台代码写为 `[redacted code]`。历史 `exception` 仅允许 `operation`、`type`、`domain`、`code`、`status`、`osCode`、脱敏 `stack` 与严格白名单 `state`；`state` 只保留整数 `revision/markerCount/showtimeMoveCount`、有限数值 `bpm/offset/currentRow`、布尔 `dirty/hasAudio/canUndo/canRedo/selectionMode/hasClipboard`、已知枚举名 `sourceKind`，以及选择的布尔 `active` 和整数 `danceMoveDrillId/firstRow/lastRow`。未知键和类型不匹配字段丢弃，不允许任意嵌套文本。安全代码仍须遵守相应类型和平台代码白名单，未知异常原文丢弃。通用脱敏递归清理敏感键 `message`、`details`、`error`、`exception`，未知对象与非字符串 key 不调用 `toString()`。
+`main` 捕获 Flutter 框架错误和平台异步错误时先记录脱敏异常，再链接原处理器；已有处理器的返回语义与默认错误报告必须保留，诊断自身失败不得导致递归报告。应用控制器通过白名单记录命令 `code`、`changed`、明确允许的参数和记录时的单份 `state`；正常编辑在更新投影和修订号后记录操作后状态，阻止或异常路径记录当时状态，保存与恢复路径也记录结果。状态包含谱面计数、修订号、dirty、来源类型、BPM/Offset 数值、当前行、undo/redo、交互模式、选择与快照数量、待剪切意图、是否有音频和剪贴板，但不得转储任意控制器对象、选择成员、对象标识、来源名称、草稿 ID、文件名、完整路径/URI、音频或任何剪贴板负载。粘贴命令与预览事件只记录数值锚点和稳定结果码，不记录幽灵标记或批量快照。新异常记录只保留类型、原生 domain/code/status、OS 数值代码、白名单平台代码与脱敏堆栈，不读取异常 message、details 或调用 error.toString()；非白名单平台代码写为 `[redacted code]`。历史 `exception` 仅允许 `operation`、`type`、`domain`、`code`、`status`、`osCode`、脱敏 `stack` 与严格白名单 `state`；`state` 只保留整数 `revision/markerCount/showtimeMoveCount/selectionCount/clipboardCount/pastePreviewAnchorRow/pastePreviewCode`、有限数值 `bpm/offset/currentRow`、布尔 `dirty/hasAudio/canUndo/canRedo/hasSelection/hasClipboard/cutPending`、已知枚举名 `sourceKind` 和 `interactionMode`（`normal/selection/pastePending`）。未知键和类型不匹配字段丢弃，不允许任意嵌套文本。安全代码仍须遵守相应类型和平台代码白名单，未知异常原文丢弃。通用脱敏递归清理敏感键 `message`、`details`、`error`、`exception`，未知对象与非字符串 key 不调用 `toString()`。
 
 主动导出的版本 1 单 JSON 包使用以下字段契约：
 
@@ -965,12 +965,25 @@ UI 格式与存储相互独立：
 - 错误结果使用稳定错误码，并可附带诊断文本。
 - ABI 测试把结果与直接 C++ 调用比较。
 
-当前 ABI 版本为 `1`，公共纯 C 头为
+当前 ABI 版本为 `2`，公共纯 C 头为
 `native/av_c_api/include/otgy/av_c_api.h`，动态库目标为 `otgy_c_api`，共享库主版本
-固定为 `1`。状态码只描述 ABI 调用边界；核心拒绝通过拥有型 `otgy_error` 返回稳定的
+固定为 `2`。状态码只描述 ABI 调用边界；核心拒绝通过拥有型 `otgy_error` 返回稳定的
 领域、领域内错误码和静态诊断文本。任何 C++ 异常都在最外层捕获并转换，不能越过
 `extern "C"`。所有长度在 ABI 中使用 `uint64_t`，转换到本机 `size_t` 前检查范围；
 布尔值使用只接受 `0/1` 的 `uint8_t`，枚举使用固定宽度整数和公开常量。
+
+应用操作门控的唯一领域实现必须位于 `native/av_core/src/coordination/operation_gate.cpp`
+的纯函数 `coordinate_application_operation`，声明位于
+`native/av_core/include/av_core/coordination/operation_gate.hpp`；C ABI、Dart FFI 和 Flutter
+只转换模式、操作类和结果，不得复制白名单。模式、操作类和结果都使用同宽度枚举追加
+常量，必须保留原有输入输出逐值不变。C ABI 公开追加
+`OTGY_APPLICATION_MODE_CHART_INTERACTION = 3`、
+`OTGY_APPLICATION_OPERATION_SELECTION_COMMAND = 4`、
+`OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW = 5`、
+`OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION = 6` 和
+`OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE = 5`。
+函数签名、结构布局和所有权均不改变，因此 `OTGY_C_API_VERSION` 必须保持 `2`，
+动态库 `VERSION 2.0.0` 与 `SOVERSION 2` 均不改变。
 
 `otgy_pcm`、波形、分析数组、字节、音频导出快照/输出、谱面、编辑器、校验结果、
 成品谱面和 SLK 文档均为不透明拥有句柄。每类句柄只有一个匹配销毁函数，销毁函数
@@ -1014,7 +1027,7 @@ Flutter 从共享核心返回的 `channelWidth` 和 `channelSpacing` 计算统�
 
 右侧悬浮导航与播放控件是三列上方的独立 UI 覆盖层，不参与谱面列投影，也不产生领域对象。该覆盖层和撤销/重做控件必须作为画布 `Listener/GestureDetector` 的兄弟命中层置于其上方，使按钮悬浮状态不受画布手势竞争影响。波形按钮在暂停时打开与音效菜单同类的非模态锚定选择框；框外点击关闭，面板提供波形显示开关、高通/低通/关闭、滤波强度和叠加原始波形选项。Flutter 波形投影固定传入 ArrowVortex Vortex 预设的整流形状、均匀亮度与 2x 抗锯齿，不保存对应会话字段，也不提供这三项切换控件；其余默认值为滤波关闭、滤波强度 75%、叠加原始开启。原始波形使用青绿色，滤波波形使用不占用标记语义色或播放光标黄色的低彩度冷灰青。均匀亮度下，单独原始层使用 52% 不透明度；双层叠加时原始层使用 24%、滤波层使用 36%；仅显示滤波层时仍使用 36%。标记、网格、播放光标和标题在 painter 顺序中位于全部波形层之后。可调波形设置是会话视图状态，不进入 `ChartDraft`、正式草稿、SLK、撤销历史或音频导出；滤波只影响额外的显示缓存。播放开始时两个设置面板都关闭；播放中波形按钮退化为仅切换可见性，其他选项全部禁用。波形滤波不改变 BPM/Offset、播放音频源或时序网格。语言、舞步模式和切换音效开关是会话播放配置，不进入 `ChartDraft`、正式草稿、SLK、撤销历史或音频导出。Flutter 必须先命中控件自身及选择框的交互区域；未命中时，输入才继续交给下方谱面对象或空白时间线手势。控件操作不得修改列归属或谱面内容。
 
-谱面直接点击使用由三列边界和最近 1/16 行共同确定的网格单元，而不依赖标记最终视觉轮廓。Flutter 把触点转换为规范列和连续 `rawRow`，以 `floor(rawRow + 0.5)` 得到非负目标行；中点并列时稳定选择时间更晚的行。当前列目标行已有事件时发送该稳定事件 ID，三列全空时发送列与目标行，其他列已占用时发送后由核心返回稳定的位置占用结果。Flutter 不得把对其他列空白区域的点击重定向成对已有事件的删除命令。
+谱面直接点击使用由三列边界和最近 1/16 行共同确定的网格单元，而不依赖标记最终视觉轮廓。Flutter 把触点转换为规范列和连续 `rawRow`，以 `floor(rawRow + 0.5)` 得到非负目标行；中点并列时稳定选择时间更晚的行。以下按列处理仅适用于普通编辑模式：当前列目标行已有事件时发送该稳定事件 ID，三列全空时发送列与目标行，其他列已占用时发送后由核心返回稳定的位置占用结果。Flutter 不得把普通编辑中对其他列空白区域的点击重定向成对已有事件的删除命令。选择模式和长按入口仍透传实际列与同一目标行，由核心按行解析可选舞步，不在 UI 中改写列、重定向标记或扩展高亮跨度命中。
 
 移动端和桌面端在所有受支持的 `rowSpacing` 下都允许发送谱面内容编辑命令。`rowSpacing` 只影响网格密度、标记重叠和编辑舒适度，不是输入门控条件；用户可以自行调整 Zoom。Flutter 不得因为显示密度低而阻止或改写 `ChartDraft` 命令。标记的具体色值、尺寸、辅助样式、`SHOW-D` 附加数值信息和范围带设计参数属于 Flutter 展示投影，不得反向影响核心事件类型、点击单元或展示范围计算。
 
@@ -1030,9 +1043,15 @@ N 派生顺序号和每个 `SHOW-D` 的 `showNCount` 使用相同数字排版规
 
 ArrowVortex 的编辑画布只作为时间线、波形、固定光标、Zoom、Scale、播放跟随和导航交互的参考。核心不得引入 StepMania 轨道或 Step、Mine、Hold、Roll、Fake、Lift 作为本 App 的权威编辑模型。权威对象始终来自 `ChartDraft`，并保留显式角色、稳定对象标识和舞步、演练组、演练序列、Showtime 等谱面语义。
 
-首版谱面位置命令以 1/16 音符为基础单位。谱面内容通过已经确认的三列上下文点击命令创建、转换或删除。在此之上，核心、C ABI 和 Flutter 提供以一个舞步为单位的单选，以及复制、剪切和粘贴：`ChartEditor::select` 从被点击标记解析出所属 `ChartDanceMoveDrill`，并用该舞步全部角色事件的 `[最小行, 最大行]` 作为跨度；`copy_selection` 和 `cut_selection` 把该舞步归一化成只含一个舞步、行号已转换为相对偏移的片段，`paste` 保持每条事件的列与角色并只平移行。选择和剪贴板都是编辑器会话状态，与 `undo_`/`redo_` 同级，不进入 `ChartDraft`、不产生谱面历史、不写入项目文件，也不使用系统剪贴板或任何平台剪贴板 API；`av_core` 不得依赖任何剪贴板设施。派生只按 `dance_move_drill_id` 绑定事件，因此不完整的草稿同样可以选中，不使用要求成品级完整性的舞步完整性判断。剪切只删除被剪舞步自己的事件、演练组和舞步对象，不因为某个 Showtime 仍引用该舞步而拒绝。剪切删掉的那个舞步会让引用它的 Showtime 内容失效，其他编辑造成同样后果时也一样：这类失效的 Showtime 在触发它的那一次提交里整段删除，并因此与触发编辑共用同一条历史，一次撤销同时恢复两者。不再绑定任何角色事件的舞步演练连同它的演练组一起删除。提交转换先按角色事件的 `drill_group_id` 清理零绑定事件的演练组，并移除舞步组列表中的相应引用，再执行 Showtime 失效判断与零事件舞步清理；有任意绑定事件的组继续保留，不以关系向量为空代替成员判断。序列化、加载、只读查询和失败命令不执行清理，撤销/重做仍精确恢复快照。内容仍然有效、只是已经无法继续补全的 Showtime 保留在草稿中，只有继续补全时被拒绝并报告内容不一致；成品级引用完整性仍然只在校验和导出边界报告。核心、C ABI 和 Flutter 仍不提供框选、多选、标记移动和通用删除命令，也不预留含义未定的占位 API。撤销和重做作用于上下文编辑命令，所有 `ChartDraft` 修改进入谱面历史，BPM 和 Offset 修改继续排除在该历史之外。
+首版谱面位置命令以 1/16 音符为基础单位。谱面内容通过已经确认的三列上下文点击命令创建、转换或删除。在此之上，`ChartEditor` 拥有按 `(first_row, drill_id)` 稳定排序的舞步选择集合、批量快照和复制/待剪切意图。`ChartEditor::select(column, row)` 只按精确目标行查找标记，不要求 `current->column == column`：六类 NPC/玩家标记和 `SHOW-D` 在三列任一列输入时均解析到所属或引用的 `ChartDanceMoveDrill`，并切换同一完整舞步。`SHOW-C` 在三列均不可选；三列全空行、选择高亮跨度或 `SHOW-D` 展示范围内无标记行、悬空引用及零绑定事件舞步不改变已有选择。选择高亮和展示范围不产生额外命中区域。该行为只在 `av_core` 的 `ChartEditor::select` 中实现，列参数须为 NPC、玩家或 Showtime 三种合法值；普通编辑 `click(column, row)` 继续按列处理，保留其错列占用规则。每项选择跨度都由该舞步全部角色事件派生；`copy_selection` 和 `cut_selection` 把全部选中舞步、组和角色事件归一化到整批最小源行，二者都只准备会话快照且不修改草稿。派生只按 `dance_move_drill_id` 绑定事件，不使用成品完整性判断，因此不完整草稿仍可选择。
 
-Flutter 的 `EditorController` 只持有选择模式开关，选择、跨度和剪贴板可用性直接查询 `NativeChartEditor`。模式内点击、长按和标记无障碍激活统一发送核心选择命令；模式外保留上下文编辑路由。画布高亮直接投影核心 `first_row/last_row`，不推导舞步成员。复制和选择仅通知视图，只有剪切、粘贴的成功草稿变化才刷新投影并提交项目修改。退出模式调用核心清空选择及剪贴板，替换编辑器实例时关闭模式。全部新输入复用既有 `General` 操作门控，不能扩展播放白名单。桌面 `Ctrl/Command+C/X/V` 与移动端按钮调用相同处理器，`Escape` 退出模式；快捷键由工具栏和画布的共同焦点祖先处理，文本输入、菜单和对话框优先消费自身键盘事件，键盘处理节点不增加无障碍语义。移动端长按幂等进入模式，不改变 Scale。
+`paste(anchor_row)` 是唯一批量落点事务。核心先在局部状态完成行溢出、闭区间占用、每个 `NPC-C` 的 Showtime 范围、完整 ID 映射和目标关系构造；复制粘贴直接以当前草稿为候选，首次剪切粘贴则先逐值验证准备时保存的源舞步、组和事件，在同一候选中删除全部源对象与存活关系，再经过现有 `MutableDraft::finish()` 清理失效 Showtime、空组和空舞步后检查目标。目标因此可以与本次删除的源区域重叠，但不能与任何存活内容重叠。全部成功后只调用一次 `commit()`，失败时草稿、历史、快照、意图和 ID 游标逐值不变。首次剪切提交成功即把意图永久转成普通复制；撤销只恢复草稿快照，不恢复待剪切意图，避免再次删除恢复出的源。后续每次落点都分配全新 ID 并形成独立历史。
+
+核心另提供无副作用的粘贴预检，返回稳定结果码、整体目标区间、每个舞步跨度和按列/行/类型投影的幽灵标记；它与提交共用领域规划，不消耗 ID。选择、快照、意图和预览都是编辑器会话状态，与 `undo_`/`redo_` 同级但不进入 `ChartDraft`、项目文件或平台剪贴板。普通编辑、撤销和重做逐项重验证选择；待剪切源变化由首次落点的逐值验证拒绝。失效 Showtime 和零事件舞步/组仍按现有提交清理顺序处理，序列化、加载、只读查询和失败命令不执行清理。核心、C ABI 和 Flutter仍不提供框选、单个标记移动和通用删除命令。
+
+C ABI 为选择集合和粘贴预览提供拥有式投影句柄及 `destroy/get_data/get_count`，指针只在句柄销毁前有效；Dart wrapper 立即复制为不可变值列表并在 `finally` 销毁句柄。选择调用的实际列、精确目标行及结果经 C ABI、FFI 和 UI 原样透传，不在适配层复制按行解析或列过滤；按行选择本身不改变公开签名、结构或枚举。应用操作门控仅按上述契约追加同宽度枚举常量，不改变 ABI 版本。会话命令结果只保留标量结果码和 `changed`，C 层不得重建多选、冲突、删除或 ID 算法。当前契约固定使用 `OTGY_C_API_VERSION = 2`、动态库 `VERSION 2.0.0` 与 `SOVERSION 2`，绑定由 ffigen 生成。
+
+Flutter 的 `EditorController` 只持有普通、选择、待粘贴三态交互枚举，选择集合、快照数量、意图和预检直接查询 `NativeChartEditor`。画布普通点击发送按列上下文编辑，选择态点击透传实际列与精确目标行发送核心 toggle。桌面和移动端的长按入口同样透传列与行并调用同一 `select`：可选标记所在行的任一列长按都切换完整舞步，`SHOW-C` 在三列均不可选；三列全空行或高亮跨度内无标记行的长按只进入模式且不改变已有选择，不在 Flutter 扩大范围命中。Windows/macOS 待粘贴态把指针悬停行投影为最近非负 1/16 行并请求核心预检，点击有效目标行才发送核心 `paste`；离开画布或失去有效行时清除悬停预览。iOS/Android 待粘贴态始终把固定判定线投影为最近非负 1/16 行并请求核心预检，时间线滚动、Zoom 或导航变化后刷新，显式“粘贴到当前判定线”按钮才发送核心 `paste`；平台入口按操作系统选择，iOS/Android 外接鼠标不切换为桌面语义；移动端画布轻触、marker 激活、语义激活和 Enter 不映射为粘贴提交，只有显式按钮调用该事务。移动端按钮在非播放且非忙碌时即使预览冲突也保持启用，点击仍把当前锚点发送核心并显示其稳定错误，不在 Flutter 拦截，核心提交结果是唯一权威。两类平台点击列或判定线覆盖的列都不改变片段列归属。桌面和移动端都用长按进入选择，不显示常驻选择按钮；待粘贴控件按平台显示对应提示、按钮或退出。画布分别绘制核心选择跨度和预检的整体区间、舞步跨度与幽灵标记，不扫描关系或复制冲突算法。会话切换、选择、复制/剪切准备、预检更新与清除和粘贴提交必须使用 `SelectionCommand` 门控，导航与视图使用 `NavigationOrView`，撤销/重做使用 `HistoryNavigation`；普通内容编辑和其他未列入白名单的入口继续使用 `General`。成功粘贴后保持待粘贴状态且不自动移动 `currentRow`，文本输入、菜单和对话框优先处理自身按键，诊断只记录模式、数量、意图和结果等安全标量，不记录选择 ID 或快照内容。
 
 Zoom 只改变纵向时间密度，Scale 只改变波形和谱面对象区域的横向显示比例，两者都不得修改 PCM、BPM、Offset 或谱面位置。Flutter 初始使用自动编辑 Zoom：枚举核心支持的 `1..19`、`0.25` Zoom 级别，消费核心返回的 `pixelsPerSecond`，选择使当前非零 BPM 下 1/16 行距最接近 `46` 逻辑像素的级别；并列时选择较小 Zoom。初始空工作区和成功替换音频启用自动状态，自动状态下 BPM 变化重新选择；BPM 为零保留当前值。用户显式调整 Zoom 后转为当前音频的手动状态，后续 BPM 变化保留用户值，成功替换另一音频才恢复自动状态。Flutter 不得复制核心 Zoom 到 `pixelsPerSecond` 的指数公式。
 
@@ -1054,11 +1073,44 @@ Flutter 底部状态栏把 `EditorController.currentRow` 通过共享核心 `six
 
 应用操作协调层把 `Playing` 作为显式的全局交互门控状态。该状态下只接受暂停播放与切换波形可见性；音效设置、音频、谱面、BPM/Offset、导入导出、草稿持久化、撤销/重做、导航、时间线、Zoom 和 Scale 的其他请求统一返回 `PlaybackActive`，且不调用后续领域命令。Flutter 的按钮、手势、键盘、鼠标和无障碍入口都必须查询同一门控状态并展示禁用样式，不能各自维护不一致的白名单。切换波形可见性是纯视图操作，不进入核心项目数据；暂停仍由共享播放状态执行并保留精确位置。
 
-当前纯查询入口 `coordinate_application_operation` 接收互斥的 `Idle`、`Playing`
-或 `ExportingAudio` 模式，以及默认保守的 `General` 操作分类。`Playing` 只放行
-`PausePlayback` 和 `ToggleWaveformVisibility`，其余返回 `PlaybackActive`；
-`ExportingAudio` 只放行 `CancelAudioExport`，其余返回 `AudioExportActive`。
-该入口不执行命令也不修改项目、播放、导出或视图状态。
+当前纯查询入口 `coordinate_application_operation` 接收互斥的 `Idle = 0`、`Playing = 1`、
+`ExportingAudio = 2` 或 `ChartInteraction = 3` 模式；`ChartInteraction` 统一表示选择与
+待粘贴会话。操作类为默认保守的 `General = 0`、`PausePlayback = 1`、
+`ToggleWaveformVisibility = 2`、`CancelAudioExport = 3`、`SelectionCommand = 4`、
+`NavigationOrView = 5` 和 `HistoryNavigation = 6`。门控真值表固定如下：
+
+- `Idle` 允许全部合法操作类。
+- `Playing` 只允许 `PausePlayback` 与 `ToggleWaveformVisibility`，其余返回 `PlaybackActive`。
+- `ExportingAudio` 只允许 `CancelAudioExport`，其余返回 `AudioExportActive`。
+- `ChartInteraction` 允许 `SelectionCommand`、`NavigationOrView`、`HistoryNavigation`、
+  `ToggleWaveformVisibility` 与 `PausePlayback`；`General` 和 `CancelAudioExport`
+  必须返回 `ChartInteractionActive = 5`，稳定消息为 `chart interaction is active`。
+
+必须先校验操作类：未知操作类在任何模式（包括未知模式）下都返回 `InvalidOperation`；
+操作类合法后才校验模式，未知模式返回 `InvalidMode`。该入口不执行命令，也不得修改
+项目、播放、导出、视图或编辑器会话状态。
+
+Flutter `EditorController` 的私有模式阶梯必须按播放 > 导出音频 > 选择/待粘贴会话 > 空闲
+的优先级投影到上述模式。`generalActionsEnabled` 查询 `General` 并作为非白名单入口的
+统一禁用条件，会话中必须为假；`selectionCommandEnabled`、`navigationEnabled` 和
+`historyNavigationEnabled` 分别查询对应操作类。标记输入能力必须使用
+`markerInteractionEnabled = generalActionsEnabled || selectionCommandEnabled`，再由当前
+交互模式路由普通编辑、选择或平台允许的粘贴操作，不能把选择态标记激活变成普通编辑。
+各命令继续叠加既有 `isBusy` 和自身前置条件；Flutter 不得自行重写核心真值表。
+
+进入选择或待粘贴会话要求非播放且非忙碌，开始普通播放、节奏测试和音频导出要求一般
+操作门控允许，因此会话与播放、音频导出互斥。`PausePlayback` 在会话态只作为防御性
+逃生口保留，右侧播放/暂停入口仍禁用，不得据此在会话内启动播放。播放按钮与节奏测试
+按钮的会话禁用 tooltip，以及空格或直调尝试播放时的提示，统一为
+`请先退出选择或粘贴模式`。按钮、手势、键盘、无障碍、已打开菜单或浮窗与控制器直调
+必须共同消费相同门控，被拒绝的请求不得调用后续命令或改变状态。
+
+`NavigationOrView` 包含时间线移动、Zoom、Scale、翻页与首尾导航、歌曲时间跳转和波形
+设置面板，因此会话中可用、播放中禁用。波形显示/隐藏必须单独分类为
+`ToggleWaveformVisibility`，因为播放期仍允许该纯视图开关，但不得打开设置面板或修改
+滤波等其他选项。音效设置、音频与谱面操作栏、恢复、诊断导出及开始播放均属于
+`General`，会话中必须禁用；撤销/重做只使用 `HistoryNavigation`，不得随一般编辑入口
+一起禁用。
 
 macOS 触控板手势只在 Flutter 输入适配层解释。系统滚动事件和 `PointerPanZoom` 事件中以纵向为主的增量转换为现有时间线像素移动，以水平方向为主的增量不映射到时间线、Scale 或其他功能；系统已提供的动量事件可继续消费，Flutter 不另建惯性模型。捏合手势把起始 Zoom 与系统累积缩放量投影为临时纵向显示比例，仅用于 Flutter 连续预览；固定当前时间光标不动，手势结束后才通过现有 Zoom 视图命令提交最近的 `0.25` 级别并重建波形。临时预览不进入核心、项目数据或撤销历史，不改变 Scale。旋转、横向滑动和 macOS 保留的多指系统手势不建立 App 命令。
 

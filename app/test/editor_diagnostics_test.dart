@@ -18,6 +18,16 @@ NativeChartEditor _seededEditor() {
   return editor;
 }
 
+List<List<Object>> _selectionState(Iterable<ChartSelection> selections) => [
+  for (final selection in selections)
+    [
+      selection.active,
+      selection.danceMoveDrillId,
+      selection.firstRow,
+      selection.lastRow,
+    ],
+];
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -48,7 +58,7 @@ void main() {
     void check(String event, EditResult result, int revision) {
       expect(last(event)['code'], result.code);
       expect(last(event)['changed'], result.changed);
-      expect(last(event)['primaryEventId'], result.primaryEventId);
+      expect(last(event).containsKey('primaryEventId'), isFalse);
       expect(state(event)['revision'], revision);
       expect(
         controller.encodeRecoverySnapshot(),
@@ -73,7 +83,7 @@ void main() {
     expect(last('clear')['changed'], isFalse);
   });
 
-  test('select and copy retain revision while cut and paste commit once', () {
+  test('selection and clipboard diagnostics follow deferred cut sessions', () {
     final expected = _seededEditor();
     addTearDown(expected.dispose);
     controller.enterSelectionMode();
@@ -81,40 +91,108 @@ void main() {
     final selected = expected.select(OTGY_CHART_COLUMN_NPC, 0);
     expect(last('select')['code'], selected.code);
     expect(last('select')['changed'], selected.changed);
-    expect(state('select')['revision'], 0);
-    expect(state('select')['selection'], {
-      'active': true,
-      'danceMoveDrillId': selected.selection.danceMoveDrillId,
-      'firstRow': 0,
-      'lastRow': 14,
+    expect(state('select'), {
+      ...controller.diagnosticState,
+      'interactionMode': 'selection',
+      'selectionCount': 1,
+      'hasSelection': true,
+      'hasClipboard': false,
+      'clipboardCount': 0,
+      'cutPending': false,
     });
-    controller.copySelection();
-    final copied = expected.copySelection();
-    expect(last('copy')['code'], copied.code);
-    expect(last('copy')['changed'], copied.changed);
-    expect(state('copy')['hasClipboard'], isTrue);
-    expect(state('copy')['revision'], 0);
-    controller.moveToRow(32);
-    controller.pasteAtCursor();
-    final pasted = expected.paste(32);
-    expect(last('paste')['anchorRow'], 32);
-    expect(last('paste')['code'], pasted.code);
-    expect(last('paste')['primaryEventId'], pasted.primaryEventId);
-    expect(state('paste')['revision'], 1);
+    expect(state('select').containsKey('selection'), isFalse);
+    expect(state('select').containsKey('danceMoveDrillId'), isFalse);
+
     controller.cutSelection();
     final cut = expected.cutSelection();
     expect(last('cut')['code'], cut.code);
     expect(last('cut')['changed'], cut.changed);
-    expect(state('cut')['revision'], 2);
+    expect(state('cut')['revision'], 0);
+    expect(state('cut')['interactionMode'], 'pastePending');
+    expect(state('cut')['selectionCount'], 1);
+    expect(state('cut')['hasSelection'], isTrue);
+    expect(state('cut')['hasClipboard'], isTrue);
+    expect(state('cut')['clipboardCount'], 1);
+    expect(state('cut')['cutPending'], isTrue);
+    expect(state('cut')['canUndo'], isFalse);
+    expect(state('cut')['canRedo'], isFalse);
     expect(
       controller.encodeRecoverySnapshot(),
       orderedEquals(expected.encodeRecovery()),
     );
+
+    controller.pasteAtRow(32);
+    final pasted = expected.paste(32);
+    expect(last('paste')['anchorRow'], 32);
+    expect(last('paste')['code'], pasted.code);
+    expect(last('paste').containsKey('primaryEventId'), isFalse);
+    expect(state('paste')['revision'], 1);
+    expect(state('paste')['interactionMode'], 'pastePending');
+    expect(state('paste')['selectionCount'], expected.selections.length);
+    expect(state('paste')['hasSelection'], expected.selections.isNotEmpty);
+    expect(
+      _selectionState(controller.selections),
+      equals(_selectionState(expected.selections)),
+    );
+    expect(state('paste')['hasClipboard'], isTrue);
+    expect(state('paste')['clipboardCount'], 1);
+    expect(state('paste')['cutPending'], isFalse);
+    expect(
+      controller.encodeRecoverySnapshot(),
+      orderedEquals(expected.encodeRecovery()),
+    );
+
     controller.exitSelectionMode();
-    expect(state('selectionMode.exit')['selectionMode'], isFalse);
+    expect(state('selectionMode.exit')['interactionMode'], 'normal');
+    expect(state('selectionMode.exit')['selectionCount'], 0);
+    expect(state('selectionMode.exit')['hasSelection'], isFalse);
     expect(state('selectionMode.exit')['hasClipboard'], isFalse);
+    expect(state('selectionMode.exit')['clipboardCount'], 0);
+    expect(state('selectionMode.exit')['cutPending'], isFalse);
     expect(last('selection.clear')['code'], 0);
     expect(last('clipboard.clear')['code'], 0);
+  });
+
+  test('paste preview diagnostics retain only normalized safe scalars', () {
+    controller.enterSelectionMode();
+    controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
+    controller.copySelection();
+    final formal = controller.encodeFormalDraft();
+    final recovery = controller.encodeRecoverySnapshot();
+    final revision = controller.projectRevision;
+
+    controller.updatePastePreview(-12);
+
+    final preview = controller.pastePreview!;
+    expect(controller.pastePreviewAnchorRow, 0);
+    expect(last('paste.preview')['anchorRow'], 0);
+    expect(last('paste.preview')['code'], preview.code);
+    expect(state('paste.preview')['pastePreviewAnchorRow'], 0);
+    expect(state('paste.preview')['pastePreviewCode'], preview.code);
+    expect(controller.projectRevision, revision);
+    expect(controller.encodeFormalDraft(), orderedEquals(formal));
+    expect(controller.encodeRecoverySnapshot(), orderedEquals(recovery));
+    final encoded = jsonEncode(last('paste.preview'));
+    for (final forbidden in [
+      'markers',
+      'rowDelta',
+      'objectId',
+      'danceMoveDrillId',
+      'clipboardPayload',
+      'selections',
+      '"selection":',
+    ]) {
+      expect(encoded, isNot(contains(forbidden)), reason: forbidden);
+    }
+
+    controller.clearPastePreview();
+    expect(controller.pastePreview, isNull);
+    expect(controller.pastePreviewAnchorRow, isNull);
+    expect(controller.diagnosticState['pastePreviewAnchorRow'], isNull);
+    expect(controller.diagnosticState['pastePreviewCode'], isNull);
+    expect(controller.projectRevision, revision);
+    expect(controller.encodeFormalDraft(), orderedEquals(formal));
+    expect(controller.encodeRecoverySnapshot(), orderedEquals(recovery));
   });
 
   test('rejected paste is atomic including history and session state', () {
@@ -123,15 +201,17 @@ void main() {
     controller.copySelection();
     final formal = controller.encodeFormalDraft();
     final recovery = controller.encodeRecoverySnapshot();
+    controller.updatePastePreview(0);
     final before = controller.diagnosticState;
-    controller.pasteAtCursor();
+    controller.pasteAtRow(0);
+    expect(last('paste')['anchorRow'], 0);
     expect(last('paste')['code'], 19);
     expect(last('paste')['changed'], isFalse);
     expect(state('paste'), before);
     expect(controller.encodeFormalDraft(), orderedEquals(formal));
     expect(controller.encodeRecoverySnapshot(), orderedEquals(recovery));
-    controller.moveToRow(32);
-    controller.pasteAtCursor();
+    controller.pasteAtRow(32);
+    expect(last('paste')['anchorRow'], 32);
     expect(last('paste')['changed'], isTrue);
     expect(controller.projectRevision, 1);
   });
@@ -141,7 +221,7 @@ void main() {
     controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
     controller.copySelection();
     controller.cutSelection();
-    controller.pasteAtCursor();
+    controller.pasteAtRow(24);
     for (final event in ['select', 'copy', 'cut', 'paste']) {
       expect(last(event)['blocked'], isTrue);
       expect(last(event).containsKey('code'), isFalse);
@@ -174,21 +254,30 @@ void main() {
         'showtimeMoveCount',
         'canUndo',
         'canRedo',
-        'selectionMode',
-        'selection',
+        'interactionMode',
+        'selectionCount',
+        'hasSelection',
         'hasClipboard',
+        'clipboardCount',
+        'cutPending',
+        'pastePreviewAnchorRow',
+        'pastePreviewCode',
       ]),
     );
     expect(() => snapshot['revision'] = 99, throwsUnsupportedError);
-    expect(
-      () => (snapshot['selection']! as Map)['firstRow'] = 99,
-      throwsUnsupportedError,
-    );
     expect(() => record['code'] = 99, throwsUnsupportedError);
+    expect(snapshot['interactionMode'], 'selection');
+    expect(snapshot['selectionCount'], 1);
+    expect(snapshot['hasSelection'], isTrue);
+    expect(snapshot['hasClipboard'], isFalse);
+    expect(snapshot['clipboardCount'], 0);
+    expect(snapshot['cutPending'], isFalse);
     controller.exitSelectionMode();
     controller.clearChart();
     expect(snapshot['markerCount'], greaterThan(0));
-    expect((snapshot['selection']! as Map)['active'], isTrue);
+    expect(snapshot['interactionMode'], 'selection');
+    expect(snapshot['selectionCount'], 1);
+    expect(snapshot['hasSelection'], isTrue);
     expect(jsonEncode(record), originalRecord);
   });
 
@@ -224,8 +313,8 @@ void main() {
       editor.selectAt(OTGY_CHART_COLUMN_NPC, 0);
       editor.copySelection();
       editor.moveToRow(32);
-      editor.pasteAtCursor();
-      editor.pasteAtCursor();
+      editor.pasteAtRow(32);
+      editor.pasteAtRow(64);
       editor.cutSelection();
       editor.undo();
       editor.redo();
@@ -248,12 +337,25 @@ void main() {
     expect(throwing.diagnosticState, controller.diagnosticState);
   });
 
-  test('project replacement logs final state without source identity', () {
+  testWidgets('project replacement logs final state without source identity', (
+    tester,
+  ) async {
     const secret = 'PRIVATE-DRAFT-/Users/private/music';
     final payload = controller.encodeFormalDraft();
     controller.enterSelectionMode();
     controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
     controller.copySelection();
+    final sessionBefore = controller.diagnosticState;
+    controller.loadFormalDraft(
+      payload: payload,
+      draftId: secret,
+      draftName: secret,
+    );
+    expect(last('project.load')['blocked'], isTrue);
+    expect(controller.diagnosticState, sessionBefore);
+    expect(controller.encodeFormalDraft(), orderedEquals(payload));
+    controller.exitChartInteraction();
+    await tester.pumpAndSettle();
     controller.loadFormalDraft(
       payload: payload,
       draftId: secret,
@@ -262,8 +364,12 @@ void main() {
     expect(state('project.load')['sourceKind'], 'savedDraft');
     expect(state('project.load')['dirty'], isFalse);
     expect(state('project.load')['revision'], 1);
-    expect(state('project.load')['selectionMode'], isFalse);
+    expect(state('project.load')['interactionMode'], 'normal');
+    expect(state('project.load')['selectionCount'], 0);
+    expect(state('project.load')['hasSelection'], isFalse);
     expect(state('project.load')['hasClipboard'], isFalse);
+    expect(state('project.load')['clipboardCount'], 0);
+    expect(state('project.load')['cutPending'], isFalse);
     controller.markSaved(draftId: secret, draftName: secret, payload: payload);
     expect(state('project.saved')['revision'], 1);
     final recovery = controller.encodeRecoverySnapshot();
@@ -283,10 +389,31 @@ void main() {
     );
   });
 
-  test('failed project decodes log native errors without committing state', () {
+  testWidgets('failed project decodes log native errors without committing state', (
+    tester,
+  ) async {
     controller.enterSelectionMode();
     controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
     controller.copySelection();
+    final sessionBefore = controller.diagnosticState;
+    controller.loadFormalDraft(
+      payload: Uint8List(0),
+      draftId: 'secret',
+      draftName: 'secret',
+    );
+    controller.restoreRecovery(Uint8List(0));
+    controller.importSlkBytes(Uint8List(0), 'secret.slk');
+    for (final operation in [
+      'project.load',
+      'project.restore',
+      'project.importSlk',
+    ]) {
+      expect(last(operation)['blocked'], isTrue);
+      expect(state(operation), sessionBefore);
+    }
+    expect(controller.diagnosticState, sessionBefore);
+    controller.exitChartInteraction();
+    await tester.pumpAndSettle();
     final before = controller.diagnosticState;
     final formal = controller.encodeFormalDraft();
     final recovery = controller.encodeRecoverySnapshot();
@@ -320,6 +447,12 @@ void main() {
       expect(controller.diagnosticState, before);
       expect(controller.encodeFormalDraft(), orderedEquals(formal));
       expect(controller.encodeRecoverySnapshot(), orderedEquals(recovery));
+      controller.enterSelectionMode();
+      controller.selectAt(OTGY_CHART_COLUMN_NPC, 0);
+      controller.copySelection();
+      expect(controller.diagnosticState, sessionBefore);
+      controller.exitChartInteraction();
+      await tester.pumpAndSettle();
     }
   });
 
@@ -333,7 +466,16 @@ void main() {
       'path': '/private/file',
       'audioBytes': Uint8List.fromList([1, 2, 3]),
       'clipboard': {
+        'payload': 'PRIVATE_CLIPBOARD_PAYLOAD_8f7c',
         'events': [1, 2, 3],
+      },
+      'clipboardPayload': 'PRIVATE_CLIPBOARD_PAYLOAD_8f7c',
+      'objectId': 'PRIVATE_OBJECT_ID_8f7c',
+      'danceMoveDrillId': 'PRIVATE_DRILL_ID_8f7c',
+      'selection': {
+        'active': true,
+        'danceMoveDrillId': 'PRIVATE_DRILL_ID_8f7c',
+        'nested': 'PRIVATE_SELECTION_8f7c',
       },
       'code': 'private-platform-code',
       'stage': double.nan,
@@ -343,6 +485,19 @@ void main() {
       last('privacy').keys,
       unorderedEquals(['column', 'row', 'changed', 'state']),
     );
+    final privacyRecord = jsonEncode(last('privacy'));
+    for (final forbidden in [
+      'PRIVATE_CLIPBOARD_PAYLOAD_8f7c',
+      'PRIVATE_OBJECT_ID_8f7c',
+      'PRIVATE_DRILL_ID_8f7c',
+      'PRIVATE_SELECTION_8f7c',
+      'clipboardPayload',
+      'objectId',
+      'danceMoveDrillId',
+      '"selection":',
+    ]) {
+      expect(privacyRecord, isNot(contains(forbidden)), reason: forbidden);
+    }
     controller.recordDiagnosticException(
       'privacy',
       const OtgyException(

@@ -421,7 +421,15 @@ final class LocalDiagnostics {
 
   static Map<String, Object?> _cleanExceptionState(Map state) {
     final result = <String, Object?>{};
-    for (final key in ['revision', 'markerCount', 'showtimeMoveCount']) {
+    for (final key in [
+      'revision',
+      'markerCount',
+      'showtimeMoveCount',
+      'selectionCount',
+      'clipboardCount',
+      'pastePreviewAnchorRow',
+      'pastePreviewCode',
+    ]) {
       if (state[key] is int) result[key] = state[key];
     }
     for (final key in ['bpm', 'offset', 'currentRow']) {
@@ -433,8 +441,9 @@ final class LocalDiagnostics {
       'hasAudio',
       'canUndo',
       'canRedo',
-      'selectionMode',
+      'hasSelection',
       'hasClipboard',
+      'cutPending',
     ]) {
       if (state[key] is bool) result[key] = state[key];
     }
@@ -443,13 +452,14 @@ final class LocalDiagnostics {
         const {'untitled', 'importedSlk', 'savedDraft'}.contains(sourceKind)) {
       result['sourceKind'] = sourceKind;
     }
-    final selection = state['selection'];
-    if (selection is Map) {
-      result['selection'] = <String, Object?>{
-        if (selection['active'] is bool) 'active': selection['active'],
-        for (final key in ['danceMoveDrillId', 'firstRow', 'lastRow'])
-          if (selection[key] is int) key: selection[key],
-      };
+    final interactionMode = state['interactionMode'];
+    if (interactionMode is String &&
+        const {
+          'normal',
+          'selection',
+          'pastePending',
+        }.contains(interactionMode)) {
+      result['interactionMode'] = interactionMode;
     }
     return result;
   }
@@ -487,10 +497,26 @@ final class LocalDiagnostics {
       for (final entry in value.entries) {
         if (entry.key is! String) continue;
         final key = _cleanString(entry.key as String);
-        final sensitive = RegExp(
-          r'^(fileNames?|draftNames?|sourceNames?|targetNames?|audioNames?|audioFileNames?|audio|audioBytes|clipboard|clipboardText|recoveryPayload|message|details|error|exception)$',
-          caseSensitive: false,
-        ).hasMatch(key);
+        final normalizedKey = key.toLowerCase();
+        final sensitive =
+            RegExp(
+              r'^(fileNames?|draftNames?|sourceNames?|targetNames?|audioNames?|audioFileNames?|audio|audioBytes|recoveryPayload|message|details|error|exception)$',
+              caseSensitive: false,
+            ).hasMatch(key) ||
+            const {
+              'selection',
+              'selections',
+              'objectid',
+              'objectids',
+              'eventid',
+              'eventids',
+              'primaryeventid',
+              'dancemovedrillid',
+              'drillid',
+              'groupid',
+            }.contains(normalizedKey) ||
+            (normalizedKey.startsWith('clipboard') &&
+                normalizedKey != 'clipboardcount');
         result[key] = sensitive
             ? '[redacted]'
             : _cleanValue(entry.value, seen, depth + 1);

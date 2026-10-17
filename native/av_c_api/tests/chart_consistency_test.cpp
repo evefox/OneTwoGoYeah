@@ -17,6 +17,7 @@
 #include "av_core/timing/timing_conversion.hpp"
 #include "av_core/timing/timing_grid.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -77,6 +78,38 @@ otgy::core::ChartDraft empty_chart() {
   return {{}, {}, {}, {}, {}, {}};
 }
 
+otgy::core::ChartEditor build_two_complete_moves() {
+  otgy::core::ChartEditor editor(empty_chart());
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 0U)),
+         "first move NPC-C failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 2U)),
+         "first move NPC-N failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 4U)),
+         "first move NPC-N failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 6U)),
+         "first move NPC-N failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 6U)),
+         "first move NPC-S failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Player, 8U)),
+         "first move PLY-C failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Player, 10U)),
+         "first move player generation failed");
+
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 16U)),
+         "second move NPC-C failed");
+  for (std::uint64_t row = 18U; row <= 32U; row += 2U) {
+    expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, row)),
+           "second move NPC-N failed");
+  }
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Npc, 32U)),
+         "second move NPC-S failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Player, 34U)),
+         "second move PLY-C failed");
+  expect(static_cast<bool>(editor.click(otgy::core::ChartColumn::Player, 36U)),
+         "second move player generation failed");
+  return editor;
+}
+
 void compare_edit(const otgy::core::ChartEditResult& direct,
                   const otgy_chart_edit_result& abi) {
   expect(abi.code == static_cast<std::uint32_t>(direct.code) &&
@@ -99,7 +132,80 @@ void compare_session(const otgy::core::ChartSessionResult& direct,
   expect(abi.code == static_cast<std::uint32_t>(direct.code) &&
              abi.changed == static_cast<std::uint8_t>(direct.changed),
          "chart session result differs");
-  compare_selection(direct.selection, abi.selection);
+}
+
+void compare_selections(
+    const std::vector<otgy::core::ChartSelection>& direct,
+    const otgy_chart_selections* abi) {
+  expect(otgy_chart_selections_get_count(abi) == direct.size(),
+         "chart selection count differs");
+  const auto* values = otgy_chart_selections_get_data(abi);
+  expect(direct.empty() || values != nullptr, "missing chart selection data");
+  for (std::size_t index = 0U; index < direct.size(); ++index) {
+    compare_selection(direct[index], values[index]);
+    if (index != 0U) {
+      const auto& previous = values[index - 1U];
+      const auto& current = values[index];
+      expect(previous.first_row < current.first_row ||
+                 (previous.first_row == current.first_row &&
+                  previous.dance_move_drill_id < current.dance_move_drill_id),
+             "chart selections are not strictly ordered by row and drill identity");
+    }
+  }
+}
+
+void compare_session_state(const otgy::core::ChartEditor& direct,
+                           const otgy_chart_editor* abi) {
+  otgy_chart_selections* raw_selections = nullptr;
+  otgy_error* raw_error = nullptr;
+  expect(otgy_chart_editor_copy_selections(abi, &raw_selections, &raw_error) ==
+             OTGY_STATUS_OK && raw_error == nullptr && raw_selections != nullptr,
+         "C ABI selection snapshot failed");
+  auto selections =
+      handle<otgy_chart_selections, otgy_chart_selections_destroy>(raw_selections);
+  compare_selections(direct.selections(), selections.get());
+  expect(otgy_chart_editor_selection_count(abi) == direct.selections().size() &&
+             otgy_chart_editor_has_clipboard(abi) ==
+                 static_cast<std::uint8_t>(direct.has_clipboard()) &&
+             otgy_chart_editor_clipboard_count(abi) ==
+                 direct.clipboard().content.dance_move_drills().size() &&
+             otgy_chart_editor_cut_pending(abi) ==
+                 static_cast<std::uint8_t>(direct.has_pending_cut()) &&
+             otgy_chart_editor_get_undo_count(abi) == direct.undo_count() &&
+             otgy_chart_editor_get_redo_count(abi) == direct.redo_count(),
+         "chart session state differs");
+}
+
+void compare_preview(const otgy::core::ChartPastePreview& direct,
+                     const otgy_chart_paste_preview* abi) {
+  expect(abi != nullptr &&
+             otgy_chart_paste_preview_get_code(abi) ==
+                 static_cast<std::uint32_t>(direct.code) &&
+             otgy_chart_paste_preview_get_first_row(abi) == direct.anchor_row &&
+             otgy_chart_paste_preview_get_last_row(abi) == direct.last_row &&
+             otgy_chart_paste_preview_get_selection_count(abi) ==
+                 direct.spans.size() &&
+             otgy_chart_paste_preview_get_marker_count(abi) ==
+                 direct.ghost_markers.size(),
+         "paste preview envelope or counts differ");
+  const auto* spans = otgy_chart_paste_preview_get_selections(abi);
+  expect(direct.spans.empty() || spans != nullptr,
+         "missing paste preview spans");
+  for (std::size_t index = 0U; index < direct.spans.size(); ++index) {
+    compare_selection(direct.spans[index], spans[index]);
+  }
+  const auto* markers = otgy_chart_paste_preview_get_markers(abi);
+  expect(direct.ghost_markers.empty() || markers != nullptr,
+         "missing paste preview markers");
+  for (std::size_t index = 0U; index < direct.ghost_markers.size(); ++index) {
+    const auto& value = direct.ghost_markers[index];
+    expect(markers[index].id == value.id.value &&
+               markers[index].row == value.row &&
+               markers[index].column == static_cast<std::uint32_t>(value.column) &&
+               markers[index].type == static_cast<std::uint32_t>(value.type) &&
+               markers[index].show_n_count == value.show_n_count,
+           "paste preview marker differs");
+  }
 }
 
 void compare_markers(const std::vector<otgy::core::ChartMarker>& direct,
@@ -308,6 +414,512 @@ void compare_semantics(const otgy::core::ChartDraft& direct,
       "Showtime backing ID counts differ");
 }
 
+struct EditorPair final {
+  otgy::core::ChartEditor direct;
+  Handle<otgy_chart_editor, otgy_chart_editor_destroy> abi;
+
+  explicit EditorPair(const otgy::core::ChartDraft& draft)
+      : direct(draft), abi(nullptr, otgy_chart_editor_destroy) {
+    const auto encoded = otgy::core::encode_recovery_snapshot(draft);
+    expect(static_cast<bool>(encoded), "editor pair fixture encode failed");
+    otgy_chart* raw_chart = nullptr;
+    otgy_error* error = nullptr;
+    expect(otgy_project_decode_recovery_snapshot(view(*encoded.bytes()),
+                                                &raw_chart, &error) ==
+               OTGY_STATUS_OK && error == nullptr,
+           "editor pair fixture decode failed");
+    auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+    otgy_chart_editor* raw_editor = nullptr;
+    expect(otgy_chart_editor_create(chart.get(), &raw_editor, &error) ==
+               OTGY_STATUS_OK && error == nullptr,
+           "editor pair creation failed");
+    abi.reset(raw_editor);
+    compare();
+  }
+
+  void compare() const {
+    otgy_error* error = nullptr;
+    otgy_chart* raw_chart = nullptr;
+    expect(otgy_chart_editor_copy_chart(abi.get(), &raw_chart, &error) ==
+               OTGY_STATUS_OK && error == nullptr,
+           "editor pair chart copy failed");
+    auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+    otgy_chart_semantics* raw_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(chart.get(), &raw_semantics, &error) ==
+               OTGY_STATUS_OK && error == nullptr,
+           "editor pair semantic copy failed");
+    auto semantics =
+        handle<otgy_chart_semantics, otgy_chart_semantics_destroy>(raw_semantics);
+    compare_semantics(direct.draft(), semantics.get());
+    compare_session_state(direct, abi.get());
+  }
+
+  otgy::core::ChartSessionResult select(otgy::core::ChartColumn column,
+                                       std::uint64_t row) {
+    const auto result = direct.select(column, row);
+    otgy_chart_session_result projected{};
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_select(abi.get(), static_cast<std::uint32_t>(column),
+                                    row, &projected, &error) == OTGY_STATUS_OK &&
+               error == nullptr,
+           "editor pair select failed");
+    compare_session(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartSessionResult session(
+      otgy::core::ChartSessionResult (otgy::core::ChartEditor::*core)() noexcept,
+      otgy_status (*function)(otgy_chart_editor*, otgy_chart_session_result*,
+                             otgy_error**)) {
+    const auto result = (direct.*core)();
+    otgy_chart_session_result projected{};
+    otgy_error* error = nullptr;
+    expect(function(abi.get(), &projected, &error) == OTGY_STATUS_OK &&
+               error == nullptr,
+           "editor pair session command failed");
+    compare_session(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartEditResult paste(std::uint64_t row) {
+    const auto result = direct.paste(row);
+    otgy_chart_edit_result projected{};
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_paste(abi.get(), row, &projected, &error) ==
+               OTGY_STATUS_OK && error == nullptr,
+           "editor pair paste failed");
+    compare_edit(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartEditResult click(otgy::core::ChartColumn column,
+                                   std::uint64_t row) {
+    const auto result = direct.click(column, row);
+    otgy_chart_edit_result projected{};
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_click(abi.get(), static_cast<std::uint32_t>(column),
+                                   row, &projected, &error) == OTGY_STATUS_OK &&
+               error == nullptr,
+           "editor pair click failed");
+    compare_edit(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartEditResult history(bool undo) {
+    const auto result = undo ? direct.undo() : direct.redo();
+    otgy_chart_edit_result projected{};
+    otgy_error* error = nullptr;
+    const auto status = undo
+        ? otgy_chart_editor_undo(abi.get(), &projected, &error)
+        : otgy_chart_editor_redo(abi.get(), &projected, &error);
+    expect(status == OTGY_STATUS_OK && error == nullptr,
+           "editor pair history command failed");
+    compare_edit(result, projected);
+    compare();
+    return result;
+  }
+
+  Handle<otgy_chart_paste_preview, otgy_chart_paste_preview_destroy> preview(
+      std::uint64_t row) const {
+    const auto before = direct.draft();
+    const auto undo = direct.undo_count();
+    const auto redo = direct.redo_count();
+    const auto selections = direct.selections();
+    const auto clipboard = direct.clipboard();
+    const auto pending = direct.has_pending_cut();
+    const auto expected = direct.preview_paste(row);
+    otgy_chart_paste_preview* raw_preview = nullptr;
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_preview_paste(abi.get(), row, &raw_preview,
+                                          &error) == OTGY_STATUS_OK &&
+               error == nullptr,
+           "editor pair preview failed");
+    auto result = handle<otgy_chart_paste_preview,
+                         otgy_chart_paste_preview_destroy>(raw_preview);
+    compare_preview(expected, result.get());
+    expect(otgy::core::chart_drafts_equal(before, direct.draft()) &&
+               direct.undo_count() == undo && direct.redo_count() == redo &&
+               direct.has_pending_cut() == pending &&
+               direct.clipboard().base_row == clipboard.base_row &&
+               otgy::core::chart_drafts_equal(direct.clipboard().content,
+                                               clipboard.content),
+           "preview mutated the draft, clipboard or history");
+    otgy_chart_selections* raw_selections = nullptr;
+    expect(otgy_chart_editor_copy_selections(abi.get(), &raw_selections,
+                                             &error) == OTGY_STATUS_OK,
+           "preview selection read-back failed");
+    auto selection_copy =
+        handle<otgy_chart_selections, otgy_chart_selections_destroy>(raw_selections);
+    compare_selections(selections, selection_copy.get());
+    compare();
+    return result;
+  }
+};
+
+void test_batch_selection_and_preview() {
+  auto fixture = build_two_complete_moves();
+  expect(static_cast<bool>(fixture.select(otgy::core::ChartColumn::Npc, 0U)) &&
+             static_cast<bool>(fixture.copy_selection()) &&
+             static_cast<bool>(fixture.paste(100U)),
+         "third move fixture creation failed");
+  EditorPair pair(fixture.draft());
+  const auto original = pair.direct.draft();
+  auto empty_preview = pair.preview(200U);
+  expect(otgy_chart_paste_preview_get_code(empty_preview.get()) ==
+             OTGY_CHART_EDIT_CLIPBOARD_EMPTY,
+         "empty clipboard preview was not reported");
+
+  const auto markers = otgy::core::project_chart_markers(original);
+  std::array<bool, 6> seen{};
+  for (const auto& marker : *markers.markers()) {
+    if (marker.row >= 16U) {
+      continue;
+    }
+    expect(pair.select(marker.column, marker.row).changed &&
+               pair.direct.selections().size() == 1U,
+           "role marker did not select its move");
+    expect(pair.select(marker.column, marker.row).changed &&
+               pair.direct.selections().empty(),
+           "repeated role marker did not toggle its move off");
+    seen[static_cast<std::size_t>(marker.type)] = true;
+  }
+  expect(std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }),
+         "selection fixture omitted a role marker type");
+  pair.select(otgy::core::ChartColumn::Npc, 100U);
+  pair.select(otgy::core::ChartColumn::Npc, 0U);
+  expect(pair.direct.selections().size() == 2U &&
+             pair.direct.selections()[0].first_row == 0U &&
+             pair.direct.selections()[1].first_row == 100U,
+         "noncontiguous selection order depends on click order");
+  const auto selected = pair.direct.selections();
+  const auto blank = pair.select(otgy::core::ChartColumn::Npc, 99U);
+  expect(!blank.changed && pair.direct.selections().size() == 2U,
+         "blank click discarded selections");
+  const auto cross_column = pair.select(otgy::core::ChartColumn::Player, 0U);
+  expect(cross_column.changed && pair.direct.selections().size() == 1U &&
+             pair.direct.selections().front().first_row == 100U,
+         "cross-column click did not toggle the marker-row move");
+  expect(pair.select(otgy::core::ChartColumn::Showtime, 0U).changed &&
+             pair.direct.selections().size() == 2U,
+         "cross-column click did not restore the marker-row move");
+  pair.select(otgy::core::ChartColumn::Npc, 100U);
+  expect(pair.direct.selections().size() == 1U &&
+             pair.direct.selections().front().first_row == 0U,
+         "toggle removed another selected move");
+  pair.select(otgy::core::ChartColumn::Npc, 100U);
+
+  otgy_chart_selections* raw_owned = nullptr;
+  otgy_error* error = nullptr;
+  expect(otgy_chart_editor_copy_selections(pair.abi.get(), &raw_owned, &error) ==
+             OTGY_STATUS_OK && error == nullptr,
+         "owned selection creation failed");
+  auto owned =
+      handle<otgy_chart_selections, otgy_chart_selections_destroy>(raw_owned);
+  pair.session(&otgy::core::ChartEditor::copy_selection,
+               otgy_chart_editor_copy_selection);
+  expect(pair.direct.undo_count() == 0U &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), original) &&
+             otgy_chart_editor_clipboard_count(pair.abi.get()) == 2U &&
+             !pair.direct.has_pending_cut(),
+         "batch copy changed draft or history");
+  otgy::core::ChartEditor control(original);
+  static_cast<void>(control.select(otgy::core::ChartColumn::Npc, 100U));
+  static_cast<void>(control.select(otgy::core::ChartColumn::Npc, 0U));
+  expect(static_cast<bool>(control.copy_selection()), "control copy failed");
+
+  EditorPair gap(original);
+  gap.select(otgy::core::ChartColumn::Npc, 0U);
+  gap.select(otgy::core::ChartColumn::Npc, 100U);
+  gap.session(&otgy::core::ChartEditor::copy_selection,
+              otgy_chart_editor_copy_selection);
+  expect(gap.click(otgy::core::ChartColumn::Npc, 250U).changed,
+         "batch envelope obstruction setup failed");
+  auto gap_collision = gap.preview(200U);
+  expect(otgy_chart_paste_preview_get_code(gap_collision.get()) ==
+             OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED &&
+             otgy_chart_paste_preview_get_selection_count(gap_collision.get()) == 2U &&
+             gap.paste(200U).code == otgy::core::ChartEditCode::PasteRangeOccupied,
+         "batch paste ignored occupied space between fragments");
+  auto preview = pair.preview(200U);
+  const auto expected_preview = pair.direct.preview_paste(200U);
+  expect(expected_preview.code == otgy::core::ChartEditCode::Success &&
+             expected_preview.spans.size() == 2U &&
+             expected_preview.spans[0].first_row == 200U &&
+             expected_preview.spans[1].first_row == 300U &&
+             expected_preview.last_row == 314U,
+         "batch preview lost shared base or relative gaps");
+  auto overflow = pair.preview(UINT64_MAX);
+  expect(otgy_chart_paste_preview_get_code(overflow.get()) ==
+             OTGY_CHART_EDIT_RANGE_OVERFLOW &&
+             pair.paste(UINT64_MAX).code == otgy::core::ChartEditCode::RangeOverflow,
+         "preview and commit disagree on row overflow");
+  expect(pair.direct.undo_count() == 0U &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), original),
+         "overflow changed the draft or history");
+  expect(pair.paste(200U).changed && static_cast<bool>(control.paste(200U)) &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), control.draft()),
+         "preview or refusal consumed object identifiers");
+  expect(pair.direct.undo_count() == 1U &&
+             pair.direct.selections().size() == 2U &&
+             pair.direct.selections()[0].first_row == 200U &&
+             pair.direct.selections()[1].first_row == 300U &&
+             pair.direct.selections()[0].drill_id.value != selected[0].drill_id.value &&
+             pair.direct.selections()[1].drill_id.value != selected[1].drill_id.value,
+         "batch paste lost its fresh identities, selection or single history");
+  const auto pasted_markers = otgy::core::project_chart_markers(pair.direct.draft());
+  for (const auto& ghost : expected_preview.ghost_markers) {
+    const auto match = std::find_if(
+        pasted_markers.markers()->begin(), pasted_markers.markers()->end(),
+        [&ghost](const otgy::core::ChartMarker& marker) {
+          return marker.row == ghost.row && marker.column == ghost.column &&
+                 marker.type == ghost.type &&
+                 marker.show_n_count == ghost.show_n_count;
+        });
+    expect(match != pasted_markers.markers()->end() &&
+               match->id.value != ghost.id.value,
+           "committed marker differs from its preview geometry");
+  }
+  pair.session(&otgy::core::ChartEditor::clear_selection,
+               otgy_chart_editor_clear_selection);
+  pair.session(&otgy::core::ChartEditor::clear_clipboard,
+               otgy_chart_editor_clear_clipboard);
+  compare_selections(selected, owned.get());
+  compare_preview(expected_preview, preview.get());
+  pair.abi.reset();
+  compare_selections(selected, owned.get());
+  compare_preview(expected_preview, preview.get());
+}
+
+void test_selection_order_and_lifecycle() {
+  const otgy::core::ChartDraft tied{
+      {{{101U}, 0U, otgy::core::ChartRole::Npc,
+        otgy::core::ChartRoleEventType::BlockStart, {201U}, {20U}},
+       {{102U}, 0U, otgy::core::ChartRole::Player,
+        otgy::core::ChartRoleEventType::BlockStart, {202U}, {10U}}},
+      {}, {},
+      {{{201U}, {20U}, {{101U}}, {}}, {{202U}, {10U}, {}, {{102U}}}},
+      {{{20U}, 0U, {{201U}}}, {{10U}, 0U, {{202U}}}}, {}};
+  // Global row uniqueness rejects this draft before selection can be derived;
+  // distinct selectable dance moves cannot have equal first rows.
+  EditorPair invalid(tied);
+  for (const auto column : {otgy::core::ChartColumn::Npc,
+                             otgy::core::ChartColumn::Player}) {
+    const auto result = invalid.select(column, 0U);
+    expect(result.code == otgy::core::ChartEditCode::InvalidDraft &&
+               !result.changed && invalid.direct.selections().empty() &&
+               invalid.direct.undo_count() == 0U &&
+               otgy::core::chart_drafts_equal(invalid.direct.draft(), tied),
+           "duplicate-row selection changed an invalid draft or session");
+  }
+
+  const otgy::core::ChartDraft ordered{
+      {{{101U}, 0U, otgy::core::ChartRole::Npc,
+        otgy::core::ChartRoleEventType::BlockStart, {201U}, {20U}},
+       {{102U}, 16U, otgy::core::ChartRole::Player,
+        otgy::core::ChartRoleEventType::BlockStart, {202U}, {10U}}},
+      {}, {},
+      {{{201U}, {20U}, {{101U}}, {}}, {{202U}, {10U}, {}, {{102U}}}},
+      {{{20U}, 0U, {{201U}}}, {{10U}, 0U, {{202U}}}}, {}};
+  EditorPair pair(ordered);
+  expect(pair.select(otgy::core::ChartColumn::Player, 16U).changed &&
+             pair.select(otgy::core::ChartColumn::Npc, 0U).changed &&
+             pair.direct.selections().size() == 2U &&
+             pair.direct.selections()[0].first_row == 0U &&
+             pair.direct.selections()[0].drill_id.value == 20U &&
+             pair.direct.selections()[1].first_row == 16U &&
+             pair.direct.selections()[1].drill_id.value == 10U,
+         "selection order did not prioritize source row over identity and click order");
+  pair.session(&otgy::core::ChartEditor::copy_selection,
+               otgy_chart_editor_copy_selection);
+  auto preview = pair.preview(100U);
+  expect(otgy_chart_paste_preview_get_code(preview.get()) == OTGY_CHART_EDIT_SUCCESS,
+         "incomplete selected draft could not be previewed");
+  expect(pair.direct.undo_count() == 0U &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), ordered),
+         "selection or copy edited an incomplete draft");
+  pair.session(&otgy::core::ChartEditor::clear_selection,
+               otgy_chart_editor_clear_selection);
+  expect(pair.select(otgy::core::ChartColumn::Npc, 0U).changed &&
+             pair.select(otgy::core::ChartColumn::Player, 16U).changed &&
+             pair.direct.selections().size() == 2U &&
+             pair.direct.selections()[0].first_row == 0U &&
+             pair.direct.selections()[0].drill_id.value == 20U &&
+             pair.direct.selections()[1].first_row == 16U &&
+             pair.direct.selections()[1].drill_id.value == 10U,
+         "source-row order changed after reverse selection");
+  expect(pair.click(otgy::core::ChartColumn::Npc, 0U).changed &&
+             pair.direct.selections().size() == 1U &&
+             pair.direct.selections().front().drill_id.value == 10U,
+         "deleted selected move remained in the selection");
+  expect(pair.history(true).changed && pair.direct.selections().size() == 1U &&
+             pair.direct.selections().front().drill_id.value == 10U,
+         "undo restored a historical selected move");
+  expect(pair.history(false).changed && pair.direct.selections().size() == 1U,
+         "redo lost the surviving selection");
+
+  EditorPair exhausted(otgy::core::ChartDraft{
+      {{{1U}, 0U, otgy::core::ChartRole::Npc,
+        otgy::core::ChartRoleEventType::BlockStart, {2U}, {UINT64_MAX}}},
+      {}, {}, {{{2U}, {UINT64_MAX}, {{1U}}, {}}},
+      {{{UINT64_MAX}, 0U, {{2U}}}}, {}});
+  exhausted.select(otgy::core::ChartColumn::Npc, 0U);
+  exhausted.session(&otgy::core::ChartEditor::copy_selection,
+                    otgy_chart_editor_copy_selection);
+  const auto exhausted_before = exhausted.direct.draft();
+  auto exhausted_preview = exhausted.preview(100U);
+  expect(otgy_chart_paste_preview_get_code(exhausted_preview.get()) ==
+             OTGY_CHART_EDIT_ID_EXHAUSTED &&
+             exhausted.paste(100U).code == otgy::core::ChartEditCode::IdExhausted &&
+             exhausted.direct.undo_count() == 0U &&
+             otgy::core::chart_drafts_equal(exhausted.direct.draft(),
+                                             exhausted_before),
+         "identifier exhaustion changed draft or disagreed with preview");
+
+  auto generated = build_two_complete_moves();
+  expect(static_cast<bool>(generated.click(otgy::core::ChartColumn::Showtime, 52U)),
+         "Showtime selection fixture generation failed");
+  EditorPair showtime(generated.draft());
+  showtime.select(otgy::core::ChartColumn::Npc, 0U);
+  const auto start_row = generated.draft().showtime_start_events().front().row;
+  const auto unavailable = showtime.select(otgy::core::ChartColumn::Showtime,
+                                           start_row);
+  expect(!unavailable.changed && showtime.direct.selections().size() == 1U,
+         "SHOW-C changed existing selection");
+  for (const auto& move : generated.draft().showtime_move_events()) {
+    showtime.session(&otgy::core::ChartEditor::clear_selection,
+                     otgy_chart_editor_clear_selection);
+    expect(showtime.select(otgy::core::ChartColumn::Showtime, move.row).changed &&
+               showtime.direct.selections().size() == 1U &&
+               showtime.direct.selections().front().drill_id.value ==
+                   move.dance_move_drill_id.value,
+           "SHOW-D did not resolve its referenced dance move");
+  }
+  showtime.session(&otgy::core::ChartEditor::copy_selection,
+                   otgy_chart_editor_copy_selection);
+  const auto before_paste = showtime.direct.draft();
+  expect(showtime.paste(300U).changed &&
+             showtime.direct.draft().showtimes().size() ==
+                 before_paste.showtimes().size() &&
+             showtime.direct.draft().showtime_start_events().size() ==
+                 before_paste.showtime_start_events().size() &&
+             showtime.direct.draft().showtime_move_events().size() ==
+                 before_paste.showtime_move_events().size(),
+         "copying SHOW-D copied Showtime relations into the fragment");
+}
+
+void test_deferred_cut_consistency() {
+  const auto original = build_two_complete_moves().draft();
+  EditorPair pair(original);
+  pair.select(otgy::core::ChartColumn::Npc, 0U);
+  pair.session(&otgy::core::ChartEditor::cut_selection,
+               otgy_chart_editor_cut_selection);
+  otgy::core::ChartEditor control(original);
+  static_cast<void>(control.select(otgy::core::ChartColumn::Npc, 0U));
+  expect(static_cast<bool>(control.cut_selection()), "control cut preparation failed");
+  const auto source_selection = pair.direct.selections();
+  expect(pair.direct.undo_count() == 0U && pair.direct.has_pending_cut() &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), original),
+         "cut preparation modified its source");
+  auto occupied = pair.preview(16U);
+  expect(otgy_chart_paste_preview_get_code(occupied.get()) ==
+             OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED &&
+             otgy_chart_paste_preview_get_selection_count(occupied.get()) == 1U &&
+             otgy_chart_paste_preview_get_marker_count(occupied.get()) != 0U,
+         "occupied cut preview lost its destination geometry");
+  const auto refused = pair.paste(16U);
+  expect(refused.code == otgy::core::ChartEditCode::PasteRangeOccupied &&
+             !refused.changed && pair.direct.undo_count() == 0U &&
+             pair.direct.has_pending_cut() &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), original),
+         "failed cut placement deleted source or pending state");
+  otgy_chart_selections* raw_selection = nullptr;
+  otgy_error* error = nullptr;
+  expect(otgy_chart_editor_copy_selections(pair.abi.get(), &raw_selection,
+                                          &error) == OTGY_STATUS_OK,
+         "failed cut selection read-back failed");
+  auto selection =
+      handle<otgy_chart_selections, otgy_chart_selections_destroy>(raw_selection);
+  compare_selections(source_selection, selection.get());
+
+  pair.select(otgy::core::ChartColumn::Npc, 16U);
+  pair.session(&otgy::core::ChartEditor::cut_selection,
+               otgy_chart_editor_cut_selection);
+  static_cast<void>(control.select(otgy::core::ChartColumn::Npc, 16U));
+  expect(static_cast<bool>(control.cut_selection()), "control batch cut failed");
+  expect(pair.direct.undo_count() == 0U &&
+             otgy_chart_editor_clipboard_count(pair.abi.get()) == 2U,
+         "batch cut preparation added history");
+  auto overlap = pair.preview(1U);
+  expect(otgy_chart_paste_preview_get_code(overlap.get()) == OTGY_CHART_EDIT_SUCCESS,
+         "cut source overlap was rejected by preview");
+  expect(pair.paste(1U).changed && static_cast<bool>(control.paste(1U)) &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), control.draft()) &&
+             pair.direct.undo_count() == 1U &&
+             !pair.direct.has_pending_cut() &&
+             pair.direct.draft().dance_move_drills().size() == 2U &&
+             pair.direct.selections()[0].first_row == 1U &&
+             pair.direct.selections()[1].first_row == 17U,
+         "overlapping batch cut did not atomically replace source");
+  for (const auto& event : original.role_events()) {
+    expect(std::none_of(pair.direct.draft().role_events().begin(),
+                        pair.direct.draft().role_events().end(),
+                        [&event](const otgy::core::ChartRoleEvent& item) {
+                          return item.id.value == event.id.value;
+                        }),
+           "cut retained an old source event identity");
+  }
+  expect(pair.history(true).changed &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(), original) &&
+             !pair.direct.has_pending_cut() && pair.direct.has_clipboard() &&
+             pair.direct.selections().empty(),
+         "one undo did not restore source without restoring cut intent");
+  expect(pair.history(false).changed && !pair.direct.has_pending_cut() &&
+             pair.direct.selections().empty(),
+         "redo restored historical selection or cut intent");
+  const auto before_copy = pair.direct.draft();
+  expect(pair.paste(200U).changed &&
+             pair.direct.draft().dance_move_drills().size() == 4U &&
+             pair.direct.undo_count() == 2U && !pair.direct.has_pending_cut(),
+         "subsequent cut clipboard placement did not copy the snapshot");
+  for (const auto& event : before_copy.role_events()) {
+    expect(std::any_of(pair.direct.draft().role_events().begin(),
+                       pair.direct.draft().role_events().end(),
+                       [&event](const otgy::core::ChartRoleEvent& item) {
+                         return item.id.value == event.id.value &&
+                                item.row == event.row;
+                       }),
+           "repeat placement removed the previous destination");
+  }
+
+  EditorPair changed(original);
+  changed.select(otgy::core::ChartColumn::Npc, 0U);
+  changed.session(&otgy::core::ChartEditor::cut_selection,
+                  otgy_chart_editor_cut_selection);
+  expect(changed.click(otgy::core::ChartColumn::Npc, 2U).changed,
+         "cut source mutation failed");
+  const auto modified = changed.direct.draft();
+  auto stale = changed.preview(200U);
+  expect(otgy_chart_paste_preview_get_code(stale.get()) ==
+             OTGY_CHART_EDIT_CUT_SOURCE_CHANGED &&
+             otgy_chart_paste_preview_get_marker_count(stale.get()) != 0U,
+         "changed cut source preview did not retain snapshot geometry");
+  const auto failed = changed.paste(200U);
+  expect(failed.code == otgy::core::ChartEditCode::CutSourceChanged &&
+             !failed.changed && changed.direct.undo_count() == 1U &&
+             changed.direct.has_pending_cut() &&
+             otgy::core::chart_drafts_equal(changed.direct.draft(), modified),
+         "changed cut source was deleted or silently refreshed");
+  changed.session(&otgy::core::ChartEditor::clear_clipboard,
+                  otgy_chart_editor_clear_clipboard);
+  expect(!changed.direct.has_pending_cut() &&
+             otgy::core::chart_drafts_equal(changed.direct.draft(), modified),
+         "canceling cut altered the source");
+}
+
 void test_timing_and_coordination() {
   const otgy::core::TimingParameters direct_timing{129.24970691676435,
                                                     -0.090521541950113374};
@@ -460,8 +1072,8 @@ void test_timing_and_coordination() {
                  static_cast<std::uint32_t>(direct_pause.position()->phase()),
          "playback pause differs");
 
-  for (std::uint32_t mode = 0U; mode <= 3U; ++mode) {
-    for (std::uint32_t operation = 0U; operation <= 4U; ++operation) {
+  for (std::uint32_t mode = 0U; mode <= 4U; ++mode) {
+    for (std::uint32_t operation = 0U; operation <= 8U; ++operation) {
       const auto direct = otgy::core::coordinate_application_operation(
           static_cast<otgy::core::ApplicationOperationMode>(mode),
           static_cast<otgy::core::ApplicationOperationClass>(operation));
@@ -535,16 +1147,11 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
                                   &abi_session, &raw_error) == OTGY_STATUS_OK,
          "C ABI select failed");
   compare_session(direct_select, abi_session);
-  expect(abi_session.selection.active == 1U &&
-             abi_session.selection.first_row == 0U &&
-             abi_session.selection.last_row == 4U,
+  compare_session_state(direct_editor, editor.get());
+  expect(direct_editor.selections().size() == 1U &&
+             direct_editor.selections().front().first_row == 0U &&
+             direct_editor.selections().front().last_row == 4U,
          "C ABI selection span differs");
-
-  otgy_chart_selection abi_selection{};
-  expect(otgy_chart_editor_get_selection(editor.get(), &abi_selection,
-                                         &raw_error) == OTGY_STATUS_OK,
-         "C ABI get selection failed");
-  compare_selection(direct_editor.selection(), abi_selection);
   expect(otgy_chart_editor_get_undo_count(editor.get()) ==
                  direct_editor.undo_count() &&
              otgy_chart_editor_get_redo_count(editor.get()) ==
@@ -557,16 +1164,20 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
                                   &abi_session, &raw_error) == OTGY_STATUS_OK,
          "C ABI empty row select failed");
   compare_session(direct_deselect, abi_session);
-  expect(abi_session.changed == 1U && abi_session.selection.active == 0U,
-         "empty row did not clear the C ABI selection");
+  expect(abi_session.changed == 0U &&
+             otgy_chart_editor_selection_count(editor.get()) == 1U,
+         "empty row changed the C ABI selection");
+  compare_session_state(direct_editor, editor.get());
 
   const auto direct_clear_selection = direct_editor.clear_selection();
   expect(otgy_chart_editor_clear_selection(editor.get(), &abi_session,
                                            &raw_error) == OTGY_STATUS_OK,
          "C ABI clear selection failed");
   compare_session(direct_clear_selection, abi_session);
-  expect(abi_session.changed == 0U && abi_session.selection.active == 0U,
-         "clearing an empty C ABI selection reported a change");
+  expect(abi_session.changed == 1U &&
+             otgy_chart_editor_selection_count(editor.get()) == 0U,
+         "clearing the C ABI selection failed");
+  compare_session_state(direct_editor, editor.get());
 
   const auto direct_reselect =
       direct_editor.select(otgy::core::ChartColumn::Npc, 4U);
@@ -574,25 +1185,22 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
                                   &abi_session, &raw_error) == OTGY_STATUS_OK,
          "C ABI select failed");
   compare_session(direct_reselect, abi_session);
-  abi_selection = {1U, 7U, 8U, 9U};
-  expect(otgy_chart_editor_get_selection(nullptr, &abi_selection, &raw_error) ==
+  auto* unavailable_selections = reinterpret_cast<otgy_chart_selections*>(1);
+  expect(otgy_chart_editor_copy_selections(nullptr, &unavailable_selections,
+                                          &raw_error) ==
                  OTGY_STATUS_INVALID_ARGUMENT &&
-             abi_selection.active == 0U &&
-             abi_selection.dance_move_drill_id == 0U &&
-             abi_selection.first_row == 0U && abi_selection.last_row == 0U,
-         "null editor exposed a C ABI selection");
+             unavailable_selections == nullptr,
+         "null editor exposed C ABI selections");
   auto session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
   expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
                OTGY_ABI_ERROR_NULL_ARGUMENT,
                "required C ABI argument is null");
   session_error.reset();
 
-  abi_session = {1U, 1U, {1U, 7U, 8U, 9U}};
+  abi_session = {1U, 1U};
   expect(otgy_chart_editor_clear_selection(nullptr, &abi_session, &raw_error) ==
                  OTGY_STATUS_INVALID_ARGUMENT &&
-             abi_session.code == 0U && abi_session.changed == 0U &&
-             abi_session.selection.active == 0U &&
-             abi_session.selection.dance_move_drill_id == 0U,
+             abi_session.code == 0U && abi_session.changed == 0U,
          "null editor was not rejected");
   session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
   expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
@@ -639,16 +1247,10 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
                  history_before_paste + 1U,
          "successful C ABI paste did not add one history entry");
 
-  otgy_chart_selection abi_pasted_selection{};
-  expect(otgy_chart_editor_get_selection(editor.get(), &abi_pasted_selection,
-                                         &raw_error) == OTGY_STATUS_OK,
-         "C ABI pasted selection read-back failed");
-  const auto& direct_pasted_selection = direct_editor.selection();
-  expect(abi_pasted_selection.active == 1U &&
-             abi_pasted_selection.dance_move_drill_id ==
-                 direct_pasted_selection.drill_id.value &&
-             abi_pasted_selection.first_row == 200U &&
-             abi_pasted_selection.last_row == 204U,
+  compare_session_state(direct_editor, editor.get());
+  expect(direct_editor.selections().size() == 1U &&
+             direct_editor.selections().front().first_row == 200U &&
+             direct_editor.selections().front().last_row == 204U,
          "C ABI pasted selection differs");
 
   abi_paste = {7U, 7U, 7U};
@@ -675,38 +1277,51 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
                "required C ABI argument is null");
   session_error.reset();
 
-  // cut_selection reports through the edit result because it edits the draft,
-  // and it is never blocked by a Showtime. clear_clipboard reports through the
-  // session result because it only drops session state.
   const auto history_before_cut = otgy_chart_editor_get_undo_count(editor.get());
+  const auto before_cut = direct_editor.draft();
   const auto direct_cut = direct_editor.cut_selection();
-  otgy_chart_edit_result abi_cut{7U, 7U, 7U};
+  otgy_chart_session_result abi_cut{7U, 7U};
   expect(otgy_chart_editor_cut_selection(editor.get(), &abi_cut, &raw_error) ==
              OTGY_STATUS_OK,
-         "C ABI cut failed");
-  compare_edit(direct_cut, abi_cut);
+         "C ABI cut preparation failed");
+  compare_session(direct_cut, abi_cut);
   expect(abi_cut.code == OTGY_CHART_EDIT_SUCCESS && abi_cut.changed == 1U &&
+             otgy_chart_editor_get_undo_count(editor.get()) == history_before_cut &&
+             otgy::core::chart_drafts_equal(direct_editor.draft(), before_cut) &&
+             otgy_chart_editor_cut_pending(editor.get()) == 1U &&
+             otgy_chart_editor_clipboard_count(editor.get()) == 1U,
+         "cut preparation changed the draft or history");
+  compare_session_state(direct_editor, editor.get());
+
+  const auto direct_cut_paste = direct_editor.paste(300U);
+  expect(otgy_chart_editor_paste(editor.get(), 300U, &abi_paste, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI cut placement failed");
+  compare_edit(direct_cut_paste, abi_paste);
+  expect(abi_paste.changed == 1U &&
              otgy_chart_editor_get_undo_count(editor.get()) ==
                  history_before_cut + 1U &&
-             otgy_chart_editor_has_clipboard(editor.get()) == 1U,
-         "C ABI cut was not reported");
-  otgy_chart_selection abi_cut_selection{7U, 7U, 7U, 7U};
-  expect(otgy_chart_editor_get_selection(editor.get(), &abi_cut_selection,
-                                         &raw_error) == OTGY_STATUS_OK &&
-             abi_cut_selection.active == 0U,
-         "cut did not clear the C ABI selection");
+             otgy_chart_editor_cut_pending(editor.get()) == 0U,
+         "cut placement did not add exactly one history entry");
+  compare_session_state(direct_editor, editor.get());
 
+  const auto direct_clear_after_cut = direct_editor.clear_selection();
+  expect(otgy_chart_editor_clear_selection(editor.get(), &abi_session,
+                                           &raw_error) == OTGY_STATUS_OK,
+         "C ABI post-cut selection clear failed");
+  compare_session(direct_clear_after_cut, abi_session);
   const auto direct_cut_again = direct_editor.cut_selection();
-  abi_cut = {7U, 7U, 7U};
+  abi_cut = {7U, 7U};
   expect(otgy_chart_editor_cut_selection(editor.get(), &abi_cut, &raw_error) ==
              OTGY_STATUS_OK,
          "C ABI cut without a selection failed");
-  compare_edit(direct_cut_again, abi_cut);
+  compare_session(direct_cut_again, abi_cut);
   expect(abi_cut.code == OTGY_CHART_EDIT_SELECTION_UNAVAILABLE &&
-             abi_cut.changed == 0U && abi_cut.primary_event_id == 0U &&
+             abi_cut.changed == 0U &&
              otgy_chart_editor_get_undo_count(editor.get()) ==
                  history_before_cut + 1U,
          "cut without a C ABI selection was not reported");
+  compare_session_state(direct_editor, editor.get());
 
   const auto history_before_clear_clipboard =
       otgy_chart_editor_get_undo_count(editor.get());
@@ -739,8 +1354,7 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
   expect(otgy_chart_editor_clear_clipboard(nullptr, &abi_null_clear,
                                            &raw_error) ==
                  OTGY_STATUS_INVALID_ARGUMENT &&
-             abi_null_clear.code == 0U && abi_null_clear.changed == 0U &&
-             abi_null_clear.selection.active == 0U,
+             abi_null_clear.code == 0U && abi_null_clear.changed == 0U,
          "null editor was not rejected by the clipboard clear");
   session_error = handle<otgy_error, otgy_error_destroy>(raw_error);
   expect_error(session_error.get(), OTGY_ERROR_DOMAIN_ABI,
@@ -1034,6 +1648,510 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
   return edited;
 }
 
+void test_split_merge_consistency() {
+  otgy::core::ChartEditor direct(empty_chart());
+  otgy_error* raw_error = nullptr;
+  otgy_chart* raw_chart = nullptr;
+  expect(otgy_chart_create_empty(&raw_chart, &raw_error) == OTGY_STATUS_OK,
+         "C ABI split fixture chart failed");
+  auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+  otgy_chart_editor* raw_editor = nullptr;
+  expect(otgy_chart_editor_create(chart.get(), &raw_editor, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI split fixture editor failed");
+  auto editor = handle<otgy_chart_editor, otgy_chart_editor_destroy>(raw_editor);
+
+  const otgy::core::ChartColumn columns[] = {
+      otgy::core::ChartColumn::Npc, otgy::core::ChartColumn::Player,
+      otgy::core::ChartColumn::Showtime};
+  const std::uint32_t abi_columns[] = {
+      OTGY_CHART_COLUMN_NPC, OTGY_CHART_COLUMN_PLAYER,
+      OTGY_CHART_COLUMN_SHOWTIME};
+  const auto click = [&](std::size_t column, std::uint64_t row) {
+    const auto direct_result = direct.click(columns[column], row);
+    otgy_chart_edit_result abi_result{};
+    expect(otgy_chart_editor_click(editor.get(), abi_columns[column], row,
+                                   &abi_result, &raw_error) == OTGY_STATUS_OK,
+           "C ABI split fixture click failed");
+    compare_edit(direct_result, abi_result);
+    return direct_result;
+  };
+  const auto compare_chart = [&]() {
+    otgy_chart* raw_copy = nullptr;
+    expect(otgy_chart_editor_copy_chart(editor.get(), &raw_copy, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI split fixture chart copy failed");
+    auto copy = handle<otgy_chart, otgy_chart_destroy>(raw_copy);
+    otgy_chart_semantics* raw_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(copy.get(), &raw_semantics, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI split fixture semantics failed");
+    auto semantics =
+        handle<otgy_chart_semantics, otgy_chart_semantics_destroy>(raw_semantics);
+    compare_semantics(direct.draft(), semantics.get());
+  };
+
+  for (const auto row : {2U, 3U, 4U, 5U}) {
+    expect(static_cast<bool>(click(0U, row)), "split fixture NPC click failed");
+  }
+  for (const auto row : {6U, 7U}) {
+    expect(static_cast<bool>(click(1U, row)), "split fixture player click failed");
+  }
+  for (const auto row : {10U, 11U, 12U, 12U}) {
+    expect(static_cast<bool>(click(0U, row)), "split fixture NPC click failed");
+  }
+  for (const auto row : {13U, 14U}) {
+    expect(static_cast<bool>(click(1U, row)), "split fixture player click failed");
+  }
+  expect(static_cast<bool>(click(2U, 16U)),
+         "split fixture Showtime generation failed");
+  expect(static_cast<bool>(click(0U, 5U)), "dance move split failed");
+  expect(direct.draft().dance_move_drills().size() == 2U &&
+             direct.draft().showtimes().empty(),
+         "dance move split topology differs");
+  compare_chart();
+
+  const auto split = direct.draft();
+  const auto direct_undo = direct.undo();
+  otgy_chart_edit_result abi_undo{};
+  expect(otgy_chart_editor_undo(editor.get(), &abi_undo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI dance move split undo failed");
+  compare_edit(direct_undo, abi_undo);
+  compare_chart();
+  const auto direct_redo = direct.redo();
+  otgy_chart_edit_result abi_redo{};
+  expect(otgy_chart_editor_redo(editor.get(), &abi_redo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI dance move split redo failed");
+  compare_edit(direct_redo, abi_redo);
+  expect(otgy::core::chart_drafts_equal(direct.draft(), split),
+         "dance move split redo changed the draft");
+  compare_chart();
+
+  expect(static_cast<bool>(click(1U, 6U)), "split player block clear failed");
+  for (const auto row : {6U, 7U}) {
+    expect(static_cast<bool>(click(1U, row)),
+           "split player block regeneration failed");
+  }
+  expect(static_cast<bool>(click(2U, 16U)),
+         "split Showtime regeneration failed");
+  expect(direct.draft().showtime_move_events().size() == 2U,
+         "split Showtime did not contain two moves");
+  compare_chart();
+
+  expect(static_cast<bool>(click(0U, 5U)), "dance move merge failed");
+  expect(direct.draft().dance_move_drills().size() == 1U &&
+             direct.draft().showtimes().empty(),
+         "dance move merge topology differs");
+  compare_chart();
+  expect(static_cast<bool>(click(1U, 6U)), "merged player block clear failed");
+  for (const auto row : {6U, 7U}) {
+    expect(static_cast<bool>(click(1U, row)),
+           "merged player block regeneration failed");
+  }
+  expect(static_cast<bool>(click(2U, 16U)),
+         "merged Showtime regeneration failed");
+  expect(direct.draft().showtime_move_events().size() == 1U &&
+             direct.draft().showtime_move_events().front().show_n_count == 3U,
+         "merged Showtime did not contain one complete move");
+  compare_chart();
+
+  const auto direct_reset = direct.clear();
+  otgy_chart_edit_result abi_reset{};
+  expect(otgy_chart_editor_clear(editor.get(), &abi_reset, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI nonterminal NPC-S fixture reset failed");
+  compare_edit(direct_reset, abi_reset);
+  for (const auto row : {2U, 3U, 4U, 5U}) {
+    expect(static_cast<bool>(click(0U, row)), "first NPC group failed");
+  }
+  for (const auto row : {6U, 7U}) {
+    expect(static_cast<bool>(click(1U, row)), "first player group failed");
+  }
+  for (const auto row : {10U, 11U, 12U}) {
+    expect(static_cast<bool>(click(0U, row)), "second NPC group failed");
+  }
+  for (const auto row : {13U, 14U}) {
+    expect(static_cast<bool>(click(1U, row)), "second player group failed");
+  }
+  for (const auto row : {18U, 19U, 20U}) {
+    expect(static_cast<bool>(click(0U, row)), "third NPC group failed");
+  }
+  for (const auto row : {21U, 22U}) {
+    expect(static_cast<bool>(click(1U, row)), "third player group failed");
+  }
+  expect(static_cast<bool>(click(0U, 4U)),
+         "first boundary conversion failed");
+  expect(static_cast<bool>(click(0U, 5U)),
+         "later boundary conversion failed");
+  expect(static_cast<bool>(click(0U, 4U)),
+         "first boundary deletion and merge failed");
+  expect(direct.draft().dance_move_drills().size() == 1U,
+         "multi-boundary merge did not retain one dance move");
+  compare_chart();
+  const auto before_nonterminal_delete = direct.draft();
+  const auto nonterminal_delete = click(0U, 5U);
+  expect(nonterminal_delete.code == otgy::core::ChartEditCode::Success &&
+             nonterminal_delete.changed,
+         "nonterminal NPC-S deletion failed");
+  expect(std::none_of(direct.draft().role_events().begin(),
+                      direct.draft().role_events().end(),
+                      [](const otgy::core::ChartRoleEvent& event) {
+                        return event.row == 5U &&
+                               event.type ==
+                                   otgy::core::ChartRoleEventType::MoveEnd;
+                      }),
+         "nonterminal NPC-S survived its deletion");
+  compare_chart();
+  const auto direct_nonterminal_undo = direct.undo();
+  otgy_chart_edit_result abi_nonterminal_undo{};
+  expect(otgy_chart_editor_undo(editor.get(), &abi_nonterminal_undo,
+                                &raw_error) == OTGY_STATUS_OK,
+         "C ABI nonterminal NPC-S undo failed");
+  compare_edit(direct_nonterminal_undo, abi_nonterminal_undo);
+  expect(otgy::core::chart_drafts_equal(direct.draft(),
+                                        before_nonterminal_delete),
+         "nonterminal NPC-S undo did not restore its event");
+  compare_chart();
+  const auto direct_nonterminal_redo = direct.redo();
+  otgy_chart_edit_result abi_nonterminal_redo{};
+  expect(otgy_chart_editor_redo(editor.get(), &abi_nonterminal_redo,
+                                &raw_error) == OTGY_STATUS_OK,
+         "C ABI nonterminal NPC-S redo failed");
+  compare_edit(direct_nonterminal_redo, abi_nonterminal_redo);
+  compare_chart();
+}
+
+void test_cut_showtime_consistency() {
+  auto generated_editor = build_two_complete_moves();
+  expect(static_cast<bool>(generated_editor.click(
+             otgy::core::ChartColumn::Showtime, 52U)),
+         "Showtime cut fixture generation failed");
+  const auto generated = generated_editor.draft();
+
+  otgy::core::ChartEditor direct(generated);
+  const auto encoded = otgy::core::encode_recovery_snapshot(generated);
+  expect(static_cast<bool>(encoded), "Showtime cut fixture encode failed");
+  otgy_error* raw_error = nullptr;
+  otgy_chart* raw_chart = nullptr;
+  const otgy_byte_view bytes{encoded.bytes()->data(),
+                             static_cast<std::uint64_t>(encoded.bytes()->size())};
+  expect(otgy_project_decode_recovery_snapshot(bytes, &raw_chart, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI Showtime cut fixture decode failed");
+  auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+  otgy_chart_editor* raw_editor = nullptr;
+  expect(otgy_chart_editor_create(chart.get(), &raw_editor, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI Showtime cut editor create failed");
+  auto editor = handle<otgy_chart_editor, otgy_chart_editor_destroy>(raw_editor);
+
+  const auto compare_chart = [&]() {
+    otgy_chart* raw_copy = nullptr;
+    expect(otgy_chart_editor_copy_chart(editor.get(), &raw_copy, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI Showtime cut chart copy failed");
+    auto copy = handle<otgy_chart, otgy_chart_destroy>(raw_copy);
+    otgy_chart_semantics* raw_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(copy.get(), &raw_semantics, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI Showtime cut semantics failed");
+    auto semantics =
+        handle<otgy_chart_semantics, otgy_chart_semantics_destroy>(raw_semantics);
+    compare_semantics(direct.draft(), semantics.get());
+  };
+
+  const auto direct_select = direct.select(otgy::core::ChartColumn::Npc, 0U);
+  otgy_chart_session_result abi_select{};
+  expect(otgy_chart_editor_select(editor.get(), OTGY_CHART_COLUMN_NPC, 0U,
+                                  &abi_select, &raw_error) == OTGY_STATUS_OK,
+         "C ABI Showtime move select failed");
+  compare_session(direct_select, abi_select);
+
+  const auto history_before_cut = direct.undo_count();
+  const auto direct_cut = direct.cut_selection();
+  otgy_chart_session_result abi_cut{};
+  expect(otgy_chart_editor_cut_selection(editor.get(), &abi_cut, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI Showtime move cut preparation failed");
+  compare_session(direct_cut, abi_cut);
+  expect(direct_cut.changed && direct.undo_count() == history_before_cut &&
+             otgy::core::chart_drafts_equal(direct.draft(), generated) &&
+             direct.has_pending_cut(),
+         "cut preparation removed the source or its Showtime");
+  compare_session_state(direct, editor.get());
+  compare_chart();
+
+  const auto direct_paste = direct.paste(200U);
+  otgy_chart_edit_result abi_paste{};
+  expect(otgy_chart_editor_paste(editor.get(), 200U, &abi_paste, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI Showtime cut placement failed");
+  compare_edit(direct_paste, abi_paste);
+  expect(direct_paste.changed && direct.undo_count() == history_before_cut + 1U &&
+             direct.draft().dance_move_drills().size() == 2U &&
+             direct.draft().showtimes().empty() &&
+             direct.draft().showtime_start_events().empty() &&
+             direct.draft().showtime_move_events().empty() &&
+             !direct.has_pending_cut(),
+         "cut placement did not atomically remove the referenced Showtime");
+  compare_session_state(direct, editor.get());
+  compare_chart();
+
+  const auto direct_undo = direct.undo();
+  otgy_chart_edit_result abi_undo{};
+  expect(otgy_chart_editor_undo(editor.get(), &abi_undo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI Showtime cut undo failed");
+  compare_edit(direct_undo, abi_undo);
+  expect(otgy::core::chart_drafts_equal(direct.draft(), generated) &&
+             !direct.has_pending_cut() && direct.has_clipboard(),
+         "one undo did not restore the cut move and Showtime without cut intent");
+  compare_session_state(direct, editor.get());
+  expect(otgy_chart_editor_get_redo_count(editor.get()) == direct.redo_count(),
+         "Showtime cut redo history differs");
+  compare_chart();
+}
+
+void test_stale_showtime_consistency() {
+  auto generated_editor = build_two_complete_moves();
+  expect(static_cast<bool>(generated_editor.click(
+             otgy::core::ChartColumn::Showtime, 52U)),
+         "Showtime fixture generation failed");
+  const auto generated = generated_editor.draft();
+  expect(generated.dance_move_drills().size() == 2U &&
+             generated.dance_move_drills()[0].move_n_count == 2U &&
+             generated.dance_move_drills()[1].move_n_count == 7U &&
+             generated.showtime_move_events().size() == 2U &&
+             generated.showtimes().size() == 1U,
+         "Showtime fixture is incomplete");
+
+  const auto check_pruning = [&](otgy::core::ChartDraft malformed,
+                                 std::string_view context) {
+    otgy::core::ChartEditor direct(malformed);
+    const auto encoded = otgy::core::encode_recovery_snapshot(malformed);
+    expect(static_cast<bool>(encoded), "malformed fixture encode failed");
+
+    otgy_error* raw_error = nullptr;
+    otgy_chart* raw_chart = nullptr;
+    const otgy_byte_view bytes{encoded.bytes()->data(),
+                               static_cast<std::uint64_t>(encoded.bytes()->size())};
+    expect(otgy_project_decode_recovery_snapshot(bytes, &raw_chart, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI malformed fixture decode failed");
+    auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+    otgy_chart_editor* raw_editor = nullptr;
+    expect(otgy_chart_editor_create(chart.get(), &raw_editor, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI malformed editor create failed");
+    auto editor =
+        handle<otgy_chart_editor, otgy_chart_editor_destroy>(raw_editor);
+
+    const auto direct_edit = direct.click(otgy::core::ChartColumn::Npc, 200U);
+    otgy_chart_edit_result abi_edit{};
+    expect(otgy_chart_editor_click(editor.get(), OTGY_CHART_COLUMN_NPC, 200U,
+                                   &abi_edit, &raw_error) == OTGY_STATUS_OK,
+           "C ABI stale Showtime edit failed");
+    compare_edit(direct_edit, abi_edit);
+    expect(direct_edit.changed && direct.draft().showtimes().empty() &&
+               direct.draft().showtime_start_events().empty() &&
+               direct.draft().showtime_move_events().empty(),
+           context);
+    expect(otgy_chart_editor_get_undo_count(editor.get()) == direct.undo_count(),
+           "stale Showtime history differs");
+
+    otgy_chart* raw_copy = nullptr;
+    expect(otgy_chart_editor_copy_chart(editor.get(), &raw_copy, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI stale Showtime chart copy failed");
+    auto copy = handle<otgy_chart, otgy_chart_destroy>(raw_copy);
+    otgy_chart_semantics* raw_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(copy.get(), &raw_semantics, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI stale Showtime semantics failed");
+    auto semantics =
+        handle<otgy_chart_semantics, otgy_chart_semantics_destroy>(raw_semantics);
+    compare_semantics(direct.draft(), semantics.get());
+
+    const auto direct_undo = direct.undo();
+    otgy_chart_edit_result abi_undo{};
+    expect(otgy_chart_editor_undo(editor.get(), &abi_undo, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI stale Showtime undo failed");
+    compare_edit(direct_undo, abi_undo);
+    expect(otgy::core::chart_drafts_equal(direct.draft(), malformed),
+           "stale Showtime undo did not restore malformed draft");
+    expect(otgy_chart_editor_get_redo_count(editor.get()) == direct.redo_count(),
+           "stale Showtime redo history differs");
+    otgy_chart* raw_restored = nullptr;
+    expect(otgy_chart_editor_copy_chart(editor.get(), &raw_restored, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI stale Showtime restored chart copy failed");
+    auto restored = handle<otgy_chart, otgy_chart_destroy>(raw_restored);
+    otgy_chart_semantics* raw_restored_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(restored.get(), &raw_restored_semantics,
+                                     &raw_error) == OTGY_STATUS_OK,
+           "C ABI stale Showtime restored semantics failed");
+    auto restored_semantics = handle<otgy_chart_semantics,
+                                     otgy_chart_semantics_destroy>(
+        raw_restored_semantics);
+    compare_semantics(direct.draft(), restored_semantics.get());
+  };
+
+  auto wrong_moves = generated.showtime_move_events();
+  wrong_moves[0].dance_move_drill_id = generated.dance_move_drills()[1].id;
+  check_pruning(
+      otgy::core::ChartDraft{generated.role_events(),
+                             generated.showtime_start_events(),
+                             std::move(wrong_moves), generated.drill_groups(),
+                             generated.dance_move_drills(), generated.showtimes()},
+      "SHOW-D was not checked against its own dance move reference");
+
+  auto missing_moves = generated.showtime_move_events();
+  auto missing_showtimes = generated.showtimes();
+  const auto missing_id = missing_moves[1].id.value;
+  missing_moves.erase(missing_moves.begin() + 1);
+  missing_showtimes.front().dance_move_drill_ids.erase(
+      missing_showtimes.front().dance_move_drill_ids.begin() + 1);
+  expect(missing_showtimes.front().show_move_event_ids[1].value == missing_id,
+         "missing SHOW-D fixture lost its registration");
+  check_pruning(
+      otgy::core::ChartDraft{
+          generated.role_events(), generated.showtime_start_events(),
+          std::move(missing_moves), generated.drill_groups(),
+          generated.dance_move_drills(), std::move(missing_showtimes)},
+      "missing registered SHOW-D past recorded moves was not pruned");
+}
+
+void test_failed_paste_consistency() {
+  const auto generated = build_two_complete_moves().draft();
+  otgy::core::ChartEditor direct(generated);
+  otgy::core::ChartEditor control(generated);
+
+  const auto encoded = otgy::core::encode_recovery_snapshot(generated);
+  expect(static_cast<bool>(encoded), "failed paste fixture encode failed");
+  otgy_error* raw_error = nullptr;
+  otgy_chart* raw_chart = nullptr;
+  const otgy_byte_view bytes{encoded.bytes()->data(),
+                             static_cast<std::uint64_t>(encoded.bytes()->size())};
+  expect(otgy_project_decode_recovery_snapshot(bytes, &raw_chart, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI failed paste fixture decode failed");
+  auto chart = handle<otgy_chart, otgy_chart_destroy>(raw_chart);
+  otgy_chart_editor* raw_editor = nullptr;
+  expect(otgy_chart_editor_create(chart.get(), &raw_editor, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI failed paste editor create failed");
+  auto editor = handle<otgy_chart_editor, otgy_chart_editor_destroy>(raw_editor);
+
+  const auto compare_chart = [&]() {
+    otgy_chart* raw_copy = nullptr;
+    expect(otgy_chart_editor_copy_chart(editor.get(), &raw_copy, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI failed paste chart copy failed");
+    auto copy = handle<otgy_chart, otgy_chart_destroy>(raw_copy);
+    otgy_chart_semantics* raw_semantics = nullptr;
+    expect(otgy_chart_copy_semantics(copy.get(), &raw_semantics, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI failed paste semantics failed");
+    auto semantics =
+        handle<otgy_chart_semantics, otgy_chart_semantics_destroy>(raw_semantics);
+    compare_semantics(direct.draft(), semantics.get());
+  };
+
+  const auto direct_select = direct.select(otgy::core::ChartColumn::Npc, 0U);
+  otgy_chart_session_result abi_session{};
+  expect(otgy_chart_editor_select(editor.get(), OTGY_CHART_COLUMN_NPC, 0U,
+                                  &abi_session, &raw_error) == OTGY_STATUS_OK,
+         "C ABI failed paste select failed");
+  compare_session(direct_select, abi_session);
+  expect(static_cast<bool>(control.select(otgy::core::ChartColumn::Npc, 0U)),
+         "failed paste control select failed");
+
+  const auto direct_copy = direct.copy_selection();
+  expect(otgy_chart_editor_copy_selection(editor.get(), &abi_session,
+                                          &raw_error) == OTGY_STATUS_OK,
+         "C ABI failed paste copy failed");
+  compare_session(direct_copy, abi_session);
+  expect(static_cast<bool>(control.copy_selection()),
+         "failed paste control copy failed");
+
+  const auto direct_edit = direct.click(otgy::core::ChartColumn::Npc, 208U);
+  otgy_chart_edit_result abi_edit{};
+  expect(otgy_chart_editor_click(editor.get(), OTGY_CHART_COLUMN_NPC, 208U,
+                                 &abi_edit, &raw_error) == OTGY_STATUS_OK,
+         "C ABI failed paste setup edit failed");
+  compare_edit(direct_edit, abi_edit);
+  expect(static_cast<bool>(control.click(otgy::core::ChartColumn::Npc, 208U)),
+         "failed paste control setup edit failed");
+
+  const auto direct_undo = direct.undo();
+  otgy_chart_edit_result abi_undo{};
+  expect(otgy_chart_editor_undo(editor.get(), &abi_undo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI failed paste setup undo failed");
+  compare_edit(direct_undo, abi_undo);
+  expect(static_cast<bool>(control.undo()), "failed paste control setup undo failed");
+  expect(direct.can_redo() && control.can_redo() &&
+             otgy_chart_editor_can_redo(editor.get()) != 0U,
+         "failed paste setup did not create a redo branch");
+
+  const auto before = direct.draft();
+  const auto undo_count = direct.undo_count();
+  const auto redo_count = direct.redo_count();
+  const auto selection_before = direct.selections();
+  abi_edit = {7U, 7U, 7U};
+  const auto direct_failed = direct.paste(8U);
+  expect(otgy_chart_editor_paste(editor.get(), 8U, &abi_edit, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI failed paste refusal failed");
+  compare_edit(direct_failed, abi_edit);
+  expect(direct_failed.code == otgy::core::ChartEditCode::PasteRangeOccupied &&
+             !direct_failed.changed &&
+             otgy::core::chart_drafts_equal(direct.draft(), before) &&
+             direct.undo_count() == undo_count && direct.redo_count() == redo_count &&
+             direct.can_redo() &&
+             otgy_chart_editor_get_undo_count(editor.get()) == undo_count &&
+             otgy_chart_editor_get_redo_count(editor.get()) == redo_count &&
+             otgy_chart_editor_can_redo(editor.get()) != 0U &&
+             direct.selections().size() == selection_before.size() &&
+             otgy_chart_editor_has_clipboard(editor.get()) != 0U,
+         "failed paste changed draft, history, selection or clipboard");
+  otgy_chart_selections* raw_selections = nullptr;
+  expect(otgy_chart_editor_copy_selections(editor.get(), &raw_selections,
+                                          &raw_error) == OTGY_STATUS_OK,
+         "C ABI failed paste selections read-back failed");
+  auto selections =
+      handle<otgy_chart_selections, otgy_chart_selections_destroy>(raw_selections);
+  compare_selections(selection_before, selections.get());
+  compare_session_state(direct, editor.get());
+  compare_chart();
+
+  const auto direct_redo = direct.redo();
+  otgy_chart_edit_result abi_redo{};
+  expect(otgy_chart_editor_redo(editor.get(), &abi_redo, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI failed paste redo failed");
+  compare_edit(direct_redo, abi_redo);
+  expect(static_cast<bool>(control.redo()), "failed paste control redo failed");
+  expect(otgy::core::chart_drafts_equal(direct.draft(), control.draft()),
+         "failed paste refusal changed redo result");
+  compare_chart();
+
+  const auto direct_paste = direct.paste(300U);
+  otgy_chart_edit_result abi_paste{};
+  expect(otgy_chart_editor_paste(editor.get(), 300U, &abi_paste, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI failed paste retry failed");
+  compare_edit(direct_paste, abi_paste);
+  expect(static_cast<bool>(control.paste(300U)),
+         "failed paste control retry failed");
+  expect(otgy::core::chart_drafts_equal(direct.draft(), control.draft()),
+         "failed paste refusal changed clipboard allocation state");
+  compare_chart();
+}
+
 void test_slk_finished_boundary(const std::vector<std::uint8_t>& bytes) {
   const auto direct_import =
       otgy::core::import_finished_slk(bytes.data(), bytes.size());
@@ -1208,6 +2326,13 @@ int main() {
     test_timing_and_coordination();
     auto edited = test_chart_edit_and_persistence();
     expect(edited != nullptr, "edited chart ownership was lost");
+    test_batch_selection_and_preview();
+    test_selection_order_and_lifecycle();
+    test_deferred_cut_consistency();
+    test_split_merge_consistency();
+    test_cut_showtime_consistency();
+    test_stale_showtime_consistency();
+    test_failed_paste_consistency();
     test_slk_finished_boundary(read_file(OTGY_C_API_SLK_FIXTURE));
     test_slk_position();
     return 0;

@@ -52,14 +52,16 @@ otgy_chart_selection from_core(
 void copy_session_result(const otgy::core::ChartSessionResult& source,
                          otgy_chart_session_result& target) noexcept {
   target = {static_cast<std::uint32_t>(source.code),
-            static_cast<std::uint8_t>(source.changed),
-            from_core(source.selection)};
+            static_cast<std::uint8_t>(source.changed)};
 }
 
 template <typename Edit>
 otgy_status edit_chart(otgy_chart_editor* editor,
                        otgy_chart_edit_result* out_result,
                        otgy_error** out_error, Edit&& edit) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_edit_result{};
+  }
   return boundary(out_error, [&]() -> otgy_status {
     if (editor == nullptr || out_result == nullptr) {
       return invalid_argument(out_error);
@@ -70,7 +72,7 @@ otgy_status edit_chart(otgy_chart_editor* editor,
 }
 
 /// Session commands zero the out result before the argument check, so a caller
-/// that ignores the returned status never reads a stale selection.
+/// that ignores the returned status never reads a stale command result.
 template <typename Edit>
 otgy_status session_chart(otgy_chart_editor* editor,
                           otgy_chart_session_result* out_result,
@@ -449,19 +451,45 @@ otgy_status otgy_chart_editor_redo(otgy_chart_editor* editor,
                     [](auto& value) { return value.redo(); });
 }
 
-otgy_status otgy_chart_editor_get_selection(
-    const otgy_chart_editor* editor, otgy_chart_selection* out_selection,
+otgy_status otgy_chart_editor_copy_selections(
+    const otgy_chart_editor* editor, otgy_chart_selections** out_selections,
     otgy_error** out_error) {
-  if (out_selection != nullptr) {
-    *out_selection = otgy_chart_selection{};
+  if (out_selections != nullptr) {
+    *out_selections = nullptr;
   }
   return boundary(out_error, [&]() -> otgy_status {
-    if (editor == nullptr || out_selection == nullptr) {
+    if (editor == nullptr || out_selections == nullptr) {
       return invalid_argument(out_error);
     }
-    *out_selection = from_core(editor->value.selection());
-    return OTGY_STATUS_OK;
+    otgy_chart_selections result;
+    result.value.reserve(editor->value.selections().size());
+    for (const auto& selection : editor->value.selections()) {
+      result.value.push_back(from_core(selection));
+    }
+    return make_handle<otgy_chart_selections>(std::move(result), out_selections,
+                                            out_error);
   });
+}
+
+void otgy_chart_selections_destroy(otgy_chart_selections* selections) {
+  delete selections;
+}
+
+const otgy_chart_selection* otgy_chart_selections_get_data(
+    const otgy_chart_selections* selections) {
+  return selections == nullptr || selections->value.empty()
+             ? nullptr
+             : selections->value.data();
+}
+
+std::uint64_t otgy_chart_selections_get_count(
+    const otgy_chart_selections* selections) {
+  return selections == nullptr ? 0U : selections->value.size();
+}
+
+std::uint64_t otgy_chart_editor_selection_count(
+    const otgy_chart_editor* editor) {
+  return editor == nullptr ? 0U : editor->value.selections().size();
 }
 
 otgy_status otgy_chart_editor_select(otgy_chart_editor* editor,
@@ -485,6 +513,17 @@ uint8_t otgy_chart_editor_has_clipboard(const otgy_chart_editor* editor) {
                                                             : UINT8_C(0);
 }
 
+std::uint64_t otgy_chart_editor_clipboard_count(
+    const otgy_chart_editor* editor) {
+  return editor == nullptr || !editor->value.has_clipboard()
+             ? 0U
+             : editor->value.clipboard().content.dance_move_drills().size();
+}
+
+std::uint8_t otgy_chart_editor_cut_pending(const otgy_chart_editor* editor) {
+  return editor != nullptr && editor->value.has_pending_cut() ? 1U : 0U;
+}
+
 otgy_status otgy_chart_editor_copy_selection(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error) {
@@ -499,28 +538,88 @@ otgy_status otgy_chart_editor_clear_clipboard(
                        [](auto& value) { return value.clear_clipboard(); });
 }
 
-/// Draft-editing commands of the selection feature clear their out result
-/// before the argument check. edit_chart stays untouched so the pre-existing
-/// click/clear/undo/redo commands keep their exact behavior.
 otgy_status otgy_chart_editor_cut_selection(
-    otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error) {
-  if (out_result != nullptr) {
-    *out_result = otgy_chart_edit_result{};
-  }
-  return edit_chart(editor, out_result, out_error,
-                    [](auto& value) { return value.cut_selection(); });
+  return session_chart(editor, out_result, out_error,
+                       [](auto& value) { return value.cut_selection(); });
 }
 
 otgy_status otgy_chart_editor_paste(otgy_chart_editor* editor,
                                     std::uint64_t anchor_row,
                                     otgy_chart_edit_result* out_result,
                                     otgy_error** out_error) {
-  if (out_result != nullptr) {
-    *out_result = otgy_chart_edit_result{};
-  }
   return edit_chart(editor, out_result, out_error,
                     [&](auto& value) { return value.paste(anchor_row); });
+}
+
+otgy_status otgy_chart_editor_preview_paste(
+    const otgy_chart_editor* editor, std::uint64_t anchor_row,
+    otgy_chart_paste_preview** out_preview, otgy_error** out_error) {
+  if (out_preview != nullptr) {
+    *out_preview = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_preview == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto preview = editor->value.preview_paste(anchor_row);
+    otgy_chart_paste_preview result{static_cast<std::uint32_t>(preview.code),
+                                   preview.anchor_row, preview.last_row, {}, {}};
+    result.selections.reserve(preview.spans.size());
+    result.markers.reserve(preview.ghost_markers.size());
+    for (const auto& span : preview.spans) {
+      result.selections.push_back(from_core(span));
+    }
+    for (const auto& marker : preview.ghost_markers) {
+      result.markers.push_back(from_core(marker));
+    }
+    return make_handle<otgy_chart_paste_preview>(std::move(result), out_preview,
+                                               out_error);
+  });
+}
+
+void otgy_chart_paste_preview_destroy(otgy_chart_paste_preview* preview) {
+  delete preview;
+}
+
+std::uint32_t otgy_chart_paste_preview_get_code(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr ? OTGY_CHART_EDIT_CLIPBOARD_EMPTY : preview->code;
+}
+
+std::uint64_t otgy_chart_paste_preview_get_first_row(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr ? 0U : preview->first_row;
+}
+
+std::uint64_t otgy_chart_paste_preview_get_last_row(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr ? 0U : preview->last_row;
+}
+
+const otgy_chart_selection* otgy_chart_paste_preview_get_selections(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr || preview->selections.empty()
+             ? nullptr
+             : preview->selections.data();
+}
+
+std::uint64_t otgy_chart_paste_preview_get_selection_count(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr ? 0U : preview->selections.size();
+}
+
+const otgy_chart_marker* otgy_chart_paste_preview_get_markers(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr || preview->markers.empty()
+             ? nullptr
+             : preview->markers.data();
+}
+
+std::uint64_t otgy_chart_paste_preview_get_marker_count(
+    const otgy_chart_paste_preview* preview) {
+  return preview == nullptr ? 0U : preview->markers.size();
 }
 
 otgy_status otgy_chart_validate_finished(
