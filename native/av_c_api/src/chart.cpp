@@ -10,6 +10,12 @@ otgy::core::ChartDraft empty_chart() noexcept {
   return {{}, {}, {}, {}, {}, {}};
 }
 
+otgy::core::ChartColumn chart_column(std::uint32_t value) noexcept {
+  // Preserve invalid input as invalid instead of wrapping to a valid uint8 enum.
+  return static_cast<otgy::core::ChartColumn>(
+      value <= OTGY_CHART_COLUMN_SHOWTIME ? value : UINT8_MAX);
+}
+
 otgy_chart_marker from_core(const otgy::core::ChartMarker& value) noexcept {
   return {value.id.value, value.row,
           static_cast<std::uint32_t>(value.column),
@@ -426,7 +432,30 @@ otgy_status otgy_chart_editor_click(
     otgy_chart_editor* editor, std::uint32_t column, std::uint64_t row,
     otgy_chart_edit_result* out_result, otgy_error** out_error) {
   return edit_chart(editor, out_result, out_error, [&](auto& value) {
-    return value.click(static_cast<otgy::core::ChartColumn>(column), row);
+    return value.click(chart_column(column), row);
+  });
+}
+
+otgy_status otgy_chart_editor_click_with_effects(
+    otgy_chart_editor* editor, std::uint32_t column, std::uint64_t row,
+    otgy_chart_edit_result* out_result, std::uint8_t* out_player_actions_cleared,
+    otgy_error** out_error) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_edit_result{};
+  }
+  if (out_player_actions_cleared != nullptr) {
+    *out_player_actions_cleared = 0U;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_result == nullptr ||
+        out_player_actions_cleared == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto result = editor->value.click(chart_column(column), row);
+    copy_edit_result(result, *out_result);
+    *out_player_actions_cleared =
+        static_cast<std::uint8_t>(result.player_actions_cleared);
+    return OTGY_STATUS_OK;
   });
 }
 
@@ -497,7 +526,7 @@ otgy_status otgy_chart_editor_select(otgy_chart_editor* editor,
                                      otgy_chart_session_result* out_result,
                                      otgy_error** out_error) {
   return session_chart(editor, out_result, out_error, [&](auto& value) {
-    return value.select(static_cast<otgy::core::ChartColumn>(column), row);
+    return value.select(chart_column(column), row);
   });
 }
 

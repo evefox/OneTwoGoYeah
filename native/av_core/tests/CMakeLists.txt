@@ -1011,6 +1011,25 @@ endif()
 
 add_test(NAME av_core.chart_editor COMMAND av_core_chart_editor_test)
 
+add_executable(av_core_chart_editor_allocation_failure_test
+  chart_editor_allocation_failure_test.cpp
+)
+target_link_libraries(av_core_chart_editor_allocation_failure_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+if(MSVC)
+  target_compile_options(av_core_chart_editor_allocation_failure_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_chart_editor_allocation_failure_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+add_test(NAME av_core.chart_editor_allocation_failure
+  COMMAND av_core_chart_editor_allocation_failure_test
+)
+
 add_executable(av_core_project_serialization_test
   project_serialization_test.cpp
 )

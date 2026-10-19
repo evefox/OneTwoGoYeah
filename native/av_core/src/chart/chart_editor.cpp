@@ -971,6 +971,10 @@ void erase_role_events(MutableDraft& draft,
   return {ChartEditCode::Success, true, {event_id}};
 }
 
+[[nodiscard]] std::vector<ChartMarker> player_source_actions(
+    const std::vector<ChartMarker>& markers, ChartEventId npc_c,
+    std::uint64_t player_c_row, bool include_leading_end);
+
 [[nodiscard]] ChartEditResult generate_player_actions(
     MutableDraft& draft, const std::vector<ChartMarker>& markers,
     const ChartMarker& player_start, std::uint64_t clicked_row, IdState& ids) {
@@ -991,27 +995,11 @@ void erase_role_events(MutableDraft& draft,
   if (npc_c_index == markers.size()) {
     return {ChartEditCode::NoNpcSource, false, {0U}};
   }
-  std::size_t source_index = markers.size();
-  for (std::size_t index = npc_c_index + 1U; index < markers.size(); ++index) {
-    if (markers[index].row >= player_start.row) {
-      break;
-    }
-    if (markers[index].type == ChartMarkerType::NpcNote) {
-      source_index = index;
-      break;
-    }
-  }
-  if (source_index == markers.size()) {
-    return {ChartEditCode::NoNpcSource, false, {0U}};
-  }
-
+  const auto source_actions = player_source_actions(
+      markers, markers[npc_c_index].id, player_start.row, false);
   std::vector<const ChartMarker*> source;
-  for (std::size_t index = source_index; index < markers.size(); ++index) {
-    if (markers[index].type != ChartMarkerType::NpcNote &&
-        markers[index].type != ChartMarkerType::NpcMoveEnd) {
-      break;
-    }
-    source.push_back(&markers[index]);
+  for (const auto& action : source_actions) {
+    source.push_back(&action);
   }
   if (source.empty()) {
     return {ChartEditCode::NoNpcSource, false, {0U}};
@@ -1058,6 +1046,169 @@ void erase_role_events(MutableDraft& draft,
   sort_role_events(draft);
   sort_relation_ids(draft, group->player_event_ids);
   return {ChartEditCode::Success, true, first_id};
+}
+
+/// Initial generation searches for the first N between the C markers, then
+/// follows consecutive NPC actions. Synchronization starts immediately after
+/// NPC-C and also observes a leading S, without crossing another marker.
+[[nodiscard]] std::vector<ChartMarker> player_source_actions(
+    const std::vector<ChartMarker>& markers, ChartEventId npc_c,
+    std::uint64_t player_c_row, bool include_leading_end) {
+  const auto* start = find_chart_marker(markers, npc_c);
+  if (start == nullptr || start->type != ChartMarkerType::NpcBlockStart) {
+    return {};
+  }
+  auto first = markers.end();
+  bool after_start = false;
+  for (auto it = markers.begin(); it != markers.end(); ++it) {
+    if (!after_start) {
+      after_start = it->id.value == npc_c.value;
+      continue;
+    }
+    if (it->row >= player_c_row) break;
+    if (it->type == ChartMarkerType::NpcNote ||
+        (include_leading_end && it->type == ChartMarkerType::NpcMoveEnd)) {
+      first = it;
+      break;
+    }
+    if (include_leading_end) return {};
+  }
+  std::vector<ChartMarker> source;
+  for (auto it = first; it != markers.end(); ++it) {
+    if (it->type != ChartMarkerType::NpcNote &&
+        it->type != ChartMarkerType::NpcMoveEnd) break;
+    source.push_back(*it);
+  }
+  return source;
+}
+
+[[nodiscard]] bool same_source_actions(const std::vector<ChartMarker>& left,
+                                        const std::vector<ChartMarker>& right) {
+  if (left.size() != right.size()) return false;
+  for (std::size_t i = 0U; i < left.size(); ++i) {
+    if (left[i].id.value != right[i].id.value || left[i].row != right[i].row ||
+        left[i].type != right[i].type) return false;
+  }
+  return true;
+}
+
+/// Read source data from a fixed post-NPC snapshot, but check occupied rows in
+/// the current candidate for each block. Failed blocks are never retried after
+/// another block is cleared. Everything remains inside the click transaction.
+void synchronize_npc_edit(const ChartDraft& original,
+                          const std::vector<ChartMarker>& before,
+                          MutableDraft& after, IdState& ids,
+                          ChartEditResult& result) {
+  const auto projection = project_chart_markers(ChartDraft{
+      after.role_events, after.showtime_start_events, after.showtime_move_events,
+      after.drill_groups, after.dance_move_drills, after.showtimes});
+  if (!projection) throw std::bad_alloc{};
+  const auto& source_markers = *projection.markers();
+  ChartEventId source_c{0U};
+  for (std::size_t index = 0U; index < before.size(); ++index) {
+    const auto& marker = before[index];
+    if (marker.type == ChartMarkerType::NpcBlockStart) source_c = marker.id;
+    if (marker.type != ChartMarkerType::PlayerBlockStart || source_c.value == 0U)
+      continue;
+
+    const auto* old_player_c = find_role_event_in(original, marker.id.value);
+    const auto* old_npc_c = find_role_event_in(original, source_c.value);
+    if (old_player_c == nullptr || old_npc_c == nullptr ||
+        old_player_c->drill_group_id.value != old_npc_c->drill_group_id.value ||
+        old_player_c->dance_move_drill_id.value != old_npc_c->dance_move_drill_id.value)
+      continue;
+    std::vector<std::uint64_t> old_ids;
+    const ChartMarker* old_player_anchor = nullptr;
+    for (auto i = index + 1U; i < before.size(); ++i) {
+      if (before[i].type != ChartMarkerType::PlayerNote &&
+          before[i].type != ChartMarkerType::PlayerMoveEnd) break;
+      const auto* action = find_role_event_in(original, before[i].id.value);
+      if (action == nullptr ||
+          action->drill_group_id.value != old_player_c->drill_group_id.value ||
+          action->dance_move_drill_id.value != old_player_c->dance_move_drill_id.value)
+        break;
+      old_ids.push_back(before[i].id.value);
+      if (old_player_anchor == nullptr && before[i].type == ChartMarkerType::PlayerNote)
+        old_player_anchor = &before[i];
+    }
+    if (find_chart_marker(source_markers, source_c) == nullptr) {
+      old_ids.push_back(marker.id.value);
+      erase_role_events(after, old_ids);
+      continue;
+    }
+    if (old_ids.empty()) continue;
+    const auto old_source = player_source_actions(before, source_c, marker.row, true);
+    const auto source = player_source_actions(source_markers, source_c, marker.row, true);
+    if (same_source_actions(old_source, source)) continue;
+    const auto old_anchor = player_source_actions(before, source_c, marker.row, false);
+    const auto* player_c = find_role_event_const(after, marker.id.value);
+    const auto* npc_c = find_role_event_const(after, source_c.value);
+    const auto* group = npc_c == nullptr ? nullptr :
+        find_group_const(after, npc_c->drill_group_id.value);
+    bool valid = !source.empty() && source.front().type == ChartMarkerType::NpcNote &&
+        !old_anchor.empty() && old_player_anchor != nullptr && player_c != nullptr &&
+        group != nullptr && find_drill(after, group->dance_move_drill_id.value) != nullptr;
+    std::vector<ChartRoleEvent> replacements;
+    IdState planned_ids = ids;
+    if (valid) {
+      const bool positive = old_player_anchor->row >= old_anchor.front().row;
+      const auto distance = positive ? old_player_anchor->row - old_anchor.front().row
+                                     : old_anchor.front().row - old_player_anchor->row;
+      for (std::size_t i = 0U; i < source.size(); ++i) {
+        const auto row = source[i].row;
+        if ((positive && row > std::numeric_limits<std::uint64_t>::max() - distance) ||
+            (!positive && row < distance)) {
+          valid = false;
+          break;
+        }
+        const auto target = positive ? row + distance : row - distance;
+        if (target <= player_c->row) {
+          valid = false;
+          break;
+        }
+        std::uint64_t id = i < old_ids.size() ? old_ids[i] : 0U;
+        if (i >= old_ids.size() && !allocate_id(planned_ids, id)) {
+          valid = false;
+          break;
+        }
+        replacements.push_back({{id}, target, ChartRole::Player,
+            source[i].type == ChartMarkerType::NpcNote ? ChartRoleEventType::Note
+                                                       : ChartRoleEventType::MoveEnd,
+            group->id, group->dance_move_drill_id});
+      }
+    }
+    if (valid) {
+      const auto occupied = [&old_ids, &replacements](const auto& event) {
+        return event.row >= replacements.front().row &&
+            event.row <= replacements.back().row &&
+            std::find(old_ids.begin(), old_ids.end(), event.id.value) == old_ids.end();
+      };
+      valid = std::none_of(after.role_events.begin(), after.role_events.end(), occupied) &&
+          std::none_of(after.showtime_start_events.begin(), after.showtime_start_events.end(), occupied) &&
+          std::none_of(after.showtime_move_events.begin(), after.showtime_move_events.end(), occupied);
+    }
+    erase_role_events(after, old_ids);
+    if (!valid) {
+      result.player_actions_cleared = true;
+      continue;
+    }
+    const auto group_id = replacements.front().drill_group_id;
+    auto* updated_group = find_group(after, group_id.value);
+    auto* updated_c = find_role_event(after, marker.id.value);
+    updated_c->drill_group_id = group_id;
+    updated_c->dance_move_drill_id = replacements.front().dance_move_drill_id;
+    // Rebuild only this block's membership, preserving other PLY-C blocks in
+    // the same group and using the post-split/merge drill identity.
+    erase_event_references(after, {marker.id.value});
+    updated_group->player_event_ids.push_back(marker.id);
+    for (const auto& event : replacements) {
+      after.role_events.push_back(event);
+      updated_group->player_event_ids.push_back(event.id);
+    }
+    ids = planned_ids;
+    sort_role_events(after);
+    sort_relation_ids(after, updated_group->player_event_ids);
+  }
 }
 
 [[nodiscard]] ChartEditResult click_empty_player(
@@ -2201,7 +2352,8 @@ ChartEditResult ChartEditor::click(ChartColumn column,
     prune_eventless_groups(candidate);
     IdState ids{next_id_, id_available_};
     ChartEditResult result{ChartEditCode::CannotPlace, false, {0U}};
-    if (column == ChartColumn::Npc) {
+    const bool npc_command = column == ChartColumn::Npc;
+    if (npc_command) {
       result = current == nullptr
                    ? click_empty_npc(draft_, candidate, markers, row, ids)
                    : click_existing_npc(candidate, markers, *current, ids);
@@ -2218,6 +2370,9 @@ ChartEditResult ChartEditor::click(ChartColumn column,
     }
     if (!result.changed) {
       return result;
+    }
+    if (npc_command) {
+      synchronize_npc_edit(draft_, markers, candidate, ids, result);
     }
     return commit(std::move(candidate).finish(), result, ids.next,
                   ids.available);

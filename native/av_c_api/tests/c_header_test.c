@@ -14,6 +14,8 @@ int main(void) {
   otgy_chart_selections* selections = NULL;
   otgy_chart_paste_preview* preview = NULL;
   otgy_chart_session_result session = {7U, 7U};
+  otgy_chart_edit_result click_result = {7U, 7U, 7U};
+  uint8_t player_actions_cleared = 7U;
   const session_command commands[] = {
       otgy_chart_editor_clear_selection, otgy_chart_editor_copy_selection,
       otgy_chart_editor_cut_selection, otgy_chart_editor_clear_clipboard};
@@ -57,6 +59,97 @@ int main(void) {
       editor == NULL || error != NULL) {
     result = 3;
     goto cleanup;
+  }
+  if (otgy_chart_editor_click_with_effects(
+          NULL, OTGY_CHART_COLUMN_NPC, 0U, &click_result,
+          &player_actions_cleared, &error) != OTGY_STATUS_INVALID_ARGUMENT ||
+      click_result.code != 0U || click_result.changed != 0U ||
+      click_result.primary_event_id != 0U || player_actions_cleared != 0U ||
+      error == NULL) {
+    result = 16;
+    goto cleanup;
+  }
+  otgy_error_destroy(error);
+  error = NULL;
+  player_actions_cleared = 7U;
+  if (otgy_chart_editor_click_with_effects(
+          editor, OTGY_CHART_COLUMN_NPC, 0U, NULL,
+          &player_actions_cleared, &error) != OTGY_STATUS_INVALID_ARGUMENT ||
+      player_actions_cleared != 0U || error == NULL) {
+    result = 17;
+    goto cleanup;
+  }
+  otgy_error_destroy(error);
+  error = NULL;
+  click_result.code = 7U;
+  if (otgy_chart_editor_click_with_effects(
+          editor, OTGY_CHART_COLUMN_NPC, 0U, &click_result,
+          NULL, &error) != OTGY_STATUS_INVALID_ARGUMENT ||
+      click_result.code != 0U || error == NULL) {
+    result = 18;
+    goto cleanup;
+  }
+  otgy_error_destroy(error);
+  error = NULL;
+  if (otgy_chart_editor_can_undo(editor) != 0U) {
+    result = 19;
+    goto cleanup;
+  }
+  {
+    const uint32_t invalid_columns[] = {3U, 255U, 256U, 257U, 258U, UINT32_MAX};
+    const uint64_t undo_count = otgy_chart_editor_get_undo_count(editor);
+    for (index = 0U; index < sizeof(invalid_columns) / sizeof(invalid_columns[0]);
+         ++index) {
+      player_actions_cleared = 7U;
+      if (otgy_chart_editor_click_with_effects(
+              editor, invalid_columns[index], 0U, &click_result,
+              &player_actions_cleared, &error) != OTGY_STATUS_OK ||
+          click_result.code != OTGY_CHART_EDIT_INVALID_DRAFT ||
+          click_result.changed != 0U || player_actions_cleared != 0U ||
+          error != NULL ||
+          otgy_chart_editor_get_undo_count(editor) != undo_count) {
+        result = 20;
+        goto cleanup;
+      }
+      if (otgy_chart_editor_click(editor, invalid_columns[index], 0U,
+                                  &click_result, &error) != OTGY_STATUS_OK ||
+          click_result.code != OTGY_CHART_EDIT_INVALID_DRAFT ||
+          click_result.changed != 0U || error != NULL ||
+          otgy_chart_editor_get_undo_count(editor) != undo_count) {
+        result = 21;
+        goto cleanup;
+      }
+    }
+    if (otgy_chart_editor_click(editor, OTGY_CHART_COLUMN_NPC, 0U,
+                                &click_result, &error) != OTGY_STATUS_OK ||
+        click_result.changed != 1U || error != NULL) {
+      result = 22;
+      goto cleanup;
+    }
+    for (index = 0U; index < sizeof(invalid_columns) / sizeof(invalid_columns[0]);
+         ++index) {
+      if (otgy_chart_editor_select(editor, invalid_columns[index], 0U,
+                                   &session, &error) != OTGY_STATUS_OK ||
+          session.changed != 0U || error != NULL ||
+          otgy_chart_editor_selection_count(editor) != 0U ||
+          otgy_chart_editor_click_with_effects(
+              editor, invalid_columns[index], 0U, &click_result,
+              &player_actions_cleared, &error) != OTGY_STATUS_OK ||
+          click_result.changed != 0U || player_actions_cleared != 0U ||
+          error != NULL ||
+          otgy_chart_editor_click(editor, invalid_columns[index], 0U,
+                                  &click_result, &error) != OTGY_STATUS_OK ||
+          click_result.changed != 0U || error != NULL ||
+          otgy_chart_editor_get_undo_count(editor) != undo_count + 1U) {
+        result = 23;
+        goto cleanup;
+      }
+    }
+    if (otgy_chart_editor_undo(editor, &click_result, &error) != OTGY_STATUS_OK ||
+        click_result.changed != 1U || error != NULL) {
+      result = 24;
+      goto cleanup;
+    }
   }
   if (otgy_chart_editor_selection_count(NULL) != 0U ||
       otgy_chart_editor_clipboard_count(NULL) != 0U ||

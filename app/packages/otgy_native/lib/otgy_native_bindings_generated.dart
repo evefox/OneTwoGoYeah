@@ -1469,6 +1469,28 @@ external int otgy_chart_editor_click(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+/// Executes the same click transaction and reports whether failed player
+/// synchronization cleared existing N/S actions. Both outputs are initialized
+/// before argument validation. The legacy result layout remains unchanged.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint32,
+    ffi.Uint64,
+    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<ffi.Uint8>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_click_with_effects(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int column,
+  int row,
+  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<ffi.Uint8> out_player_actions_cleared,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,

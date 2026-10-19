@@ -1569,8 +1569,8 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
   stale_projection =
       handle<otgy_chart_markers, otgy_chart_markers_destroy>(raw_stale_markers);
   compare_markers(*broken_markers.markers(), stale_projection.get());
-  expect(otgy_chart_markers_get_count(stale_projection.get()) == 3U,
-         "Showtime markers survived the edit that made them stale");
+  expect(otgy_chart_markers_get_count(stale_projection.get()) == 0U,
+         "NPC deletion left linked player actions or stale Showtime markers");
 
   const auto direct_reset = direct_stale.clear();
   otgy_chart_edit_result abi_reset{};
@@ -1595,11 +1595,8 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
     group_click(1U, row);
   }
   group_click(2U, 16U);
-  group_click(0U, 2U);
-  expect(direct_stale.draft().drill_groups().size() == 2U,
-         "group with surviving player content was removed");
   const auto before_group_delete = direct_stale.draft();
-  group_click(1U, 6U);
+  group_click(0U, 2U);
   expect(direct_stale.draft().drill_groups().size() == 1U &&
              direct_stale.draft().dance_move_drills().front()
                      .drill_group_ids.size() == 1U,
@@ -1729,11 +1726,6 @@ void test_split_merge_consistency() {
          "dance move split redo changed the draft");
   compare_chart();
 
-  expect(static_cast<bool>(click(1U, 6U)), "split player block clear failed");
-  for (const auto row : {6U, 7U}) {
-    expect(static_cast<bool>(click(1U, row)),
-           "split player block regeneration failed");
-  }
   expect(static_cast<bool>(click(2U, 16U)),
          "split Showtime regeneration failed");
   expect(direct.draft().showtime_move_events().size() == 2U,
@@ -1745,11 +1737,6 @@ void test_split_merge_consistency() {
              direct.draft().showtimes().empty(),
          "dance move merge topology differs");
   compare_chart();
-  expect(static_cast<bool>(click(1U, 6U)), "merged player block clear failed");
-  for (const auto row : {6U, 7U}) {
-    expect(static_cast<bool>(click(1U, row)),
-           "merged player block regeneration failed");
-  }
   expect(static_cast<bool>(click(2U, 16U)),
          "merged Showtime regeneration failed");
   expect(direct.draft().showtime_move_events().size() == 1U &&
@@ -2152,6 +2139,107 @@ void test_failed_paste_consistency() {
   compare_chart();
 }
 
+void test_player_sync_click_effect_consistency() {
+  EditorPair pair(empty_chart());
+  auto& direct = pair.direct;
+  const auto click = [&](otgy::core::ChartColumn column, std::uint64_t row,
+                         bool expected_clear = false) {
+    const auto before = direct.draft();
+    const auto undo_count = direct.undo_count();
+    const auto redo_count = direct.redo_count();
+    const auto result = direct.click(column, row);
+    otgy_chart_edit_result projected{};
+    otgy_error* error = nullptr;
+    std::uint8_t cleared = 9U;
+    expect(otgy_chart_editor_click_with_effects(
+               pair.abi.get(), static_cast<std::uint32_t>(column), row,
+               &projected, &cleared, &error) == OTGY_STATUS_OK &&
+               error == nullptr,
+           "C ABI click effects edit failed");
+    compare_edit(result, projected);
+    expect(cleared == static_cast<std::uint8_t>(result.player_actions_cleared) &&
+               result.player_actions_cleared == expected_clear,
+           "C ABI player clear effect differs");
+    pair.compare();
+    if (result.changed) {
+      expect(direct.undo_count() == undo_count + 1U &&
+                 direct.redo_count() == 0U,
+             "click effects command did not create exactly one history entry");
+    } else {
+      expect(direct.undo_count() == undo_count &&
+                 direct.redo_count() == redo_count &&
+                 otgy::core::chart_drafts_equal(direct.draft(), before),
+             "failed click effects command changed draft or history");
+    }
+    return result;
+  };
+  using Column = otgy::core::ChartColumn;
+  for (const auto row : {0U, 10U, 14U, 18U, 18U}) {
+    expect(static_cast<bool>(click(Column::Npc, row)),
+           "click effects NPC fixture failed");
+  }
+  expect(static_cast<bool>(click(Column::Player, 20U)),
+         "click effects player C failed");
+  expect(static_cast<bool>(click(Column::Player, 30U)),
+         "click effects player generation failed");
+  const auto original = direct.draft();
+  const auto inserted = click(Column::Npc, 8U, false);
+  expect(inserted.code == otgy::core::ChartEditCode::Success &&
+             inserted.changed && !inserted.player_actions_cleared,
+         "inserting the new first NPC-N did not report successful sync");
+  const auto synced = direct.draft();
+  const auto projection = otgy::core::project_chart_markers(synced);
+  expect(static_cast<bool>(projection), "synced projection failed");
+  std::vector<std::uint64_t> player_rows;
+  for (const auto& marker : *projection.markers()) {
+    if (marker.column == Column::Player) {
+      player_rows.push_back(marker.row);
+    }
+  }
+  expect(player_rows == std::vector<std::uint64_t>({20U, 28U, 30U, 34U, 38U}),
+         "synchronized player rows differ");
+  const auto failed = click(Column::Npc, 19U);
+  expect(failed.code == otgy::core::ChartEditCode::CannotAppendAfterEnd,
+         "failed NPC command returned the wrong result");
+  const auto cleared_effect = click(Column::Npc, 8U, true);
+  expect(cleared_effect.code == otgy::core::ChartEditCode::Success &&
+             cleared_effect.changed && cleared_effect.player_actions_cleared,
+         "converting the first NPC-N did not report player action clearing");
+  const auto cleared = direct.draft();
+  pair.history(true);
+  expect(otgy::core::chart_drafts_equal(direct.draft(), synced),
+         "one undo did not restore synchronized actions and relationships");
+  expect(!click(Column::Player, 14U).changed,
+         "wrong-column click unexpectedly changed the draft");
+  pair.history(false);
+  expect(otgy::core::chart_drafts_equal(direct.draft(), cleared),
+         "redo did not restore the exact cleared snapshot");
+  pair.history(true);
+  pair.history(true);
+  expect(otgy::core::chart_drafts_equal(direct.draft(), original),
+         "synchronization undo did not restore the original snapshot");
+  expect(click(Column::Player, 30U).changed,
+         "manual player clear failed");
+  expect(click(Column::Npc, 8U).changed,
+         "NPC edit with a C-only player block failed");
+  const auto c_only_projection = otgy::core::project_chart_markers(direct.draft());
+  expect(static_cast<bool>(c_only_projection), "C-only projection failed");
+  expect(std::count_if(c_only_projection.markers()->begin(),
+                       c_only_projection.markers()->end(), [](const auto& marker) {
+                         return marker.column == Column::Player;
+                       }) == 1,
+         "NPC edit refilled an intentionally cleared player block");
+  const auto before_delete = direct.draft();
+  expect(click(Column::Npc, 0U).changed && direct.draft().role_events().empty(),
+         "NPC-C deletion left its corresponding C-only player block");
+  pair.history(true);
+  expect(otgy::core::chart_drafts_equal(direct.draft(), before_delete),
+         "one undo did not restore the C-only block");
+  pair.history(false);
+  expect(direct.draft().role_events().empty(),
+         "redo did not delete the corresponding block");
+}
+
 void test_slk_finished_boundary(const std::vector<std::uint8_t>& bytes) {
   const auto direct_import =
       otgy::core::import_finished_slk(bytes.data(), bytes.size());
@@ -2333,6 +2421,7 @@ int main() {
     test_cut_showtime_consistency();
     test_stale_showtime_consistency();
     test_failed_paste_consistency();
+    test_player_sync_click_effect_consistency();
     test_slk_finished_boundary(read_file(OTGY_C_API_SLK_FIXTURE));
     test_slk_position();
     return 0;

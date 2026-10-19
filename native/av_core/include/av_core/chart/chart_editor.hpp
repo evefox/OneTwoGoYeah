@@ -91,6 +91,7 @@ struct ChartEditResult final {
   ChartEditCode code;
   bool changed;
   ChartEventId primary_event_id;
+  bool player_actions_cleared{false};
 
   [[nodiscard]] explicit operator bool() const noexcept {
     return code == ChartEditCode::Success;

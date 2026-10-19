@@ -292,10 +292,10 @@ void main() {
     }
     expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 16).changed, isTrue);
     expect(editor.showtimeMoves(), hasLength(1));
+    final before = editor.encodeRecovery();
     expect(editor.click(OTGY_CHART_COLUMN_NPC, 2).changed, isTrue);
     expect(editor.showtimeMoves(), isEmpty);
-    final before = editor.encodeRecovery();
-    expect(editor.click(OTGY_CHART_COLUMN_PLAYER, 6).changed, isTrue);
+    expect(editor.markers().any((marker) => marker.row == 6), isFalse);
     final remaining = editor.encodeRecovery();
     editor.undo();
     expect(editor.encodeRecovery(), orderedEquals(before));

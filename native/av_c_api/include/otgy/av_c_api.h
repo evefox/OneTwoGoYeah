@@ -777,6 +777,13 @@ typedef struct otgy_chart_edit_result {
 OTGY_C_API otgy_status otgy_chart_editor_click(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
     otgy_chart_edit_result* out_result, otgy_error** out_error);
+/// Executes the same click transaction and reports whether failed player
+/// synchronization cleared existing N/S actions. Both outputs are initialized
+/// before argument validation. The legacy result layout remains unchanged.
+OTGY_C_API otgy_status otgy_chart_editor_click_with_effects(
+    otgy_chart_editor* editor, uint32_t column, uint64_t row,
+    otgy_chart_edit_result* out_result, uint8_t* out_player_actions_cleared,
+    otgy_error** out_error);
 OTGY_C_API otgy_status otgy_chart_editor_clear(
     otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
     otgy_error** out_error);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "av_core/chart/chart_editor.hpp"
+#include "av_core/chart/chart_validator.hpp"
 #include "av_core/project/project_serialization.hpp"
 
 #include <algorithm>
@@ -93,16 +94,15 @@ void test_npc_limit_insertion_and_block_deletion() {
   assert(editor.undo_count() == history_before_failure);
 
   assert(editor.click(ChartColumn::Player, 140U));
-  const auto player_c = marker_of(editor.draft(),
-                                  ChartMarkerType::PlayerBlockStart);
   const auto before_delete = editor.draft();
-  assert(editor.click(ChartColumn::Npc, 0U));
-  assert(editor.draft().role_events().size() == 1U);
-  assert(editor.draft().role_events().front().id.value == player_c.id.value);
-  assert(editor.draft().drill_groups().front().npc_event_ids.empty());
-  assert(editor.draft().drill_groups().front().player_event_ids.size() == 1U);
+  const auto deleted = editor.click(ChartColumn::Npc, 0U);
+  assert(deleted && !deleted.player_actions_cleared);
+  assert(editor.draft().role_events().empty());
+  assert(editor.draft().drill_groups().empty());
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), before_delete));
+  assert(editor.redo());
+  assert(editor.draft().role_events().empty());
 }
 
 [[nodiscard]] ChartEditor build_player_source() {
@@ -116,7 +116,7 @@ void test_npc_limit_insertion_and_block_deletion() {
   return editor;
 }
 
-void test_player_generation_is_atomic_and_detached() {
+void test_player_generation_and_npc_sync_are_atomic() {
   auto editor = build_player_source();
   const auto before_generation = editor.draft();
   const auto history_before = editor.undo_count();
@@ -133,11 +133,10 @@ void test_player_generation_is_atomic_and_detached() {
   const auto generated = editor.draft();
   assert(editor.click(ChartColumn::Npc, 25U));
   assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote).row == 100U);
-  assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 1U).row ==
-         115U);
   assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd).row ==
+         115U);
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 1U).row ==
          130U);
-  assert(editor.draft().dance_move_drills().front().move_n_count == 1U);
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), generated));
 
@@ -162,6 +161,714 @@ void test_player_generation_is_atomic_and_detached() {
 
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), before_generation));
+}
+
+[[nodiscard]] std::vector<std::uint64_t> player_action_rows(const ChartDraft& draft) {
+  std::vector<std::uint64_t> rows;
+  for (const auto& event : draft.role_events()) {
+    if (event.role == ChartRole::Player && event.type != ChartRoleEventType::BlockStart)
+      rows.push_back(event.row);
+  }
+  std::sort(rows.begin(), rows.end());
+  return rows;
+}
+
+void test_player_sync() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  for (const auto row : {0U, 10U, 14U, 18U, 18U}) {
+    assert(editor.click(ChartColumn::Npc, row));
+  }
+  assert(editor.click(ChartColumn::Player, 20U));
+  const auto before_generation = editor.draft();
+  assert(editor.click(ChartColumn::Player, 30U));
+  assert(player_action_rows(editor.draft()) ==
+         std::vector<std::uint64_t>({30U, 34U, 38U}));
+  const auto generated = editor.draft();
+  const auto history = editor.undo_count();
+  const auto inserted = editor.click(ChartColumn::Npc, 8U);
+  assert(inserted && !inserted.player_actions_cleared);
+  assert(editor.undo_count() == history + 1U);
+  assert(player_action_rows(editor.draft()) ==
+         std::vector<std::uint64_t>({28U, 30U, 34U, 38U}));
+  const auto synced = editor.draft();
+  const auto cleared = editor.click(ChartColumn::Npc, 8U);
+  assert(cleared && cleared.player_actions_cleared);
+  assert(editor.undo_count() == history + 2U);
+  assert(player_action_rows(editor.draft()).empty());
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart).row == 20U);
+  assert(editor.draft().drill_groups().front().player_event_ids.size() == 1U);
+  const auto only_c = editor.draft();
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), synced));
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), generated));
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before_generation));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), generated));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), synced));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), only_c));
+  const auto removed_s = editor.click(ChartColumn::Npc, 8U);
+  assert(removed_s && !removed_s.player_actions_cleared);
+  assert(player_action_rows(editor.draft()).empty());
+}
+
+void test_npc_sync_offsets_failures_and_blocks() {
+  ChartEditor source{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  for (const auto row : {4U, 10U, 14U, 18U, 18U}) assert(source.click(ChartColumn::Npc, row));
+  assert(source.click(ChartColumn::Player, 24U));
+  assert(source.click(ChartColumn::Player, 30U));
+  const auto base = source.draft();
+  const auto first_id = marker_of(base, ChartMarkerType::PlayerNote).id.value;
+  const auto second_id = marker_of(base, ChartMarkerType::PlayerNote, 1U).id.value;
+  {
+    ChartEditor editor{base};
+    const auto inserted = editor.click(ChartColumn::Npc, 8U);
+    assert(inserted && !inserted.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) == std::vector<std::uint64_t>({28U, 30U, 34U, 38U}));
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote).id.value == first_id);
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 1U).id.value == second_id);
+    const auto after = editor.draft();
+    const auto recovery = otgy::core::encode_recovery_snapshot(after);
+    assert(recovery);
+    const auto recovered = otgy::core::decode_recovery_snapshot(
+        recovery.bytes()->data(), recovery.bytes()->size());
+    assert(recovered);
+    assert(otgy::core::chart_drafts_equal(*recovered.chart(), after));
+    constexpr double bpm = 100.00000000000003;
+    constexpr double offset = -0.12345678901234566;
+    const auto formal = otgy::core::encode_formal_draft(after, bpm, offset);
+    assert(formal);
+    const auto loaded = otgy::core::decode_formal_draft(
+        formal.bytes()->data(), formal.bytes()->size());
+    assert(loaded);
+    assert(otgy::core::chart_drafts_equal(loaded.payload()->chart, after));
+    assert(loaded.payload()->bpm == bpm);
+    assert(loaded.payload()->offset_seconds == offset);
+    assert(editor.undo_count() == 1U);
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), base));
+    assert(editor.redo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+  }
+  {
+    ChartEditor editor{base};
+    const auto cleared = editor.click(ChartColumn::Npc, 10U);
+    assert(cleared && cleared.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart).row == 24U);
+    assert(editor.click(ChartColumn::Npc, 10U));
+    assert(player_action_rows(editor.draft()).empty());
+    assert(editor.undo());
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), base));
+  }
+  // Extending an incomplete source checks the whole new closed range. A marker
+  // after the old player actions remains outside the old block but conflicts
+  // with the newly projected last N.
+  ChartEditor incomplete{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  for (const auto row : {4U, 10U, 14U}) {
+    assert(incomplete.click(ChartColumn::Npc, row));
+  }
+  assert(incomplete.click(ChartColumn::Player, 20U));
+  assert(incomplete.click(ChartColumn::Player, 30U));
+  const auto incomplete_base = incomplete.draft();
+  for (const auto column : {ChartColumn::Npc, ChartColumn::Player,
+                            ChartColumn::Showtime}) {
+    auto roles = incomplete_base.role_events();
+    auto starts = incomplete_base.showtime_start_events();
+    if (column == ChartColumn::Showtime) {
+      starts.push_back({{900U}, 38U, {901U}});
+    } else {
+      roles.push_back({{900U}, 38U,
+                       column == ChartColumn::Npc ? ChartRole::Npc
+                                                  : ChartRole::Player,
+                       ChartRoleEventType::BlockStart, {902U}, {903U}});
+    }
+    ChartDraft occupied{roles, starts, {}, incomplete_base.drill_groups(),
+                        incomplete_base.dance_move_drills(), {}};
+    ChartEditor editor{occupied};
+    const auto result = editor.click(ChartColumn::Npc, 18U);
+    assert(result && result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), occupied));
+  }
+  {
+    // A second PLY-C in the same group owns an independent old offset.
+    auto roles = base.role_events();
+    auto groups = base.drill_groups();
+    const auto group = groups.front().id;
+    const auto drill = groups.front().dance_move_drill_id;
+    for (const auto& event : std::vector<ChartRoleEvent>{
+        {{800U}, 44U, ChartRole::Player, ChartRoleEventType::BlockStart, group, drill},
+        {{801U}, 50U, ChartRole::Player, ChartRoleEventType::Note, group, drill},
+        {{802U}, 54U, ChartRole::Player, ChartRoleEventType::Note, group, drill},
+        {{803U}, 58U, ChartRole::Player, ChartRoleEventType::MoveEnd, group, drill}}) {
+      roles.push_back(event);
+      groups.front().player_event_ids.push_back(event.id);
+    }
+    ChartEditor editor{ChartDraft{roles, {}, {}, groups, base.dance_move_drills(), {}}};
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && !result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) == std::vector<std::uint64_t>({28U, 30U, 34U, 38U, 48U, 50U, 54U, 58U}));
+    const auto deleted = editor.click(ChartColumn::Npc, 4U);
+    assert(deleted && !deleted.player_actions_cleared);
+    assert(editor.draft().role_events().empty());
+  }
+  {
+    // A marker between the source C and first N ends the synchronization source.
+    // The existing generation command may have skipped it, but later NPC edits
+    // must not reach across it and rewrite that older player block.
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    assert(editor.click(ChartColumn::Npc, 0U));
+    for (const auto row : {10U, 14U, 18U, 18U}) {
+      assert(editor.click(ChartColumn::Npc, row));
+    }
+    assert(editor.click(ChartColumn::Player, 20U));
+    assert(editor.click(ChartColumn::Player, 30U));
+    assert(editor.click(ChartColumn::Player, 5U));
+    const auto before = editor.draft();
+    const auto result = editor.click(ChartColumn::Npc, 14U);
+    assert(result && !result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({30U, 34U, 38U}));
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  }
+  {
+    auto roles = base.role_events();
+    roles.push_back({{UINT64_MAX - 1U}, 80U, ChartRole::Npc,
+        ChartRoleEventType::BlockStart, {900U}, {901U}});
+    ChartEditor editor{ChartDraft{roles, {}, {}, base.drill_groups(), base.dance_move_drills(), {}}};
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    // The NPC insertion consumes the last ID; only player regeneration fails.
+    assert(result && result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+    assert(marker_of(editor.draft(), ChartMarkerType::NpcNote).row == 8U);
+  }
+  {
+    ChartEditor editor{base};
+    const auto history = editor.undo_count();
+    const auto failed = editor.click(ChartColumn::Npc, 20U);
+    assert(failed.code == ChartEditCode::CannotAppendAfterEnd && !failed.changed && !failed.player_actions_cleared);
+    assert(editor.undo_count() == history);
+    assert(otgy::core::chart_drafts_equal(editor.draft(), base));
+  }
+}
+
+void test_npc_sync_draft_shapes_and_boundaries() {
+  // Draft copying preserves all actions, including S followed by N and multiple
+  // S markers. The first action is the only special S rejection boundary.
+  for (const auto mode : {0U, 1U, 2U}) {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    assert(editor.click(ChartColumn::Npc, 0U));
+    for (std::uint64_t row = 10U; row <= 32U; row += 2U) {
+      assert(editor.click(ChartColumn::Npc, row));
+    }
+    if (mode == 0U) {
+      assert(editor.click(ChartColumn::Npc, 31U));
+    } else {
+      assert(editor.click(ChartColumn::Npc, 14U));
+      if (mode == 2U) assert(editor.click(ChartColumn::Npc, 18U));
+    }
+    assert(editor.click(ChartColumn::Player, 40U));
+    assert(editor.click(ChartColumn::Player, 50U));
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && !result.player_actions_cleared);
+    const auto projection = otgy::core::project_chart_markers(editor.draft());
+    assert(projection);
+    std::vector<ChartMarker> npc;
+    std::vector<ChartMarker> player;
+    for (const auto& marker : *projection.markers()) {
+      if (marker.type == ChartMarkerType::NpcNote ||
+          marker.type == ChartMarkerType::NpcMoveEnd) npc.push_back(marker);
+      if (marker.type == ChartMarkerType::PlayerNote ||
+          marker.type == ChartMarkerType::PlayerMoveEnd) player.push_back(marker);
+    }
+    assert(npc.size() == player.size());
+    for (std::size_t i = 0U; i < npc.size(); ++i) {
+      assert(player[i].row == npc[i].row + 40U);
+      assert((npc[i].type == ChartMarkerType::NpcNote) ==
+             (player[i].type == ChartMarkerType::PlayerNote));
+    }
+  }
+  {
+    // Growing beyond uint64 clears only the old actions, with one undo.
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    for (const auto row : {0U, 10U, 14U}) assert(editor.click(ChartColumn::Npc, row));
+    assert(editor.click(ChartColumn::Player, 20U));
+    assert(editor.click(ChartColumn::Player, UINT64_MAX - 8U));
+    assert(editor.click(ChartColumn::Npc, 18U));
+    assert(player_action_rows(editor.draft()).back() == UINT64_MAX);
+    const auto before = editor.draft();
+    const auto result = editor.click(ChartColumn::Npc, 19U);
+    assert(result && result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  }
+  {
+    // Inserting before the old anchor would place the first action on PLY-C.
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    for (const auto row : {0U, 10U, 14U}) assert(editor.click(ChartColumn::Npc, row));
+    assert(editor.click(ChartColumn::Player, 20U));
+    assert(editor.click(ChartColumn::Player, 22U));
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+  }
+  {
+    // Two NPC-C markers can share a group. Deleting the later source cannot
+    // rebind its PLY-C to the earlier one or delete unrelated player content.
+    const auto type = ChartRoleEventType::BlockStart;
+    ChartDraft draft{{
+        {{1U}, 0U, ChartRole::Npc, type, {20U}, {30U}},
+        {{2U}, 4U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{3U}, 8U, ChartRole::Player, type, {20U}, {30U}},
+        {{4U}, 10U, ChartRole::Player, ChartRoleEventType::Note, {20U}, {30U}},
+        {{5U}, 20U, ChartRole::Npc, type, {20U}, {30U}},
+        {{6U}, 24U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{7U}, 28U, ChartRole::Player, type, {20U}, {30U}},
+        {{8U}, 30U, ChartRole::Player, ChartRoleEventType::Note, {20U}, {30U}},
+        {{9U}, 40U, ChartRole::Player, ChartRoleEventType::Note, {99U}, {98U}}},
+        {}, {}, {{{20U}, {30U}, {{1U}, {2U}, {5U}, {6U}}, {{3U}, {4U}, {7U}, {8U}}}},
+        {{{30U}, 2U, {{20U}}}}, {}};
+    ChartEditor editor{draft};
+    const auto result = editor.click(ChartColumn::Npc, 20U);
+    assert(result && !result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({10U, 40U}));
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), draft));
+  }
+  {
+    // Correspondence comes from the nearest preceding NPC-C and global
+    // consecutive player actions. Missing relation-vector entries cannot hide a
+    // block whose event-owned group and drill identities remain consistent,
+    // while a non-consecutive foreign player action remains outside it.
+    const auto type = ChartRoleEventType::BlockStart;
+    ChartDraft draft{{
+        {{1U}, 0U, ChartRole::Npc, type, {20U}, {30U}},
+        {{2U}, 10U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{3U}, 14U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{4U}, 18U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {20U}, {30U}},
+        {{5U}, 20U, ChartRole::Player, type, {20U}, {30U}},
+        {{6U}, 30U, ChartRole::Player, ChartRoleEventType::Note, {20U}, {30U}},
+        {{7U}, 34U, ChartRole::Player, ChartRoleEventType::Note, {20U}, {30U}},
+        {{8U}, 38U, ChartRole::Player, ChartRoleEventType::MoveEnd, {20U}, {30U}},
+        {{9U}, 50U, ChartRole::Player, ChartRoleEventType::Note, {98U}, {99U}}},
+        {{{10U}, 45U, {100U}}}, {},
+        {{{20U}, {30U}, {{1U}, {2U}, {3U}, {4U}}, {}}},
+        {{{30U}, 2U, {{20U}}}}, {}};
+    ChartEditor editor{draft};
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && !result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({28U, 30U, 34U, 38U, 50U}));
+    const auto& group = editor.draft().drill_groups().front();
+    assert(group.player_event_ids.size() == 5U);
+    assert(group.player_event_ids.front().value == 5U);
+    const auto synced = editor.draft();
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), draft));
+    assert(editor.redo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), synced));
+    assert(editor.undo());
+    const auto deleted = editor.click(ChartColumn::Npc, 0U);
+    assert(deleted && !deleted.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({50U}));
+    assert(editor.draft().role_events().size() == 1U);
+    assert(editor.draft().role_events().front().id.value == 9U);
+    const auto after_delete = editor.draft();
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), draft));
+    assert(editor.redo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), after_delete));
+  }
+}
+
+void test_npc_sync_preserves_explicitly_unrelated_player_blocks() {
+  // A nearest preceding NPC-C is not enough: both event-owned identities must
+  // agree, even when relation vectors incorrectly list the player as a member.
+  for (const auto mismatch : {0U, 1U, 2U}) {
+    const otgy::core::ChartDrillGroupId player_group{
+        mismatch == 1U ? 20U : 21U};
+    const otgy::core::ChartDanceMoveDrillId player_drill{
+        mismatch == 0U ? 30U : 31U};
+    const auto type = ChartRoleEventType::BlockStart;
+    const std::vector<ChartRoleEvent> players{
+        {{5U}, 20U, ChartRole::Player, type, player_group, player_drill},
+        {{6U}, 30U, ChartRole::Player, ChartRoleEventType::Note,
+         player_group, player_drill},
+        {{7U}, 34U, ChartRole::Player, ChartRoleEventType::Note,
+         player_group, player_drill},
+        {{8U}, 38U, ChartRole::Player, ChartRoleEventType::MoveEnd,
+         player_group, player_drill}};
+    std::vector<ChartRoleEvent> roles{
+        {{1U}, 0U, ChartRole::Npc, type, {20U}, {30U}},
+        {{2U}, 10U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{3U}, 14U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{4U}, 18U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {20U}, {30U}}};
+    roles.insert(roles.end(), players.begin(), players.end());
+    ChartDraft draft{roles, {}, {},
+        {{{20U}, {30U}, {{1U}, {2U}, {3U}, {4U}}, {{5U}, {6U}, {7U}, {8U}}}},
+        {{{30U}, 2U, {{20U}}}}, {}};
+    const auto assert_players_unchanged = [&players](const ChartDraft& current) {
+      std::vector<ChartRoleEvent> actual;
+      for (const auto& event : current.role_events()) {
+        if (event.role == ChartRole::Player) actual.push_back(event);
+      }
+      assert(otgy::core::chart_drafts_equal(
+          ChartDraft{actual, {}, {}, {}, {}, {}},
+          ChartDraft{players, {}, {}, {}, {}, {}}));
+    };
+    for (const auto row : {8U, 10U, 0U}) {
+      ChartEditor editor{draft};
+      const auto result = editor.click(ChartColumn::Npc, row);
+      assert(result && result.changed && !result.player_actions_cleared);
+      assert_players_unchanged(editor.draft());
+      assert(editor.undo_count() == 1U);
+      const auto after = editor.draft();
+      assert(editor.undo());
+      assert(otgy::core::chart_drafts_equal(editor.draft(), draft));
+      assert(editor.redo());
+      assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+      assert_players_unchanged(editor.draft());
+    }
+  }
+}
+
+void test_npc_sync_stops_at_foreign_player_action() {
+  // A foreign action terminates the block even if a later action again carries
+  // the original ownership. Neither it nor that later action may be consumed.
+  for (const auto mismatch : {0U, 1U, 2U}) {
+    const otgy::core::ChartDrillGroupId foreign_group{
+        mismatch == 1U ? 20U : 21U};
+    const otgy::core::ChartDanceMoveDrillId foreign_drill{
+        mismatch == 0U ? 30U : 31U};
+    const auto type = ChartRoleEventType::BlockStart;
+    ChartDraft draft{{
+        {{1U}, 0U, ChartRole::Npc, type, {20U}, {30U}},
+        {{2U}, 10U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{3U}, 14U, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {30U}},
+        {{4U}, 18U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {20U}, {30U}},
+        {{5U}, 20U, ChartRole::Player, type, {20U}, {30U}},
+        {{6U}, 30U, ChartRole::Player, ChartRoleEventType::Note, {20U}, {30U}},
+        {{7U}, 34U, ChartRole::Player, ChartRoleEventType::Note,
+         foreign_group, foreign_drill},
+        {{8U}, 38U, ChartRole::Player, ChartRoleEventType::MoveEnd, {20U}, {30U}}},
+        {}, {}, {{{20U}, {30U}, {{1U}, {2U}, {3U}, {4U}}, {}}},
+        {{{30U}, 2U, {{20U}}}}, {}};
+    for (const auto row : {8U, 0U}) {
+      ChartEditor editor{draft};
+      const auto result = editor.click(ChartColumn::Npc, row);
+      assert(result && result.changed);
+      // Regeneration would collide with the untouched foreign action at 34.
+      assert(result.player_actions_cleared == (row == 8U));
+      assert(player_action_rows(editor.draft()) ==
+             std::vector<std::uint64_t>({34U, 38U}));
+      std::vector<ChartRoleEvent> survivors;
+      for (const auto& event : editor.draft().role_events()) {
+        if (event.id.value == 7U || event.id.value == 8U) {
+          survivors.push_back(event);
+        }
+      }
+      const std::vector<ChartRoleEvent> expected{
+          draft.role_events()[6U], draft.role_events()[7U]};
+      assert(otgy::core::chart_drafts_equal(
+          ChartDraft{survivors, {}, {}, {}, {}, {}},
+          ChartDraft{expected, {}, {}, {}, {}, {}}));
+      assert(editor.undo_count() == 1U);
+      const auto after = editor.draft();
+      assert(editor.undo());
+      assert(otgy::core::chart_drafts_equal(editor.draft(), draft));
+      assert(editor.redo());
+      assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+    }
+  }
+}
+
+void test_npc_sync_uses_current_occupancy_without_retry() {
+  for (const bool first_block_fails : {false, true}) {
+    // The second block starts with an S, so its first N (the old anchor) is
+    // later than its first action. After insertion it targets row 46.
+    const auto c = ChartRoleEventType::BlockStart;
+    const auto n = ChartRoleEventType::Note;
+    const auto s = ChartRoleEventType::MoveEnd;
+    std::vector<ChartRoleEvent> events{
+        {{1U}, 0U, ChartRole::Npc, c, {20U}, {30U}},
+        {{2U}, 10U, ChartRole::Npc, n, {20U}, {30U}},
+        {{3U}, 14U, ChartRole::Npc, n, {20U}, {30U}},
+        {{4U}, 20U, ChartRole::Player, c, {20U}, {30U}},
+        {{5U}, 42U, ChartRole::Player, n, {20U}, {30U}},
+        {{6U}, 44U, ChartRole::Player, c, {20U}, {30U}},
+        {{7U}, 45U, ChartRole::Player, s, {20U}, {30U}},
+        {{8U}, 50U, ChartRole::Player, n, {20U}, {30U}}};
+    if (first_block_fails) events[4].row = 43U;
+    ChartDraft draft{events, {}, {},
+        {{{20U}, {30U}, {{1U}, {2U}, {3U}}, {{4U}, {5U}, {6U}, {7U}, {8U}}}},
+        {{{30U}, 2U, {{20U}}}}, {}};
+    ChartEditor editor{draft};
+    const auto result = editor.click(ChartColumn::Npc, 6U);
+    assert(result && result.player_actions_cleared);
+    // First block: [38,42,46] intersects the other C, or [39,43,47]
+    // intersects that C as well. It is cleared, not retried later.
+    // Second block: [46,50,54] is checked against the current live content.
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({46U, 50U, 54U}));
+    assert(editor.undo_count() == 1U);
+    const auto after = editor.draft();
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), draft));
+    assert(editor.redo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+  }
+}
+
+void assert_sync_payload_round_trips(const ChartDraft& draft) {
+  constexpr double bpm = 100.00000000000003;
+  constexpr double offset = -0.12345678901234566;
+  const auto recovery = otgy::core::encode_recovery_snapshot(draft);
+  assert(recovery);
+  const auto recovered = otgy::core::decode_recovery_snapshot(
+      recovery.bytes()->data(), recovery.bytes()->size());
+  assert(recovered);
+  assert(otgy::core::chart_drafts_equal(*recovered.chart(), draft));
+  const auto formal = otgy::core::encode_formal_draft(draft, bpm, offset);
+  assert(formal);
+  const auto loaded = otgy::core::decode_formal_draft(
+      formal.bytes()->data(), formal.bytes()->size());
+  assert(loaded);
+  assert(otgy::core::chart_drafts_equal(loaded.payload()->chart, draft));
+  assert(loaded.payload()->bpm == bpm);
+  assert(loaded.payload()->offset_seconds == offset);
+  ChartEditor restored{*recovered.chart()};
+  assert(otgy::core::chart_drafts_equal(restored.draft(), draft));
+  assert(restored.undo_count() == 0U && restored.redo_count() == 0U);
+}
+
+void test_npc_sync_mixed_blocks_and_missing_relations() {
+  ChartEditor source{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  for (const auto row : {0U, 10U, 14U, 18U, 18U}) {
+    assert(source.click(ChartColumn::Npc, row));
+  }
+  assert(source.click(ChartColumn::Player, 20U));
+  assert(source.click(ChartColumn::Player, 30U));
+  const auto base = source.draft();
+  for (const bool unordered : {false, true}) {
+    auto events = base.role_events();
+    auto groups = base.drill_groups();
+    const auto group = groups.front().id;
+    const auto drill = groups.front().dance_move_drill_id;
+    events.push_back({{800U}, 44U, ChartRole::Player,
+                      ChartRoleEventType::BlockStart, group, drill});
+    events.push_back({{801U}, 45U, ChartRole::Player,
+                      ChartRoleEventType::Note, group, drill});
+    events.push_back({{802U}, 49U, ChartRole::Player,
+                      ChartRoleEventType::Note, group, drill});
+    events.push_back({{803U}, 53U, ChartRole::Player,
+                      ChartRoleEventType::MoveEnd, group, drill});
+    if (unordered) {
+      std::reverse(events.begin(), events.end());
+      groups.front().npc_event_ids.clear();
+      groups.front().player_event_ids.clear();
+    } else {
+      groups.front().player_event_ids.insert(
+          groups.front().player_event_ids.end(), {{800U}, {801U}, {802U}, {803U}});
+    }
+    const ChartDraft before{events, {}, {}, groups, base.dance_move_drills(), {}};
+    ChartEditor editor{before};
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({28U, 30U, 34U, 38U}));
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart, 1U).id.value == 800U);
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart, 1U).row == 44U);
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote).id.value ==
+           marker_of(base, ChartMarkerType::PlayerNote).id.value);
+    assert(editor.undo_count() == 1U);
+    const auto after = editor.draft();
+    assert_sync_payload_round_trips(after);
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+    assert(editor.redo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+  }
+}
+
+void test_npc_sync_closed_range_conflicts() {
+  ChartEditor source{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  for (const auto row : {0U, 10U, 14U}) assert(source.click(ChartColumn::Npc, row));
+  assert(source.click(ChartColumn::Player, 20U));
+  assert(source.click(ChartColumn::Player, 30U));
+  const auto base = source.draft();
+  // New range [30,38]: interior empty row, new target and final endpoint.
+  for (const auto row : {35U, 36U, 38U}) {
+    for (const auto column : {ChartColumn::Npc, ChartColumn::Player,
+                              ChartColumn::Showtime}) {
+      auto events = base.role_events();
+      auto starts = base.showtime_start_events();
+      if (column == ChartColumn::Showtime) {
+        starts.push_back({{900U}, row, {901U}});
+      } else {
+        events.push_back({{900U}, row,
+            column == ChartColumn::Npc ? ChartRole::Npc : ChartRole::Player,
+            ChartRoleEventType::BlockStart, {902U}, {903U}});
+      }
+      const ChartDraft before{events, starts, {}, base.drill_groups(),
+                               base.dance_move_drills(), {}};
+      ChartEditor editor{before};
+      const auto result = editor.click(ChartColumn::Npc, 18U);
+      assert(result && result.player_actions_cleared);
+      assert(player_action_rows(editor.draft()).empty());
+      const auto projection = otgy::core::project_chart_markers(editor.draft());
+      assert(projection);
+      const auto found = std::find_if(projection.markers()->begin(),
+          projection.markers()->end(), [](const auto& marker) {
+            return marker.id.value == 900U;
+          });
+      assert(found != projection.markers()->end() && found->row == row);
+      assert(editor.undo_count() == 1U);
+      const auto after = editor.draft();
+      assert_sync_payload_round_trips(after);
+      assert(editor.undo());
+      assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+      assert(editor.redo());
+      assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+    }
+  }
+  // The new first endpoint may not equal or precede this block's own C.
+  for (const auto first_player_row : {21U, 22U}) {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    for (const auto row : {0U, 10U, 14U}) assert(editor.click(ChartColumn::Npc, row));
+    assert(editor.click(ChartColumn::Player, 20U));
+    assert(editor.click(ChartColumn::Player, first_player_row));
+    const auto before = editor.draft();
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart).row == 20U);
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  }
+}
+
+void test_npc_sync_does_not_refill_empty_player_blocks() {
+  for (const bool manually_cleared : {false, true}) {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    for (const auto row : {0U, 10U, 14U}) assert(editor.click(ChartColumn::Npc, row));
+    assert(editor.click(ChartColumn::Player, 20U));
+    if (manually_cleared) {
+      assert(editor.click(ChartColumn::Player, 30U));
+      assert(editor.click(ChartColumn::Player, 30U));
+    }
+    assert(player_action_rows(editor.draft()).empty());
+    const auto before = editor.draft();
+    const auto history = editor.undo_count();
+    const auto result = editor.click(ChartColumn::Npc, 8U);
+    assert(result && !result.player_actions_cleared);
+    assert(player_action_rows(editor.draft()).empty());
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart).id.value ==
+           marker_of(before, ChartMarkerType::PlayerBlockStart).id.value);
+    assert(editor.undo_count() == history + 1U);
+    assert_sync_payload_round_trips(editor.draft());
+    assert(editor.undo());
+    assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+    assert(editor.redo());
+    const auto deleted = editor.click(ChartColumn::Npc, 0U);
+    assert(deleted && !deleted.player_actions_cleared);
+    assert(editor.draft().role_events().empty());
+  }
+}
+
+void test_npc_sync_partial_id_exhaustion_does_not_consume_ids() {
+  const auto c = ChartRoleEventType::BlockStart;
+  const auto n = ChartRoleEventType::Note;
+  ChartDraft before{{
+      {{1U}, 0U, ChartRole::Npc, c, {20U}, {30U}},
+      {{2U}, 10U, ChartRole::Npc, n, {20U}, {30U}},
+      {{3U}, 14U, ChartRole::Npc, n, {20U}, {30U}},
+      {{4U}, 20U, ChartRole::Player, c, {20U}, {30U}},
+      {{5U}, 30U, ChartRole::Player, n, {20U}, {30U}},
+      {{UINT64_MAX - 2U}, 80U, ChartRole::Npc, c, {90U}, {91U}}},
+      {}, {}, {{{20U}, {30U}, {{1U}, {2U}, {3U}}, {{4U}, {5U}}},
+               {{90U}, {91U}, {{UINT64_MAX - 2U}}, {}}},
+      {{{30U}, 2U, {{20U}}}, {{91U}, 0U, {{90U}}}}, {}};
+  ChartEditor editor{before};
+  ChartEditor control{before};
+  // NPC uses MAX-1; replacing one old action with three tries MAX, then fails.
+  const auto result = editor.click(ChartColumn::Npc, 8U);
+  assert(result && result.player_actions_cleared);
+  assert(result.primary_event_id.value == UINT64_MAX - 1U);
+  assert(player_action_rows(editor.draft()).empty());
+  // Control clears first, so its same insertion never tries player IDs.
+  assert(control.click(ChartColumn::Player, 30U));
+  const auto inserted = control.click(ChartColumn::Npc, 8U);
+  assert(inserted && !inserted.player_actions_cleared);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), control.draft()));
+  assert_sync_payload_round_trips(editor.draft());
+  const auto after = editor.draft();
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+  const auto next = editor.click(ChartColumn::Npc, 82U);
+  const auto expected = control.click(ChartColumn::Npc, 82U);
+  assert(next && expected);
+  assert(next.primary_event_id.value == UINT64_MAX);
+  assert(next.primary_event_id.value == expected.primary_event_id.value);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), control.draft()));
+}
+
+void test_npc_conversion_partial_player_id_exhaustion() {
+  const auto c = ChartRoleEventType::BlockStart;
+  const auto n = ChartRoleEventType::Note;
+  const ChartDraft before{{
+      {{1U}, 0U, ChartRole::Npc, c, {20U}, {30U}},
+      {{2U}, 10U, ChartRole::Npc, n, {20U}, {30U}},
+      {{3U}, 12U, ChartRole::Npc, n, {20U}, {30U}},
+      {{4U}, 14U, ChartRole::Npc, n, {20U}, {30U}},
+      {{5U}, 16U, ChartRole::Npc, n, {20U}, {30U}},
+      {{6U}, 18U, ChartRole::Npc, n, {20U}, {30U}},
+      {{7U}, 20U, ChartRole::Player, c, {20U}, {30U}},
+      {{8U}, 30U, ChartRole::Player, n, {20U}, {30U}},
+      {{UINT64_MAX - 2U}, 80U, ChartRole::Npc, c, {90U}, {91U}}},
+      {}, {}, {{{20U}, {30U}, {{1U}, {2U}, {3U}, {4U}, {5U}, {6U}}, {{7U}, {8U}}},
+               {{90U}, {91U}, {{UINT64_MAX - 2U}}, {}}},
+      {{{30U}, 5U, {{20U}}}, {{91U}, 0U, {{90U}}}}, {}};
+  auto empty_events = before.role_events();
+  empty_events.erase(empty_events.begin() + 7);
+  auto empty_groups = before.drill_groups();
+  empty_groups.front().player_event_ids.pop_back();
+  ChartEditor control{ChartDraft{empty_events, {}, {}, empty_groups,
+                                 before.dance_move_drills(), {}}};
+  ChartEditor editor{before};
+  // N -> S itself needs no ID. Five source actions replace one old player
+  // action: MAX-1 and MAX are tried, but two more new IDs cannot be supplied.
+  const auto result = editor.click(ChartColumn::Npc, 18U);
+  const auto converted = control.click(ChartColumn::Npc, 18U);
+  assert(result && result.player_actions_cleared);
+  assert(converted && !converted.player_actions_cleared);
+  assert(result.primary_event_id.value == 6U);
+  assert(player_action_rows(editor.draft()).empty());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), control.draft()));
+  assert(editor.undo_count() == 1U);
+  const auto after = editor.draft();
+  assert_sync_payload_round_trips(after);
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+  const auto next = editor.click(ChartColumn::Npc, 82U);
+  const auto expected = control.click(ChartColumn::Npc, 82U);
+  assert(next && expected);
+  assert(next.primary_event_id.value == UINT64_MAX - 1U);
+  assert(next.primary_event_id.value == expected.primary_event_id.value);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), control.draft()));
 }
 
 void test_player_failures_preserve_draft_and_history() {
@@ -1064,9 +1771,13 @@ void test_selection_on_incomplete_draft() {
   // A group whose id list was emptied by a deletion does not break the
   // selection: membership comes from the drill reference on the events.
   {
-    auto editor = build_player_source();
-    assert(editor.click(ChartColumn::Npc, 0U));
-    assert(editor.draft().drill_groups().front().npc_event_ids.empty());
+    auto source = build_player_source();
+    auto events = source.draft().role_events();
+    events.erase(events.begin(), events.end() - 1);
+    auto groups = source.draft().drill_groups();
+    groups.front().npc_event_ids.clear();
+    ChartEditor editor{ChartDraft{std::move(events), {}, {}, std::move(groups),
+                                  source.draft().dance_move_drills(), {}}};
     const auto selected = editor.select(ChartColumn::Player, 50U);
     assert(selected);
     assert(editor.selections().size() == 1U);
@@ -1118,8 +1829,6 @@ void test_selection_on_incomplete_draft() {
     assert(editor.select(ChartColumn::Player, 50U));
     assert(editor.selections().size() == 1U);
     assert(editor.click(ChartColumn::Npc, 0U));
-    assert(editor.selections().size() == 1U);
-    assert(editor.click(ChartColumn::Player, 50U));
     assert(editor.selections().empty());
     assert(editor.draft().dance_move_drills().empty());
     assert(editor.draft().drill_groups().empty());
@@ -1158,15 +1867,15 @@ void test_selection_lifetime_across_commands() {
     assert(editor.selections().front().drill_id.value == first_drill.value);
   }
 
-  // Deleting one role's events shrinks the span to the surviving role.
+  // Deleting the player block shrinks the span to the surviving NPC role.
   {
     auto editor = build_two_complete_moves();
     assert(editor.select(ChartColumn::Npc, 0U));
     assert(editor.selections().size() == 1U);
-    assert(editor.click(ChartColumn::Npc, 0U));
+    assert(editor.click(ChartColumn::Player, 8U));
     assert(editor.selections().size() == 1U);
-    assert(editor.selections().front().first_row == 8U);
-    assert(editor.selections().front().last_row == 14U);
+    assert(editor.selections().front().first_row == 0U);
+    assert(editor.selections().front().last_row == 6U);
     assert(editor.undo());
     assert(editor.selections().size() == 1U);
     assert(editor.selections().front().first_row == 0U);
@@ -1180,8 +1889,6 @@ void test_selection_lifetime_across_commands() {
     assert(editor.select(ChartColumn::Player, 8U));
     assert(editor.selections().size() == 1U);
     assert(editor.click(ChartColumn::Npc, 0U));
-    assert(editor.selections().size() == 1U);
-    assert(editor.click(ChartColumn::Player, 8U));
     assert(editor.selections().empty());
     assert(editor.undo());
     assert(editor.selections().empty());
@@ -1234,6 +1941,101 @@ void test_selection_lifetime_across_commands() {
   assert(editor.draft().dance_move_drills()[0].move_n_count == 2U);
   assert(editor.draft().dance_move_drills()[1].move_n_count == 7U);
   return editor;
+}
+
+void test_npc_sync_keeps_showtime_when_final_content_is_complete() {
+  ChartEditor source{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(source.click(ChartColumn::Npc, 0U));
+  assert(source.click(ChartColumn::Npc, 2U));
+  assert(source.click(ChartColumn::Npc, 4U));
+  assert(source.click(ChartColumn::Npc, 6U));
+  assert(source.click(ChartColumn::Npc, 6U));
+  assert(source.click(ChartColumn::Player, 8U));
+  assert(source.click(ChartColumn::Player, 10U));
+  assert(source.click(ChartColumn::Showtime, 16U));
+  const auto complete = source.draft();
+  assert(otgy::core::validate_finished_chart(complete).is_finished());
+  auto events = complete.role_events();
+  auto groups = complete.drill_groups();
+  const auto group = groups.front().id;
+  const auto drill = groups.front().dance_move_drill_id;
+  events.push_back({{900U}, 3U, ChartRole::Npc,
+                    ChartRoleEventType::MoveEnd, group, drill});
+  events.push_back({{901U}, 11U, ChartRole::Player,
+                    ChartRoleEventType::MoveEnd, group, drill});
+  std::sort(events.begin(), events.end(), [](const auto& left, const auto& right) {
+    return left.row < right.row;
+  });
+  groups.front().npc_event_ids.insert(groups.front().npc_event_ids.begin() + 2,
+                                      {900U});
+  groups.front().player_event_ids.insert(groups.front().player_event_ids.begin() + 2,
+                                         {901U});
+  const ChartDraft before{events, complete.showtime_start_events(),
+      complete.showtime_move_events(), groups, complete.dance_move_drills(),
+      complete.showtimes()};
+  ChartEditor editor{before};
+  // After NPC S3 is removed, PLY still has S11 between two notes. The drill
+  // becomes complete only after synchronization removes that extra player S.
+  const auto result = editor.click(ChartColumn::Npc, 3U);
+  assert(result && !result.player_actions_cleared);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+  const auto showtime_only = [](const ChartDraft& draft) {
+    return ChartDraft{{}, draft.showtime_start_events(),
+        draft.showtime_move_events(), {}, {}, draft.showtimes()};
+  };
+  assert(otgy::core::chart_drafts_equal(showtime_only(editor.draft()),
+                                      showtime_only(complete)));
+  const auto projection = otgy::core::project_showtime_moves(editor.draft());
+  const auto old_projection = otgy::core::project_showtime_moves(complete);
+  assert(projection && old_projection);
+  assert(projection.moves()->size() == old_projection.moves()->size());
+  for (std::size_t i = 0U; i < projection.moves()->size(); ++i) {
+    assert(projection.moves()->at(i).range_start == old_projection.moves()->at(i).range_start);
+    assert(projection.moves()->at(i).range_end == old_projection.moves()->at(i).range_end);
+  }
+  assert(editor.undo_count() == 1U);
+  const auto after = editor.draft();
+  assert_sync_payload_round_trips(after);
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+}
+
+void test_npc_conversion_completes_draft_without_pruning_showtime() {
+  ChartEditor source{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  for (const auto row : {0U, 2U, 4U, 6U}) assert(source.click(ChartColumn::Npc, row));
+  assert(source.click(ChartColumn::Npc, 6U));
+  assert(source.click(ChartColumn::Player, 8U));
+  assert(source.click(ChartColumn::Player, 10U));
+  assert(source.click(ChartColumn::Showtime, 16U));
+  const auto complete = source.draft();
+  assert(otgy::core::validate_finished_chart(complete).is_finished());
+  auto events = complete.role_events();
+  for (auto& event : events) {
+    if (event.role == ChartRole::Npc && event.row == 6U) {
+      event.type = ChartRoleEventType::Note;
+    }
+  }
+  // Retain the final count 2 and SHOW-D count 2 in this unfinished snapshot.
+  // No command or load may prune it until this edit has its final result.
+  const ChartDraft before{events, complete.showtime_start_events(),
+      complete.showtime_move_events(), complete.drill_groups(),
+      complete.dance_move_drills(), complete.showtimes()};
+  assert(!otgy::core::validate_finished_chart(before).is_finished());
+  assert_sync_payload_round_trips(before);
+  ChartEditor editor{before};
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  const auto result = editor.click(ChartColumn::Npc, 6U);
+  assert(result && !result.player_actions_cleared);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), complete));
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+  assert(editor.undo_count() == 1U);
+  assert_sync_payload_round_trips(editor.draft());
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), complete));
 }
 
 void test_showtime_completion_layout_snapshot_and_deletion() {
@@ -1432,6 +2234,15 @@ void add_dance_move(ChartEditor& editor, std::uint64_t first_row) {
   assert(editor.click(ChartColumn::Player, first_row + 10U));
 }
 
+[[nodiscard]] std::vector<otgy::core::ChartEventId> role_event_ids_in_group(
+    const ChartDraft& draft, otgy::core::ChartDrillGroupId group_id) {
+  std::vector<otgy::core::ChartEventId> ids;
+  for (const auto& event : draft.role_events()) {
+    if (event.drill_group_id.value == group_id.value) ids.push_back(event.id);
+  }
+  return ids;
+}
+
 /// A Showtime is deleted together with the edit that makes it stale, because the
 /// cleanup runs inside the single conversion every draft-changing command ends
 /// with. A Showtime that still holds consistent content is never touched, even
@@ -1455,10 +2266,10 @@ void test_stale_showtime_pruning() {
     assert(after.showtimes().empty());
     assert(after.showtime_start_events().empty());
     assert(after.showtime_move_events().empty());
-    // Only the Showtime left: the dance move keeps its player events and is not
-    // removed, so its drill and drill group stay in the draft.
-    assert(after.dance_move_drills().size() == 2U);
-    assert(after.drill_groups().size() == 2U);
+    // Deleting the NPC block also removes the generated player actions that
+    // belonged to its source, so the empty drill and group are pruned.
+    assert(after.dance_move_drills().size() == 1U);
+    assert(after.drill_groups().size() == 1U);
 
     auto plain = build_two_complete_moves();
     assert(plain.click(ChartColumn::Npc, 16U));
@@ -1500,7 +2311,7 @@ void test_stale_showtime_pruning() {
     assert(after.showtimes().front().start_event_id.value == first_start);
     assert(after.showtimes().front().dance_move_drill_ids.size() == 2U);
     assert(after.showtimes().front().show_move_event_ids.size() == 2U);
-    assert(after.dance_move_drills().size() == 3U);
+    assert(after.dance_move_drills().size() == 2U);
 
     auto plain = build_two_complete_moves();
     assert(plain.click(ChartColumn::Showtime, 52U));
@@ -1731,21 +2542,18 @@ void test_split_dance_move_regenerates_showtime() {
   assert(editor.draft().showtime_move_events().size() == 1U);
 
   // Closing the first group splits the trailing group into a second dance move.
-  // Rebuild only the first group's generated player block; the second group and
-  // all of its identities must survive the split unchanged.
+  // Synchronize only the first group's player actions; the second group's
+  // event identities survive unchanged with their new drill ownership.
   const auto before_split = editor.draft();
   const auto trailing_group = before_split.drill_groups()[1];
-  const auto trailing_event_ids = drill_event_ids(
-      before_split, before_split.dance_move_drills().front().id);
+  const auto trailing_event_ids = role_event_ids_in_group(
+      before_split, trailing_group.id);
   assert(editor.click(ChartColumn::Npc, 5U));
   assert(editor.draft().showtimes().empty());
   assert(editor.draft().showtime_start_events().empty());
   assert(editor.draft().showtime_move_events().empty());
   assert(editor.draft().dance_move_drills().size() == 2U);
   assert(editor.draft().drill_groups()[1].id.value == trailing_group.id.value);
-  assert(editor.click(ChartColumn::Player, 6U));
-  assert(editor.click(ChartColumn::Player, 6U));
-  assert(editor.click(ChartColumn::Player, 7U));
   const auto split = editor.draft();
   assert(split.dance_move_drills().size() == 2U);
   assert(split.drill_groups().size() == 2U);
@@ -1761,8 +2569,18 @@ void test_split_dance_move_regenerates_showtime() {
     if (event.drill_group_id.value == trailing_group.id.value) {
       assert(event.dance_move_drill_id.value ==
              split.dance_move_drills()[1].id.value);
-      assert(std::find(trailing_event_ids.begin(), trailing_event_ids.end(),
-                       event.id.value) != trailing_event_ids.end());
+      assert(std::any_of(trailing_event_ids.begin(), trailing_event_ids.end(),
+                         [&event](const otgy::core::ChartEventId id) {
+                           return id.value == event.id.value;
+                         }));
+      const auto original = std::find_if(before_split.role_events().begin(),
+          before_split.role_events().end(), [&event](const auto& item) {
+            return item.id.value == event.id.value;
+          });
+      assert(original != before_split.role_events().end());
+      assert(event.row == original->row && event.type == original->type &&
+             event.role == original->role &&
+             event.drill_group_id.value == original->drill_group_id.value);
     }
   }
 
@@ -1835,8 +2653,8 @@ void test_split_dance_move_regenerates_showtime() {
   assert(otgy::core::chart_drafts_equal(editor.draft(), after));
 
   // Removing the boundary merges the trailing drill back into the original.
-  // Rebuild the first generated player block so both roles again describe one
-  // complete dance move, then regenerate one SHOW-D for that merged move.
+  // The player boundary is synchronized by that same command, so both roles
+  // immediately describe one complete dance move and can regenerate SHOW-D.
   const auto split_with_showtime = editor.draft();
   const auto original_drill_id = split_with_showtime.dance_move_drills()[0].id;
   const auto trailing_drill_id = split_with_showtime.dance_move_drills()[1].id;
@@ -1854,6 +2672,16 @@ void test_split_dance_move_regenerates_showtime() {
   }
   for (const auto& event : editor.draft().role_events()) {
     assert(event.dance_move_drill_id.value == original_drill_id.value);
+    if (event.drill_group_id.value == trailing_group.id.value) {
+      const auto original = std::find_if(split_with_showtime.role_events().begin(),
+          split_with_showtime.role_events().end(), [&event](const auto& item) {
+            return item.id.value == event.id.value;
+          });
+      assert(original != split_with_showtime.role_events().end());
+      assert(event.row == original->row && event.type == original->type &&
+             event.role == original->role &&
+             event.drill_group_id.value == original->drill_group_id.value);
+    }
   }
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), split_with_showtime));
@@ -1865,9 +2693,6 @@ void test_split_dance_move_regenerates_showtime() {
                         return drill.id.value == trailing_drill_id.value;
                       }));
 
-  assert(editor.click(ChartColumn::Player, 6U));
-  assert(editor.click(ChartColumn::Player, 6U));
-  assert(editor.click(ChartColumn::Player, 7U));
   assert(editor.click(ChartColumn::Showtime, 16U));
   const auto merged = editor.draft();
   assert(merged.showtimes().size() == 1U);
@@ -2001,14 +2826,13 @@ void test_empty_group_does_not_block_showtime() {
   assert(editor.click(ChartColumn::Showtime, 16U));
   assert(editor.draft().showtime_move_events().size() == 1U);
 
-  // Removing the NPC block keeps the group's surviving player block. Removing
-  // that last block must also drop its now unclickable group and drill reference.
-  assert(editor.click(ChartColumn::Npc, 2U));
-  assert(editor.draft().showtimes().empty());
-  assert(editor.draft().drill_groups().size() == 2U);
+  // Removing the NPC block clears the linked player actions; the now empty
+  // group is pruned by the same command.
   const auto before = editor.draft();
   const auto history = editor.undo_count();
-  assert(editor.click(ChartColumn::Player, 6U));
+  const auto deleted = editor.click(ChartColumn::Npc, 2U);
+  assert(deleted && !deleted.player_actions_cleared);
+  assert(editor.draft().showtimes().empty());
   assert(editor.undo_count() == history + 1U);
   assert(editor.draft().drill_groups().size() == 1U);
   assert(editor.draft().dance_move_drills().front().drill_group_ids.size() == 1U);
@@ -2021,20 +2845,16 @@ void test_empty_group_does_not_block_showtime() {
   assert(editor.draft().showtime_move_events().size() == 1U);
   assert(editor.draft().showtime_move_events().front().show_n_count == 1U);
 
-  // Older recovery snapshots can already carry the leftover. Decoding must
-  // preserve that snapshot; the next successful edit clears the empty group.
+  // Older snapshots retain the empty group until a successful edit.
   auto groups = remaining.drill_groups();
-  groups.insert(groups.begin(), {{999U}, groups.front().dance_move_drill_id,
-                                 {}, {}});
+  groups.insert(groups.begin(), {{999U}, groups.front().dance_move_drill_id, {}, {}});
   auto drills = remaining.dance_move_drills();
-  drills.front().drill_group_ids.insert(drills.front().drill_group_ids.begin(),
-                                      {999U});
+  drills.front().drill_group_ids.insert(drills.front().drill_group_ids.begin(), {999U});
   ChartDraft legacy{remaining.role_events(), {}, {}, std::move(groups),
                     std::move(drills), {}};
   ChartEditor recovered{legacy};
   const auto placed = recovered.click(ChartColumn::Showtime, 16U);
-  assert(placed.changed);
-  assert(placed.code == ChartEditCode::Success);
+  assert(placed && placed.changed);
   assert(recovered.draft().drill_groups().size() == 1U);
   assert(recovered.draft().showtime_move_events().size() == 1U);
   assert(recovered.undo());
@@ -2277,9 +3097,6 @@ void test_pending_cut_source_changes_and_retry() {
     const auto clipboard = editor.clipboard();
     const auto column = row == 16U ? ChartColumn::Player : ChartColumn::Npc;
     assert(editor.click(column, row));
-    if (row == 10U) {
-      assert(editor.click(ChartColumn::Player, 16U));
-    }
     const auto changed = editor.draft();
     const auto history = editor.undo_count();
     const auto selections = editor.selections();
@@ -2294,9 +3111,6 @@ void test_pending_cut_source_changes_and_retry() {
     assert(editor.undo_count() == history);
     assert(editor.has_pending_cut());
     assert(editor.undo());
-    if (row == 10U) {
-      assert(editor.undo());
-    }
     assert(editor.has_pending_cut());
     assert(editor.preview_paste(300U));
     assert(editor.paste(300U));
@@ -2328,22 +3142,15 @@ void test_batch_selection_revalidation() {
   ChartEditor editor{sparse_batch_draft()};
   select_sparse_pair(editor);
   assert(editor.click(ChartColumn::Npc, 10U));
-  assert(editor.selections().size() == 2U);
-  assert(editor.selections()[0].first_row == 16U);
-  assert(editor.selections()[0].last_row == 16U);
-  assert(editor.selections()[1].first_row == 80U);
-  assert(editor.undo());
-  assert(editor.selections()[0].first_row == 10U);
-  assert(editor.redo());
-  assert(editor.selections()[0].first_row == 16U);
-  assert(editor.click(ChartColumn::Player, 16U));
   assert(editor.selections().size() == 1U);
+  assert(editor.selections().front().first_row == 80U);
   assert(editor.selections().front().drill_id.value == 22U);
   assert(editor.undo());
   assert(editor.selections().size() == 1U);
-  assert(editor.selections().front().drill_id.value == 22U);
+  assert(editor.selections().front().first_row == 80U);
   assert(editor.redo());
   assert(editor.selections().size() == 1U);
+  assert(editor.selections().front().drill_id.value == 22U);
 }
 
 void test_paste_preview_is_read_only() {
@@ -2425,7 +3232,20 @@ void test_result_messages() {
 int main() {
   test_npc_context_rules_and_history();
   test_npc_limit_insertion_and_block_deletion();
-  test_player_generation_is_atomic_and_detached();
+  test_player_generation_and_npc_sync_are_atomic();
+  test_player_sync();
+  test_npc_sync_offsets_failures_and_blocks();
+  test_npc_sync_draft_shapes_and_boundaries();
+  test_npc_sync_preserves_explicitly_unrelated_player_blocks();
+  test_npc_sync_stops_at_foreign_player_action();
+  test_npc_sync_uses_current_occupancy_without_retry();
+  test_npc_sync_mixed_blocks_and_missing_relations();
+  test_npc_sync_closed_range_conflicts();
+  test_npc_sync_does_not_refill_empty_player_blocks();
+  test_npc_sync_partial_id_exhaustion_does_not_consume_ids();
+  test_npc_conversion_partial_player_id_exhaustion();
+  test_npc_sync_keeps_showtime_when_final_content_is_complete();
+  test_npc_conversion_completes_draft_without_pruning_showtime();
   test_player_failures_preserve_draft_and_history();
   test_showtime_completion_layout_snapshot_and_deletion();
   test_showtime_conflicts_position_and_retained_start();

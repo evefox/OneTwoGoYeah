@@ -649,6 +649,9 @@ class EditorController extends ChangeNotifier {
       () => _editor.click(column, math.max(0, row)),
     );
     if (result.changed) {
+      if (result.playerActionsCleared) {
+        _notice = EditorNotice('演示已修改；对应练习无法自动修正，已清空练习 N/S，保留起始标记。');
+      }
       _refreshProjection();
       _commitChartChange();
     } else {

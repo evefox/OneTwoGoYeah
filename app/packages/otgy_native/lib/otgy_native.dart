@@ -94,11 +94,13 @@ final class EditResult {
     required this.code,
     required this.changed,
     required this.primaryEventId,
+    this.playerActionsCleared = false,
   });
 
   final int code;
   final bool changed;
   final int primaryEventId;
+  final bool playerActionsCleared;
 }
 
 final class ChartSelection {
@@ -1296,15 +1298,32 @@ final class NativeChartEditor {
     ),
   );
 
-  EditResult click(int column, int row) => _edit(
-    (result, error) => native.otgy_chart_editor_click(
-      _requireEditor(),
-      column,
-      row,
-      result,
-      error,
-    ),
-  );
+  EditResult click(int column, int row) => using((arena) {
+    final result = arena<native.otgy_chart_edit_result>();
+    final cleared = arena<Uint8>();
+    final error = arena<Pointer<native.otgy_error>>();
+    try {
+      _checkStatus(
+        native.otgy_chart_editor_click_with_effects(
+          _requireEditor(),
+          column,
+          row,
+          result,
+          cleared,
+          error,
+        ),
+        error,
+      );
+      return EditResult(
+        code: result.ref.code,
+        changed: result.ref.changed != 0,
+        primaryEventId: result.ref.primary_event_id,
+        playerActionsCleared: cleared.value != 0,
+      );
+    } finally {
+      _destroyError(error);
+    }
+  });
 
   EditResult clear() => _edit(
     (result, error) =>
