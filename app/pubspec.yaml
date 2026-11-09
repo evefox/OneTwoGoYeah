@@ -24,5 +24,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/guide/desktop/
+    - assets/guide/mobile/
     - assets/sounds/en/
     - assets/sounds/zh/

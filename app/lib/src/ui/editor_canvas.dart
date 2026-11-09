@@ -10,6 +10,7 @@ import 'package:otgy_native/otgy_native.dart';
 
 import '../application/editor_controller.dart';
 import 'editor_theme.dart';
+import 'usage_guide.dart';
 
 const double editorCursorViewportFraction = 0.25;
 const double mobileEditorContentRightInset = 24;
@@ -1041,8 +1042,50 @@ class _NavigationRail extends StatefulWidget {
   State<_NavigationRail> createState() => _NavigationRailState();
 }
 
-class _NavigationRailState extends State<_NavigationRail> {
-  final _soundMenu = MenuController();
+class _UsageGuideButton extends StatelessWidget {
+  const _UsageGuideButton({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = controller.generalActionsEnabled && !controller.isBusy;
+    return IconButton(
+      key: const ValueKey('usage-guide-button'),
+      onPressed: enabled
+          ? () => Navigator.of(context).push(
+              PageRouteBuilder<void>(
+                opaque: true,
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const UsageGuideScreen(),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) =>
+                        FadeTransition(opacity: animation, child: child),
+                transitionDuration: const Duration(milliseconds: 180),
+              ),
+            )
+          : null,
+      tooltip: enabled
+          ? '使用指南'
+          : controller.isPlaying
+          ? '播放中'
+          : '请先退出选择或粘贴模式',
+      style: IconButton.styleFrom(
+        backgroundColor: enabled
+            ? EditorColors.accent
+            : EditorColors.surfaceRaised,
+        foregroundColor: enabled
+            ? EditorColors.canvas
+            : EditorColors.textMuted.withValues(alpha: 0.42),
+        minimumSize: const Size(40, 40),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      icon: const Icon(Icons.help_outline, size: 20),
+    );
+  }
+}
+
+class _NavigationRailState extends State<_NavigationRail> {  final _soundMenu = MenuController();
   final _waveformMenu = MenuController();
 
   @override
@@ -1087,6 +1130,8 @@ class _NavigationRailState extends State<_NavigationRail> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            _UsageGuideButton(controller: controller),
+            const SizedBox(width: 24, child: Divider(height: 8)),
             MenuAnchor(
               controller: _waveformMenu,
               alignmentOffset: const Offset(-266, -36),
