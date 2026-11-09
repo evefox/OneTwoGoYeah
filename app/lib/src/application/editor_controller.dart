@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:otgy_native/otgy_native.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../infrastructure/local_diagnostics.dart';
 import '../infrastructure/playback_output.dart';
@@ -25,6 +26,12 @@ typedef AudioExportSaveCallback = Future<void> Function(
   bool Function() isCancelled,
   void Function(int completedUnits, int totalUnits) onProgress,
 );
+
+/// Applies the display keep-awake policy used while playback is running.
+typedef KeepScreenOnCallback = Future<void> Function(bool enabled);
+
+Future<void> _platformKeepScreenOn(bool enabled) =>
+    WakelockPlus.toggle(enable: enabled);
 
 final class AudioExportCancelled implements Exception {
   const AudioExportCancelled();
@@ -130,8 +137,10 @@ class EditorController extends ChangeNotifier {
     NativeChartEditor? editor,
     PlaybackOutput? playbackOutput,
     DiagnosticRecorder? diagnosticRecorder,
+    KeepScreenOnCallback? keepScreenOn,
   }) : _editor = editor ?? NativeChartEditor.createEmpty(),
        _playbackOutput = playbackOutput ?? const MethodChannelPlaybackOutput(),
+       _keepScreenOn = keepScreenOn ?? _platformKeepScreenOn,
        _diagnosticRecorder =
            diagnosticRecorder ??
            (LocalDiagnostics.detailedEnabled
@@ -145,6 +154,7 @@ class EditorController extends ChangeNotifier {
 
   NativeChartEditor _editor;
   final PlaybackOutput _playbackOutput;
+  final KeepScreenOnCallback _keepScreenOn;
   final DiagnosticRecorder? _diagnosticRecorder;
   NativeAudio? _audio;
   NativePlaybackSoundBank? _playbackSoundBank;
@@ -1288,6 +1298,7 @@ class EditorController extends ChangeNotifier {
       _playbackFrameCount = playback.frameCount;
       _playbackPlayedFrames = 0;
       _playbackMode = mode;
+      _syncKeepScreenOn();
       final generation = ++_playbackGeneration;
       _playbackTimer?.cancel();
       _playbackTimer = Timer.periodic(
@@ -1299,6 +1310,7 @@ class EditorController extends ChangeNotifier {
       recordDiagnosticException('playback.start', error, stack);
       _playbackGeneration++;
       _playbackMode = EditorPlaybackMode.idle;
+      _syncKeepScreenOn();
       _playbackStart = null;
       unawaited(_playbackOutput.dispose());
       showNotice(
@@ -1380,6 +1392,7 @@ class EditorController extends ChangeNotifier {
       _playbackTimer = null;
       _playbackStart = null;
       _playbackMode = EditorPlaybackMode.idle;
+      _syncKeepScreenOn();
       _playbackGeneration++;
       if (completedMode == EditorPlaybackMode.chartPreview &&
           _playbackSoundSeed != null &&
@@ -1783,6 +1796,21 @@ class EditorController extends ChangeNotifier {
     _playbackSoundResumeRow = null;
   }
 
+  /// Keeps the display awake only while playback is running. Failure is
+  /// ignored on purpose: an unavailable platform implementation must never
+  /// abort or interrupt playback.
+  void _syncKeepScreenOn() {
+    unawaited(_applyKeepScreenOn(_playbackMode != EditorPlaybackMode.idle));
+  }
+
+  Future<void> _applyKeepScreenOn(bool enabled) async {
+    try {
+      await _keepScreenOn(enabled);
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
   void _updateDirty() {
     final saved = _savedPayload;
     if (saved == null) {
@@ -1829,6 +1857,7 @@ class EditorController extends ChangeNotifier {
   void dispose() {
     _playbackTimer?.cancel();
     _audioExportCancellation?.request();
+    unawaited(_applyKeepScreenOn(false));
     unawaited(_playbackOutput.dispose());
     _audio?.dispose();
     _playbackSoundBank?.dispose();

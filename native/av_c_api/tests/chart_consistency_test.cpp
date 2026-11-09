@@ -2201,19 +2201,19 @@ void test_player_sync_click_effect_consistency() {
   const auto failed = click(Column::Npc, 19U);
   expect(failed.code == otgy::core::ChartEditCode::CannotAppendAfterEnd,
          "failed NPC command returned the wrong result");
-  const auto cleared_effect = click(Column::Npc, 8U, true);
-  expect(cleared_effect.code == otgy::core::ChartEditCode::Success &&
-             cleared_effect.changed && cleared_effect.player_actions_cleared,
-         "converting the first NPC-N did not report player action clearing");
-  const auto cleared = direct.draft();
+  const auto converted_effect = click(Column::Npc, 8U, false);
+  expect(converted_effect.code == otgy::core::ChartEditCode::Success &&
+             converted_effect.changed && !converted_effect.player_actions_cleared,
+         "converting the first NPC-N did not report synchronized player actions");
+  const auto converted_snapshot = direct.draft();
   pair.history(true);
   expect(otgy::core::chart_drafts_equal(direct.draft(), synced),
          "one undo did not restore synchronized actions and relationships");
   expect(!click(Column::Player, 14U).changed,
          "wrong-column click unexpectedly changed the draft");
   pair.history(false);
-  expect(otgy::core::chart_drafts_equal(direct.draft(), cleared),
-         "redo did not restore the exact cleared snapshot");
+  expect(otgy::core::chart_drafts_equal(direct.draft(), converted_snapshot),
+         "redo did not restore the exact converted snapshot");
   pair.history(true);
   pair.history(true);
   expect(otgy::core::chart_drafts_equal(direct.draft(), original),

@@ -191,13 +191,19 @@ void test_player_sync() {
   assert(player_action_rows(editor.draft()) ==
          std::vector<std::uint64_t>({28U, 30U, 34U, 38U}));
   const auto synced = editor.draft();
-  const auto cleared = editor.click(ChartColumn::Npc, 8U);
-  assert(cleared && cleared.player_actions_cleared);
+  // Converting the first source N to S maps to the corresponding player action
+  // exactly like converting any later N; it must not clear the player block.
+  const auto converted = editor.click(ChartColumn::Npc, 8U);
+  assert(converted && !converted.player_actions_cleared);
   assert(editor.undo_count() == history + 2U);
-  assert(player_action_rows(editor.draft()).empty());
-  assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart).row == 20U);
-  assert(editor.draft().drill_groups().front().player_event_ids.size() == 1U);
-  const auto only_c = editor.draft();
+  assert(player_action_rows(editor.draft()) ==
+         std::vector<std::uint64_t>({28U, 30U, 34U, 38U}));
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 0U).row == 28U);
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 1U).row == 38U);
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 0U).row == 30U);
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 1U).row == 34U);
+  assert(editor.draft().drill_groups().front().player_event_ids.size() == 5U);
+  const auto first_s = editor.draft();
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), synced));
   assert(editor.undo());
@@ -209,10 +215,15 @@ void test_player_sync() {
   assert(editor.redo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), synced));
   assert(editor.redo());
-  assert(otgy::core::chart_drafts_equal(editor.draft(), only_c));
+  assert(otgy::core::chart_drafts_equal(editor.draft(), first_s));
+  // Deleting the leading S restores the ordinary N/S mapping.
   const auto removed_s = editor.click(ChartColumn::Npc, 8U);
   assert(removed_s && !removed_s.player_actions_cleared);
-  assert(player_action_rows(editor.draft()).empty());
+  assert(player_action_rows(editor.draft()) ==
+         std::vector<std::uint64_t>({30U, 34U, 38U}));
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 0U).row == 30U);
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 1U).row == 34U);
+  assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 0U).row == 38U);
 }
 
 void test_npc_sync_offsets_failures_and_blocks() {
@@ -255,12 +266,20 @@ void test_npc_sync_offsets_failures_and_blocks() {
   }
   {
     ChartEditor editor{base};
-    const auto cleared = editor.click(ChartColumn::Npc, 10U);
-    assert(cleared && cleared.player_actions_cleared);
-    assert(player_action_rows(editor.draft()).empty());
+    const auto converted = editor.click(ChartColumn::Npc, 10U);
+    assert(converted && !converted.player_actions_cleared);
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({30U, 34U, 38U}));
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 0U).row == 30U);
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 1U).row == 38U);
     assert(marker_of(editor.draft(), ChartMarkerType::PlayerBlockStart).row == 24U);
-    assert(editor.click(ChartColumn::Npc, 10U));
-    assert(player_action_rows(editor.draft()).empty());
+    const auto reduced = editor.click(ChartColumn::Npc, 10U);
+    assert(reduced && !reduced.player_actions_cleared);
+    // Deleting the leading S removes that action from both roles.
+    assert(player_action_rows(editor.draft()) ==
+           std::vector<std::uint64_t>({34U, 38U}));
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerNote, 0U).row == 34U);
+    assert(marker_of(editor.draft(), ChartMarkerType::PlayerMoveEnd, 0U).row == 38U);
     assert(editor.undo());
     assert(editor.undo());
     assert(otgy::core::chart_drafts_equal(editor.draft(), base));
@@ -2809,6 +2828,71 @@ void test_showtime_boundary_prevents_dance_move_merge() {
   }
 }
 
+void test_interleaved_drill_move_end_delete_merges_all_groups() {
+  using otgy::core::ChartDanceMoveDrill;
+  using otgy::core::ChartDanceMoveDrillId;
+  using otgy::core::ChartDrillGroup;
+  using otgy::core::ChartDrillGroupId;
+  // Drill 1 owns groups 1 (rows 0..6) and 2 (rows 20..26); drill 2 owns group 3
+  // (rows 10..16) interleaved between them. Deleting group 3's NPC-S selects
+  // group 2 as the next group, which is not drill 1's first group.
+  const std::vector<ChartRoleEvent> events{
+      {{1U}, 0U, ChartRole::Npc, ChartRoleEventType::BlockStart, {1U}, {1U}},
+      {{2U}, 2U, ChartRole::Npc, ChartRoleEventType::Note, {1U}, {1U}},
+      {{3U}, 4U, ChartRole::Npc, ChartRoleEventType::Note, {1U}, {1U}},
+      {{4U}, 6U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {1U}, {1U}},
+      {{5U}, 20U, ChartRole::Npc, ChartRoleEventType::BlockStart, {2U}, {1U}},
+      {{6U}, 22U, ChartRole::Npc, ChartRoleEventType::Note, {2U}, {1U}},
+      {{7U}, 24U, ChartRole::Npc, ChartRoleEventType::Note, {2U}, {1U}},
+      {{8U}, 26U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {2U}, {1U}},
+      {{9U}, 10U, ChartRole::Npc, ChartRoleEventType::BlockStart, {3U}, {2U}},
+      {{10U}, 12U, ChartRole::Npc, ChartRoleEventType::Note, {3U}, {2U}},
+      {{11U}, 14U, ChartRole::Npc, ChartRoleEventType::Note, {3U}, {2U}},
+      {{12U}, 16U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {3U}, {2U}},
+  };
+  const std::vector<ChartDrillGroup> groups{
+      {{1U}, {1U}, {{1U}, {2U}, {3U}, {4U}}, {}},
+      {{2U}, {1U}, {{5U}, {6U}, {7U}, {8U}}, {}},
+      {{3U}, {2U}, {{9U}, {10U}, {11U}, {12U}}, {}},
+  };
+  const std::vector<ChartDanceMoveDrill> drills{
+      {{1U}, 4U, {{1U}, {2U}}},
+      {{2U}, 2U, {{3U}}},
+  };
+  const ChartDraft original{events, {}, {}, groups, drills, {}};
+  ChartEditor editor{original};
+  const auto history = editor.undo_count();
+  const auto deleted = editor.click(ChartColumn::Npc, 16U);
+  assert(deleted.code == ChartEditCode::Success);
+  assert(deleted.changed);
+  assert(editor.undo_count() == history + 1U);
+
+  // The trailing drill absorbs every group of the interleaved drill, not just
+  // the group immediately following the deleted S.
+  assert(editor.draft().dance_move_drills().size() == 1U);
+  assert(editor.draft().dance_move_drills().front().id.value == 2U);
+  assert(editor.draft().dance_move_drills().front().drill_group_ids.size() ==
+         3U);
+  for (const auto& group : editor.draft().drill_groups()) {
+    assert(group.dance_move_drill_id.value == 2U);
+  }
+  for (const auto& event : editor.draft().role_events()) {
+    assert(event.dance_move_drill_id.value == 2U);
+  }
+  // Only the clicked S disappears; every other event keeps its identity.
+  assert(editor.draft().role_events().size() == events.size() - 1U);
+  assert(std::none_of(editor.draft().role_events().begin(),
+                      editor.draft().role_events().end(),
+                      [](const ChartRoleEvent& event) {
+                        return event.id.value == 12U;
+                      }));
+  const auto merged = editor.draft();
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), original));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), merged));
+}
+
 void test_empty_group_does_not_block_showtime() {
   ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
   for (const auto row : {2U, 3U, 4U, 5U}) {
@@ -3255,6 +3339,7 @@ int main() {
   test_split_dance_move_regenerates_showtime();
   test_nonterminal_npc_move_end_deletes_after_merge();
   test_showtime_boundary_prevents_dance_move_merge();
+  test_interleaved_drill_move_end_delete_merges_all_groups();
   test_empty_group_does_not_block_showtime();
   test_clear_and_invalid_identity();
   test_selection_resolves_each_marker_type();

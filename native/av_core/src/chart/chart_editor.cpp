@@ -932,7 +932,6 @@ void erase_role_events(MutableDraft& draft,
       }
       sort_drill_group_ids(draft, *source);
       if (source->drill_group_ids.empty() ||
-          source->drill_group_ids.front().value != next_group->id.value ||
           !merge_drill_into(draft, destination_id, source_id)) {
         return {ChartEditCode::InvalidDraft, false, {0U}};
       }
@@ -1050,7 +1049,7 @@ void erase_role_events(MutableDraft& draft,
 
 /// Initial generation searches for the first N between the C markers, then
 /// follows consecutive NPC actions. Synchronization starts immediately after
-/// NPC-C and also observes a leading S, without crossing another marker.
+/// NPC-C, maps a leading S like any other S, and never crosses another marker.
 [[nodiscard]] std::vector<ChartMarker> player_source_actions(
     const std::vector<ChartMarker>& markers, ChartEventId npc_c,
     std::uint64_t player_c_row, bool include_leading_end) {
@@ -1145,7 +1144,7 @@ void synchronize_npc_edit(const ChartDraft& original,
     const auto* npc_c = find_role_event_const(after, source_c.value);
     const auto* group = npc_c == nullptr ? nullptr :
         find_group_const(after, npc_c->drill_group_id.value);
-    bool valid = !source.empty() && source.front().type == ChartMarkerType::NpcNote &&
+    bool valid = !source.empty() &&
         !old_anchor.empty() && old_player_anchor != nullptr && player_c != nullptr &&
         group != nullptr && find_drill(after, group->dance_move_drill_id.value) != nullptr;
     std::vector<ChartRoleEvent> replacements;

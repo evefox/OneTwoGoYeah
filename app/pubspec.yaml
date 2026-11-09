@@ -13,6 +13,7 @@ dependencies:
   otgy_native:
     path: packages/otgy_native
   path_provider: ^2.1.5
+  wakelock_plus: ^1.8.2
 
 dev_dependencies:
   flutter_lints: ^6.0.0

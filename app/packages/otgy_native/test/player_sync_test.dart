@@ -60,7 +60,7 @@ void expectProjectRoundTrip(NativeChartEditor editor) {
 
 void main() {
   test(
-    'native click effects preserve offset and report cleared player actions',
+    'native click effects preserve offset and sync a leading N-to-S conversion',
     () {
       final editor = playerFixture();
       addTearDown(editor.dispose);
@@ -72,17 +72,17 @@ void main() {
       expect(playerRows(editor), [20, 28, 30, 34, 38]);
       expectProjectRoundTrip(editor);
       final insertedSnapshot = editor.encodeRecovery();
-      final cleared = editor.click(OTGY_CHART_COLUMN_NPC, 8);
-      expect(cleared.code, 0);
-      expect(cleared.changed, isTrue);
-      expect(cleared.playerActionsCleared, isTrue);
-      expect(playerRows(editor), [20]);
+      final converted = editor.click(OTGY_CHART_COLUMN_NPC, 8);
+      expect(converted.code, 0);
+      expect(converted.changed, isTrue);
+      expect(converted.playerActionsCleared, isFalse);
+      expect(playerRows(editor), [20, 28, 30, 34, 38]);
       expectProjectRoundTrip(editor);
-      final clearedSnapshot = editor.encodeRecovery();
+      final convertedSnapshot = editor.encodeRecovery();
       expect(editor.undo().playerActionsCleared, isFalse);
       expect(editor.encodeRecovery(), orderedEquals(insertedSnapshot));
       expect(editor.redo().playerActionsCleared, isFalse);
-      expect(editor.encodeRecovery(), orderedEquals(clearedSnapshot));
+      expect(editor.encodeRecovery(), orderedEquals(convertedSnapshot));
       editor.undo();
       editor.undo();
       expect(editor.encodeRecovery(), orderedEquals(before));

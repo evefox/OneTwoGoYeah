@@ -2207,6 +2207,33 @@ void main() {
     );
   });
 
+  testWidgets('playback keeps the screen awake only while running', (
+    tester,
+  ) async {
+    controller.dispose();
+    final output = _FakePlaybackOutput();
+    final keepScreenCalls = <bool>[];
+    controller = EditorController(
+      playbackOutput: output,
+      keepScreenOn: (enabled) async => keepScreenCalls.add(enabled),
+    );
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    await pumpEditor(tester);
+
+    await controller.togglePlayback();
+    await tester.pump();
+    expect(controller.isPlaying, isTrue);
+    expect(keepScreenCalls, [isTrue]);
+
+    await controller.pausePlayback();
+    await tester.pump();
+    expect(controller.isPlaying, isFalse);
+    expect(keepScreenCalls, [isTrue, isFalse]);
+  });
+
   testWidgets(
     'rhythm test is mutually exclusive and ignores chart preview sounds',
     (tester) async {

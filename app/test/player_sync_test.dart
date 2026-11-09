@@ -25,6 +25,24 @@ EditorController playerController() {
   }
 }
 
+/// A shorter player offset makes inserting an earlier NPC-N project onto the
+/// PLY-C row, which is one of the remaining safe-clear fallbacks.
+EditorController collapsingPlayerController() {
+  final source = NativeChartEditor.createEmpty();
+  try {
+    for (final row in [0, 10, 14, 18, 18]) {
+      expect(source.click(OTGY_CHART_COLUMN_NPC, row).changed, isTrue);
+    }
+    expect(source.click(OTGY_CHART_COLUMN_PLAYER, 20).changed, isTrue);
+    expect(source.click(OTGY_CHART_COLUMN_PLAYER, 22).changed, isTrue);
+    return EditorController(
+      editor: NativeChartEditor.decodeRecovery(source.encodeRecovery()),
+    );
+  } finally {
+    source.dispose();
+  }
+}
+
 Iterable<int> playerRows(EditorController controller) => controller.markers
     .where((marker) => marker.column == OTGY_CHART_COLUMN_PLAYER)
     .map((marker) => marker.row);
@@ -55,11 +73,11 @@ void main() {
   });
 
   test('controller clear notice does not create a second history entry', () {
-    final controller = playerController();
+    final controller = collapsingPlayerController();
     addTearDown(controller.dispose);
     final before = controller.encodeRecoverySnapshot();
     final revision = controller.projectRevision;
-    controller.clickCell(OTGY_CHART_COLUMN_NPC, 10);
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 8);
     expect(playerRows(controller), [20]);
     expect(controller.notice?.message, clearedMessage);
     expect(controller.notice?.kind, EditorNoticeKind.info);
@@ -76,7 +94,7 @@ void main() {
     expect(controller.canRedo, isFalse);
     expect(controller.notice, isNull);
     controller.undo();
-    controller.clickCell(OTGY_CHART_COLUMN_NPC, 10);
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 8);
     expect(controller.notice?.message, clearedMessage);
     expect(identical(controller.notice, firstNotice), isFalse);
   });
@@ -139,7 +157,7 @@ void main() {
     final directory = (await tester.runAsync(
       () => Directory.systemTemp.createTemp('otgy-player-sync-'),
     ))!;
-    final controller = playerController();
+    final controller = collapsingPlayerController();
     try {
       final store = (await tester.runAsync(
         () => LocalProjectStore.openAt(directory),
@@ -153,7 +171,7 @@ void main() {
       await tester.pumpAndSettle();
       final before = controller.encodeRecoverySnapshot();
       for (var attempt = 0; attempt < 2; attempt++) {
-        controller.clickCell(OTGY_CHART_COLUMN_NPC, 10);
+        controller.clickCell(OTGY_CHART_COLUMN_NPC, 8);
         await tester.pumpAndSettle();
         expect(find.byType(SnackBar), findsOneWidget);
         expect(find.text(clearedMessage), findsOneWidget);
