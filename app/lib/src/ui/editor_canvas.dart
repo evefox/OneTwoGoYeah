@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:otgy_native/otgy_native.dart';
 
 import '../application/editor_controller.dart';
+import '../infrastructure/local_ui_preferences.dart';
 import 'editor_theme.dart';
 import 'usage_guide.dart';
 
@@ -250,15 +251,22 @@ final class _CanvasColumnLayout {
 }
 
 class EditorCanvas extends StatefulWidget {
-  const EditorCanvas({super.key, required this.controller});
+  const EditorCanvas({super.key, required this.controller, this.preferences});
 
   final EditorController controller;
+  final LocalUiPreferences? preferences;
 
   @override
   State<EditorCanvas> createState() => _EditorCanvasState();
 }
 
 enum _CanvasGestureMode { undecided, verticalPan, horizontalPan, zoom }
+
+bool _projectIsBlank(EditorController controller) =>
+    !controller.hasAudio &&
+    controller.sourceKind == WorkspaceSourceKind.untitled &&
+    controller.markers.isEmpty &&
+    controller.showtimeMoves.isEmpty;
 
 final class _MarkerLongPressIntent extends Intent {
   const _MarkerLongPressIntent();
@@ -287,6 +295,8 @@ class _EditorCanvasState extends State<EditorCanvas>
   Offset? _desktopHoverPosition;
   bool _pastePreviewSyncScheduled = false;
   int? _pastePreviewSyncedRevision;
+  bool _guideHintPending = false;
+  Duration _guideHintDuration = const Duration(seconds: 5);
 
   bool get _mobile =>
       defaultTargetPlatform == TargetPlatform.iOS ||
@@ -301,6 +311,12 @@ class _EditorCanvasState extends State<EditorCanvas>
     _playbackVisualTicker = createTicker(_handlePlaybackVisualFrame);
     widget.controller.addListener(_handleControllerChanged);
     _handleControllerChanged();
+    final preferences = widget.preferences;
+    final firstLaunch = preferences != null && !preferences.guideHintSeen;
+    _guideHintDuration = firstLaunch
+        ? const Duration(minutes: 2)
+        : const Duration(seconds: 5);
+    _guideHintPending = _projectIsBlank(widget.controller);
   }
 
   @override
@@ -314,6 +330,7 @@ class _EditorCanvasState extends State<EditorCanvas>
     _pastePreviewSyncedRevision = null;
     _desktopHoverPosition = null;
     _stopPlaybackVisual();
+    _guideHintPending = _projectIsBlank(widget.controller);
     _handleControllerChanged();
   }
 
@@ -329,6 +346,17 @@ class _EditorCanvasState extends State<EditorCanvas>
   void _handleControllerChanged() {
     _synchronizePlaybackVisual();
     _schedulePastePreviewSync();
+  }
+
+  void _handleGuideHintShown() {
+    final preferences = widget.preferences;
+    if (!_guideHintPending) {
+      return;
+    }
+    setState(() => _guideHintPending = false);
+    if (preferences != null) {
+      unawaited(preferences.markGuideHintSeen());
+    }
   }
 
   void _schedulePastePreviewSync() {
@@ -939,6 +967,9 @@ class _EditorCanvasState extends State<EditorCanvas>
                     child: _NavigationRail(
                       controller: widget.controller,
                       navigation: navigation,
+                      showGuideHint: _guideHintPending,
+                      guideHintDuration: _guideHintDuration,
+                      onGuideHintShown: _handleGuideHintShown,
                     ),
                   )
                 else
@@ -951,6 +982,9 @@ class _EditorCanvasState extends State<EditorCanvas>
                       child: _NavigationRail(
                         controller: widget.controller,
                         navigation: navigation,
+                        showGuideHint: _guideHintPending,
+                        guideHintDuration: _guideHintDuration,
+                        onGuideHintShown: _handleGuideHintShown,
                       ),
                     ),
                   ),
@@ -1033,59 +1067,270 @@ class _MarkerFocusRing extends StatelessWidget {
 }
 
 class _NavigationRail extends StatefulWidget {
-  const _NavigationRail({required this.controller, required this.navigation});
+  const _NavigationRail({
+    required this.controller,
+    required this.navigation,
+    required this.showGuideHint,
+    required this.guideHintDuration,
+    required this.onGuideHintShown,
+  });
 
   final EditorController controller;
   final TimelineNavigation navigation;
+  final bool showGuideHint;
+  final Duration guideHintDuration;
+  final VoidCallback onGuideHintShown;
 
   @override
   State<_NavigationRail> createState() => _NavigationRailState();
 }
 
-class _UsageGuideButton extends StatelessWidget {
-  const _UsageGuideButton({required this.controller});
+class _UsageGuideButton extends StatefulWidget {
+  const _UsageGuideButton({
+    required this.controller,
+    required this.showHint,
+    required this.hintDuration,
+    required this.onHintShown,
+  });
 
   final EditorController controller;
+  final bool showHint;
+  final Duration hintDuration;
+  final VoidCallback onHintShown;
+
+  @override
+  State<_UsageGuideButton> createState() => _UsageGuideButtonState();
+}
+
+class _UsageGuideButtonState extends State<_UsageGuideButton> {
+  static const _hintGap = 6.0;
+  static const _hintBubbleWidth = 216.0;
+  static const _hintArrowWidth = 9.0;
+  static const _hintBubbleHeight = 44.0;
+
+  final _hintPortal = OverlayPortalController();
+  final _buttonKey = GlobalKey();
+  Timer? _hintTimer;
+  Rect? _hintButtonRect;
+  bool _hintVisible = false;
+  bool _hintCancelled = false;
+
+  bool get _enabled =>
+      widget.controller.generalActionsEnabled && !widget.controller.isBusy;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleControllerChanged);
+    if (widget.showHint) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showHint();
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _UsageGuideButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleControllerChanged);
+      widget.controller.addListener(_handleControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerChanged);
+    _hintTimer?.cancel();
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    if (_hintVisible && (!_enabled || !_projectIsBlank(widget.controller))) {
+      _hideHint();
+    }
+  }
+
+  void _showHint() {
+    if (_hintCancelled || _hintVisible || !_enabled) {
+      return;
+    }
+    final box = _buttonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) {
+      return;
+    }
+    final origin = box.localToGlobal(Offset.zero);
+    setState(() {
+      _hintVisible = true;
+      _hintButtonRect = origin & box.size;
+    });
+    widget.onHintShown();
+    _hintPortal.show();
+    _hintTimer = Timer(widget.hintDuration, _hideHint);
+  }
+
+  void _hideHint() {
+    _hintTimer?.cancel();
+    _hintTimer = null;
+    if (!_hintVisible) {
+      return;
+    }
+    _hintPortal.hide();
+    if (mounted) {
+      setState(() => _hintVisible = false);
+    }
+  }
+
+  void _openGuide() {
+    _hintCancelled = true;
+    _hideHint();
+    widget.onHintShown();
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: true,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const UsageGuideScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            FadeTransition(opacity: animation, child: child),
+        transitionDuration: const Duration(milliseconds: 180),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final enabled = controller.generalActionsEnabled && !controller.isBusy;
-    return IconButton(
-      key: const ValueKey('usage-guide-button'),
-      onPressed: enabled
-          ? () => Navigator.of(context).push(
-              PageRouteBuilder<void>(
-                opaque: true,
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    const UsageGuideScreen(),
-                transitionsBuilder:
-                    (context, animation, secondaryAnimation, child) =>
-                        FadeTransition(opacity: animation, child: child),
-                transitionDuration: const Duration(milliseconds: 180),
-              ),
-            )
-          : null,
-      tooltip: enabled
-          ? '使用指南'
-          : controller.isPlaying
-          ? '播放中'
-          : '请先退出选择或粘贴模式',
-      style: IconButton.styleFrom(
-        backgroundColor: enabled
-            ? EditorColors.accent
-            : EditorColors.surfaceRaised,
-        foregroundColor: enabled
-            ? EditorColors.canvas
-            : EditorColors.textMuted.withValues(alpha: 0.42),
-        minimumSize: const Size(40, 40),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    final enabled = _enabled;
+    return OverlayPortal(
+      controller: _hintPortal,
+      overlayChildBuilder: _buildHintOverlay,
+      child: DecoratedBox(
+        key: _buttonKey,
+        decoration: _hintVisible
+            ? BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: EditorColors.accent.withValues(alpha: 0.55),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              )
+            : const BoxDecoration(),
+        child: IconButton(
+          key: const ValueKey('usage-guide-button'),
+          onPressed: enabled ? _openGuide : null,
+          tooltip: enabled
+              ? '使用指南'
+              : widget.controller.isPlaying
+              ? '播放中'
+              : '请先退出选择或粘贴模式',
+          style: IconButton.styleFrom(
+            backgroundColor: enabled
+                ? EditorColors.accent
+                : EditorColors.surfaceRaised,
+            foregroundColor: enabled
+                ? EditorColors.canvas
+                : EditorColors.textMuted.withValues(alpha: 0.42),
+            minimumSize: const Size(40, 40),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          icon: const Icon(Icons.help_outline, size: 20),
+        ),
       ),
-      icon: const Icon(Icons.help_outline, size: 20),
+    );
+  }
+
+  Widget _buildHintOverlay(BuildContext context) {
+    final rect = _hintButtonRect;
+    if (rect == null) {
+      return const SizedBox.shrink();
+    }
+    final left = math.max(
+      8.0,
+      rect.left - _hintBubbleWidth - _hintArrowWidth - _hintGap,
+    );
+    final top = rect.center.dy - _hintBubbleHeight / 2;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          left: left,
+          top: top,
+          child: IgnorePointer(
+            child: Semantics(
+              container: true,
+              liveRegion: true,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    key: const ValueKey('usage-guide-hint'),
+                    width: _hintBubbleWidth,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: EditorColors.surfaceRaised,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: EditorColors.accent.withValues(alpha: 0.7),
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x66000000),
+                          blurRadius: 12,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Text(
+                      '需要帮助？点这里查看使用指南',
+                      style: TextStyle(
+                        color: EditorColors.text,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const CustomPaint(
+                    size: Size(_hintArrowWidth, 16),
+                    painter: _GuideHintArrowPainter(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
-class _NavigationRailState extends State<_NavigationRail> {  final _soundMenu = MenuController();
+class _GuideHintArrowPainter extends CustomPainter {
+  const _GuideHintArrowPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, size.height / 2)
+      ..lineTo(0, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = EditorColors.surfaceRaised);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _NavigationRailState extends State<_NavigationRail> {
+  final _soundMenu = MenuController();
   final _waveformMenu = MenuController();
 
   @override
@@ -1130,7 +1375,12 @@ class _NavigationRailState extends State<_NavigationRail> {  final _soundMenu = 
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _UsageGuideButton(controller: controller),
+            _UsageGuideButton(
+              controller: controller,
+              showHint: widget.showGuideHint,
+              hintDuration: widget.guideHintDuration,
+              onHintShown: widget.onGuideHintShown,
+            ),
             const SizedBox(width: 24, child: Divider(height: 8)),
             MenuAnchor(
               controller: _waveformMenu,

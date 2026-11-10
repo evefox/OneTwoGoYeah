@@ -4,13 +4,15 @@ import 'package:flutter/material.dart';
 
 import 'src/application/editor_controller.dart';
 import 'src/infrastructure/local_diagnostics.dart';
+import 'src/infrastructure/local_ui_preferences.dart';
 import 'src/ui/editor_screen.dart';
 import 'src/ui/editor_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeAppDiagnostics();
-  runApp(const OneTwoGoYeahApp());
+  final preferences = await LocalUiPreferences.load();
+  runApp(OneTwoGoYeahApp(preferences: preferences));
 }
 
 Future<LocalDiagnostics?> initializeAppDiagnostics() async {
@@ -44,10 +46,16 @@ void installDiagnosticErrorHandlers(LocalDiagnostics logger) {
 }
 
 class OneTwoGoYeahApp extends StatelessWidget {
-  const OneTwoGoYeahApp({super.key, this.controller, this.storeFactory});
+  const OneTwoGoYeahApp({
+    super.key,
+    this.controller,
+    this.storeFactory,
+    this.preferences,
+  });
 
   final EditorController? controller;
   final ProjectStoreFactory? storeFactory;
+  final LocalUiPreferences? preferences;
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +63,11 @@ class OneTwoGoYeahApp extends StatelessWidget {
       title: 'OneTwoGoYeah',
       debugShowCheckedModeBanner: false,
       theme: buildEditorTheme(),
-      home: EditorScreen(controller: controller, storeFactory: storeFactory),
+      home: EditorScreen(
+        controller: controller,
+        storeFactory: storeFactory,
+        preferences: preferences,
+      ),
     );
   }
 }

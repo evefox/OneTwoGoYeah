@@ -13,6 +13,7 @@ import '../application/editor_controller.dart';
 import '../infrastructure/audio_export_publisher.dart';
 import '../infrastructure/local_diagnostics.dart';
 import '../infrastructure/local_project_store.dart';
+import '../infrastructure/local_ui_preferences.dart';
 import 'editor_canvas.dart';
 import 'editor_theme.dart';
 import 'editor_toolbars.dart';
@@ -73,11 +74,13 @@ class EditorScreen extends StatefulWidget {
     this.controller,
     this.storeFactory,
     this.diagnostics,
+    this.preferences,
   });
 
   final EditorController? controller;
   final ProjectStoreFactory? storeFactory;
   final LocalDiagnostics? diagnostics;
+  final LocalUiPreferences? preferences;
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -1326,7 +1329,12 @@ class _EditorScreenState extends State<EditorScreen>
                           onExportSlk: _exportSlk,
                           onExportDiagnostics: _exportDiagnostics,
                         ),
-                        Expanded(child: EditorCanvas(controller: _controller)),
+                        Expanded(
+                          child: EditorCanvas(
+                            controller: _controller,
+                            preferences: widget.preferences,
+                          ),
+                        ),
                         _StatusBar(
                           controller: _controller,
                           onJumpToTime: _jumpToSongTime,

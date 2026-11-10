@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_project_store.dart';
+import 'package:one_two_go_yeah/src/infrastructure/local_ui_preferences.dart';
+import 'package:otgy_native/otgy_native.dart';
 
 void main() {
   late Directory temporaryDirectory;
@@ -30,11 +32,16 @@ void main() {
   Future<void> pumpEditor(
     WidgetTester tester, {
     Size size = const Size(1280, 800),
+    LocalUiPreferences? preferences,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      OneTwoGoYeahApp(controller: controller, storeFactory: () async => store),
+      OneTwoGoYeahApp(
+        controller: controller,
+        storeFactory: () async => store,
+        preferences: preferences,
+      ),
     );
     await tester.pump();
   }
@@ -66,11 +73,8 @@ void main() {
       find.byKey(const ValueKey('usage-guide-bottom-toggle')),
       findsOneWidget,
     );
-    for (var index = 0; index < 5; index++) {
-      expect(
-        find.byKey(ValueKey('usage-guide-dot-$index')),
-        findsOneWidget,
-      );
+    for (var index = 0; index < 6; index++) {
+      expect(find.byKey(ValueKey('usage-guide-dot-$index')), findsOneWidget);
     }
     final firstSlide = tester.widget<Image>(
       find.byKey(const ValueKey('usage-guide-slide-0')),
@@ -100,10 +104,7 @@ void main() {
     await settle(tester);
     expect(find.byKey(const ValueKey('usage-guide-cards')), findsOneWidget);
     for (var index = 0; index < 3; index++) {
-      expect(
-        find.byKey(ValueKey('usage-guide-topic-$index')),
-        findsOneWidget,
-      );
+      expect(find.byKey(ValueKey('usage-guide-topic-$index')), findsOneWidget);
     }
 
     await tester.tap(find.byKey(const ValueKey('usage-guide-topic-0')));
@@ -151,10 +152,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('usage-guide-bottom-toggle')));
     await settle(tester);
     for (var index = 0; index < 3; index++) {
-      expect(
-        find.byKey(ValueKey('usage-guide-topic-$index')),
-        findsOneWidget,
-      );
+      expect(find.byKey(ValueKey('usage-guide-topic-$index')), findsOneWidget);
     }
 
     await tester.tap(find.byKey(const ValueKey('usage-guide-topic-2')));
@@ -164,6 +162,33 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('usage-guide-close')));
     await settle(tester);
     expect(find.byKey(const ValueKey('usage-guide-cards')), findsOneWidget);
+  });
+
+  testWidgets('the gesture slide uses the blank editing-grid image', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await openGuide(tester);
+
+    final carousel = tester.widget<PageView>(
+      find.byKey(const ValueKey('usage-guide-carousel')),
+    );
+    carousel.controller!.jumpToPage(4);
+    await settle(tester);
+
+    final slide = tester.widget<Image>(
+      find.byKey(const ValueKey('usage-guide-slide-4')),
+    );
+    final mobile =
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android;
+    expect(
+      (slide.image as AssetImage).assetName,
+      mobile
+          ? 'assets/guide/mobile/guide_gestures.png'
+          : 'assets/guide/desktop/guide_gestures.png',
+    );
+    expect(find.text('双指调整网格间距；长按选择后可复制或剪切'), findsOneWidget);
   });
 
   testWidgets('guide entry is disabled while a selection session is active', (
@@ -183,11 +208,69 @@ void main() {
     await tester.pump();
     expect(
       tester
-          .widget<IconButton>(
-            find.byKey(const ValueKey('usage-guide-button')),
-          )
+          .widget<IconButton>(find.byKey(const ValueKey('usage-guide-button')))
           .onPressed,
       isNotNull,
     );
+  });
+
+  testWidgets('first launch keeps the help reminder for two minutes', (
+    tester,
+  ) async {
+    final preferences = LocalUiPreferences.inMemory();
+    await pumpEditor(tester, preferences: preferences);
+
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsOneWidget);
+    expect(preferences.guideHintSeen, isTrue);
+
+    await tester.pump(const Duration(minutes: 1, seconds: 59));
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsNothing);
+  });
+
+  testWidgets('returning launch dismisses the reminder after five seconds', (
+    tester,
+  ) async {
+    await pumpEditor(
+      tester,
+      preferences: LocalUiPreferences.inMemory(guideHintSeen: true),
+    );
+
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsNothing);
+  });
+
+  testWidgets('opening the guide dismisses the reminder immediately', (
+    tester,
+  ) async {
+    await pumpEditor(tester, preferences: LocalUiPreferences.inMemory());
+
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsOneWidget);
+    await openGuide(tester);
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('usage-guide-close')));
+    await settle(tester);
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsNothing);
+  });
+
+  testWidgets('the reminder is not shown for a project with chart content', (
+    tester,
+  ) async {
+    final editor = NativeChartEditor.createEmpty();
+    expect(editor.click(OTGY_CHART_COLUMN_NPC, 0).changed, isTrue);
+    controller.dispose();
+    controller = EditorController(editor: editor);
+
+    await pumpEditor(tester, preferences: LocalUiPreferences.inMemory());
+
+    expect(find.byKey(const ValueKey('usage-guide-hint')), findsNothing);
   });
 }
