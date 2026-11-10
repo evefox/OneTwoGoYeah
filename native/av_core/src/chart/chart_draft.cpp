@@ -121,4 +121,48 @@ bool chart_drafts_equal(const ChartDraft& left,
   return true;
 }
 
+std::optional<std::uint64_t> dance_move_drill_first_row(
+    const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept {
+  const ChartDanceMoveDrill* target = nullptr;
+  for (const auto& drill : draft.dance_move_drills()) {
+    if (drill.id.value == id.value) {
+      target = &drill;
+      break;
+    }
+  }
+  if (target == nullptr) {
+    return std::nullopt;
+  }
+  std::optional<std::uint64_t> first_row;
+  for (const auto group_id : target->drill_group_ids) {
+    const ChartDrillGroup* group = nullptr;
+    for (const auto& candidate : draft.drill_groups()) {
+      if (candidate.id.value == group_id.value) {
+        group = &candidate;
+        break;
+      }
+    }
+    if (group == nullptr) {
+      continue;
+    }
+    const auto include = [&draft, &first_row](const ChartEventId event_id) {
+      for (const auto& event : draft.role_events()) {
+        if (event.id.value == event_id.value) {
+          if (!first_row.has_value() || event.row < *first_row) {
+            first_row = event.row;
+          }
+          return;
+        }
+      }
+    };
+    for (const auto event_id : group->npc_event_ids) {
+      include(event_id);
+    }
+    for (const auto event_id : group->player_event_ids) {
+      include(event_id);
+    }
+  }
+  return first_row;
+}
+
 }  // namespace otgy::core

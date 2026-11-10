@@ -309,10 +309,14 @@ void test_stage_cursor_and_termination_errors() {
                row(5U, 2U, SlkRowType::D, 1U), row(6U, 3U, SlkRowType::R, 0U)}),
       SlkDrillGroupError::ExpectedBlockStart, 2U, SlkDrillBlockRole::Player);
 
-  assert_error(
+  const auto end_of_records = otgy::core::analyze_slk_drill_groups(
       records({row(3U, 0U, SlkRowType::C, 1U), row(4U, 1U, SlkRowType::N, 0U),
                row(5U, 4U, SlkRowType::C, 1U), row(6U, 5U, SlkRowType::N, 0U)}),
-      SlkDrillGroupError::MissingSequenceEnd, 4U, SlkDrillBlockRole::Npc);
+      0U);
+  assert(end_of_records);
+  assert(end_of_records.analysis()->end() ==
+         SlkOrdinarySequenceEnd::EndOfRecords);
+  assert(end_of_records.analysis()->groups().size() == 1U);
 }
 
 void test_error_messages() {

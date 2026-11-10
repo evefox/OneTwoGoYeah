@@ -126,7 +126,7 @@ void test_prefix_showtime_projection_and_validation() {
   assert(showtimes.front().show_d_rows.size() == 6U);
   showtimes.front().show_d_rows.resize(1U);
   FinishedSlkDocument prefix_document{otgy::core::SlkShowtimeAnalysis{
-      std::move(showtimes), document.semantics().boundary_row(),
+      std::move(showtimes), {}, document.semantics().boundary_row(),
       document.semantics().boundary_source_row_index()}};
 
   const auto result =
@@ -196,12 +196,33 @@ void test_compatibility_projection() {
   assert(draft.showtime_start_events()[1].id.value == 396U);
 }
 
+void test_trailing_only_projection_and_validation() {
+  const auto document =
+      import_file(std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  const auto trailing = document.semantics().showtimes().front().stage.drills();
+  assert(trailing.size() == 6U);
+  FinishedSlkDocument trailing_document{otgy::core::SlkShowtimeAnalysis{
+      {}, trailing, document.semantics().boundary_row(),
+      document.semantics().boundary_source_row_index()}};
+
+  const auto result =
+      otgy::core::project_finished_slk_to_chart_draft(trailing_document);
+  const auto& draft = draft_of(result);
+  assert(draft.showtimes().empty());
+  assert(draft.showtime_start_events().empty());
+  assert(draft.showtime_move_events().empty());
+  assert(draft.dance_move_drills().size() == 6U);
+  assert(draft.drill_groups().size() == 14U);
+  const auto validation = otgy::core::validate_finished_chart(draft);
+  assert(validation.is_finished());
+}
+
 void test_invalid_finished_document() {
   const auto position = otgy::core::decompose_slk_position(0U);
   assert(position);
   const SlkParsedRow boundary{3U, *position.position(), SlkRowType::R, 0U};
   const FinishedSlkDocument empty{
-      otgy::core::SlkShowtimeAnalysis{{}, boundary, 0U}};
+      otgy::core::SlkShowtimeAnalysis{{}, {}, boundary, 0U}};
   const auto result = otgy::core::project_finished_slk_to_chart_draft(empty);
   assert(!result);
   assert(result.draft() == nullptr);
@@ -232,6 +253,7 @@ int main() {
   test_canonical_projection_and_ownership();
   test_compatibility_projection();
   test_prefix_showtime_projection_and_validation();
+  test_trailing_only_projection_and_validation();
   test_invalid_finished_document();
   test_error_messages();
   return 0;

@@ -253,6 +253,124 @@ void diagnose_finished_event_order(
   }
 }
 
+[[nodiscard]] std::uint64_t last_showtime_event_row(
+    const ChartDraft& draft, bool& has_event) noexcept {
+  std::uint64_t last = 0U;
+  has_event = false;
+  const auto include = [&last, &has_event](std::uint64_t row) {
+    if (!has_event || row > last) {
+      last = row;
+    }
+    has_event = true;
+  };
+  for (const auto& showtime : draft.showtimes()) {
+    if (const auto* start =
+            find_start_event(draft, showtime.start_event_id.value)) {
+      include(start->row);
+    }
+    for (const auto event_id : showtime.show_move_event_ids) {
+      if (const auto* event = find_move_event(draft, event_id.value)) {
+        include(event->row);
+      }
+    }
+    for (const auto drill_id : showtime.dance_move_drill_ids) {
+      const auto* drill = find_drill(draft, drill_id.value);
+      if (drill == nullptr) {
+        continue;
+      }
+      for (const auto group_id : drill->drill_group_ids) {
+        const auto* group = find_group(draft, group_id.value);
+        if (group == nullptr) {
+          continue;
+        }
+        for (const auto event_id : group->npc_event_ids) {
+          if (const auto* event = find_role_event(draft, event_id.value)) {
+            include(event->row);
+          }
+        }
+        for (const auto event_id : group->player_event_ids) {
+          if (const auto* event = find_role_event(draft, event_id.value)) {
+            include(event->row);
+          }
+        }
+      }
+    }
+  }
+  return last;
+}
+
+struct UnownedDrill final {
+  const ChartDanceMoveDrill* drill;
+  std::uint64_t first_row;
+};
+
+[[nodiscard]] std::vector<UnownedDrill> unowned_drills_in_row_order(
+    const ChartDraft& draft) {
+  std::vector<UnownedDrill> result;
+  for (const auto& drill : draft.dance_move_drills()) {
+    bool owned = false;
+    for (const auto& showtime : draft.showtimes()) {
+      for (const auto drill_id : showtime.dance_move_drill_ids) {
+        if (drill_id.value == drill.id.value) {
+          owned = true;
+          break;
+        }
+      }
+      if (owned) {
+        break;
+      }
+    }
+    if (owned) {
+      continue;
+    }
+    const auto first_row = dance_move_drill_first_row(draft, drill.id);
+    if (!first_row.has_value()) {
+      continue;
+    }
+    result.push_back({&drill, *first_row});
+  }
+  std::sort(result.begin(), result.end(),
+            [](const UnownedDrill& left, const UnownedDrill& right) {
+              return left.first_row != right.first_row
+                         ? left.first_row < right.first_row
+                         : left.drill->id.value < right.drill->id.value;
+            });
+  return result;
+}
+
+/// Showtime-less drills are a trailing ordinary stage. They must follow every
+/// Showtime event, and their own event rows must keep the same strict order.
+void diagnose_unowned_drills(const ChartDraft& draft,
+                             std::vector<ChartDiagnostic>& diagnostics) {
+  bool has_showtime_event = false;
+  const auto last_showtime_row =
+      last_showtime_event_row(draft, has_showtime_event);
+  for (const auto& entry : unowned_drills_in_row_order(draft)) {
+    if (has_showtime_event && entry.first_row <= last_showtime_row) {
+      add_diagnostic(diagnostics,
+                     ChartDiagnosticCode::DanceMoveDrillNotTrailing,
+                     entry.drill->id.value, 0U, entry.first_row);
+      continue;
+    }
+    bool has_previous = has_showtime_event;
+    EventKey previous{0U, last_showtime_row};
+    for (const auto group_id : entry.drill->drill_group_ids) {
+      const auto* group = find_group(draft, group_id.value);
+      if (group == nullptr) {
+        continue;
+      }
+      for (const auto event_id : group->npc_event_ids) {
+        diagnose_ordered_event(find_role_event(draft, event_id.value),
+                               has_previous, previous, diagnostics);
+      }
+      for (const auto event_id : group->player_event_ids) {
+        diagnose_ordered_event(find_role_event(draft, event_id.value),
+                               has_previous, previous, diagnostics);
+      }
+    }
+  }
+}
+
 }  // namespace
 
 FinishedChart::FinishedChart(ChartDraft draft) noexcept
@@ -295,7 +413,7 @@ ChartValidationResult validate_finished_chart(
     const ChartDraft& draft) noexcept {
   try {
     std::vector<ChartDiagnostic> diagnostics;
-    if (draft.showtimes().empty()) {
+    if (draft.showtimes().empty() && draft.dance_move_drills().empty()) {
       add_diagnostic(diagnostics, ChartDiagnosticCode::EmptyChart);
     }
 
@@ -478,12 +596,13 @@ ChartValidationResult validate_finished_chart(
                             return id.value == drill.id.value;
                           }));
       }
-      if (count != 1U) {
+      if (count > 1U) {
         add_diagnostic(diagnostics, ChartDiagnosticCode::OrphanDanceMoveDrill,
                        drill.id.value);
       }
     }
 
+    diagnose_unowned_drills(draft, diagnostics);
     diagnose_finished_event_order(draft, diagnostics);
 
     if (!diagnostics.empty()) {

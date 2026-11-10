@@ -224,10 +224,83 @@ void test_finished_snapshot_requires_owned_and_ordered_showtime_events() {
       ChartDiagnosticCode::InvalidShowtime));
 }
 
+void test_showtime_less_trailing_drills_are_finished() {
+  const auto valid =
+      draft_from_file(std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  auto start_events = valid.showtime_start_events();
+  auto move_events = valid.showtime_move_events();
+  auto showtimes = valid.showtimes();
+  const auto removed = showtimes.back();
+  start_events.erase(
+      std::remove_if(start_events.begin(), start_events.end(),
+                     [&removed](const auto& event) {
+                       return event.id.value == removed.start_event_id.value;
+                     }),
+      start_events.end());
+  for (const auto move_id : removed.show_move_event_ids) {
+    move_events.erase(
+        std::remove_if(move_events.begin(), move_events.end(),
+                       [move_id](const auto& event) {
+                         return event.id.value == move_id.value;
+                       }),
+        move_events.end());
+  }
+  showtimes.pop_back();
+
+  const auto trailing =
+      rebuild(valid, valid.role_events(), std::move(start_events),
+              std::move(move_events), valid.drill_groups(),
+              valid.dance_move_drills(), std::move(showtimes));
+  const auto trailing_result = otgy::core::validate_finished_chart(trailing);
+  assert(trailing_result.is_finished());
+  assert(trailing_result.finished_chart()->draft().showtimes().size() == 1U);
+  assert(
+      trailing_result.finished_chart()->draft().dance_move_drills().size() ==
+      17U);
+
+  auto earlier_start_events = valid.showtime_start_events();
+  auto earlier_move_events = valid.showtime_move_events();
+  auto earlier_showtimes = valid.showtimes();
+  const auto removed_first = earlier_showtimes.front();
+  earlier_start_events.erase(
+      std::remove_if(earlier_start_events.begin(), earlier_start_events.end(),
+                     [&removed_first](const auto& event) {
+                       return event.id.value ==
+                              removed_first.start_event_id.value;
+                     }),
+      earlier_start_events.end());
+  for (const auto move_id : removed_first.show_move_event_ids) {
+    earlier_move_events.erase(
+        std::remove_if(earlier_move_events.begin(), earlier_move_events.end(),
+                       [move_id](const auto& event) {
+                         return event.id.value == move_id.value;
+                       }),
+        earlier_move_events.end());
+  }
+  earlier_showtimes.erase(earlier_showtimes.begin());
+  const auto not_trailing =
+      rebuild(valid, valid.role_events(), std::move(earlier_start_events),
+              std::move(earlier_move_events), valid.drill_groups(),
+              valid.dance_move_drills(), std::move(earlier_showtimes));
+  assert(has_diagnostic(otgy::core::validate_finished_chart(not_trailing),
+                        ChartDiagnosticCode::DanceMoveDrillNotTrailing));
+
+  auto double_owned = valid.showtimes();
+  double_owned[1].dance_move_drill_ids.push_back(
+      double_owned[0].dance_move_drill_ids.front());
+  const auto double_owned_draft =
+      rebuild(valid, valid.role_events(), valid.showtime_start_events(),
+              valid.showtime_move_events(), valid.drill_groups(),
+              valid.dance_move_drills(), std::move(double_owned));
+  assert(has_diagnostic(
+      otgy::core::validate_finished_chart(double_owned_draft),
+      ChartDiagnosticCode::OrphanDanceMoveDrill));
+}
+
 void test_diagnostic_messages() {
   for (unsigned int raw = 0U;
-       raw <=
-       static_cast<unsigned int>(ChartDiagnosticCode::OrphanDanceMoveDrill);
+       raw <= static_cast<unsigned int>(
+                  ChartDiagnosticCode::DanceMoveDrillNotTrailing);
        ++raw) {
     assert(!otgy::core::chart_diagnostic_message(
                 static_cast<ChartDiagnosticCode>(raw))
@@ -245,6 +318,7 @@ int main() {
   test_empty_duplicate_and_orphan_diagnostics();
   test_block_dance_and_showtime_diagnostics_without_mutation();
   test_finished_snapshot_requires_owned_and_ordered_showtime_events();
+  test_showtime_less_trailing_drills_are_finished();
   test_diagnostic_messages();
   return 0;
 }

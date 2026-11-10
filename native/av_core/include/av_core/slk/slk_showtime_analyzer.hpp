@@ -41,12 +41,18 @@ struct SlkShowtime final {
 class SlkShowtimeAnalysis final {
  public:
   SlkShowtimeAnalysis(std::vector<SlkShowtime> showtimes,
+                      std::vector<SlkDanceMoveDrill> trailing_drills,
                       std::optional<SlkParsedRow> boundary_row,
                       std::optional<std::size_t> boundary_source_row_index)
       noexcept;
 
   [[nodiscard]] const std::vector<SlkShowtime>& showtimes() const noexcept {
     return showtimes_;
+  }
+  /// Complete drills from the final ordinary stage that has no Showtime.
+  [[nodiscard]] const std::vector<SlkDanceMoveDrill>& trailing_drills()
+      const noexcept {
+    return trailing_drills_;
   }
   [[nodiscard]] const std::optional<SlkParsedRow>& boundary_row()
       const noexcept {
@@ -59,6 +65,7 @@ class SlkShowtimeAnalysis final {
 
  private:
   std::vector<SlkShowtime> showtimes_;
+  std::vector<SlkDanceMoveDrill> trailing_drills_;
   std::optional<SlkParsedRow> boundary_row_;
   std::optional<std::size_t> boundary_source_row_index_;
 };
@@ -83,7 +90,7 @@ enum class SlkShowtimeError : std::uint8_t {
     case SlkShowtimeError::None:
       return {};
     case SlkShowtimeError::EmptyChart:
-      return "SLK finished chart contains no Showtime stages";
+      return "SLK finished chart contains no dance stages";
     case SlkShowtimeError::EmptyOrdinaryStage:
       return "SLK Showtime has no preceding dance move drills";
     case SlkShowtimeError::DrillGroupAnalysisFailed:

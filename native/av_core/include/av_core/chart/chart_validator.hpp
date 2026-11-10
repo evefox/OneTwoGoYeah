@@ -50,13 +50,14 @@ enum class ChartDiagnosticCode : std::uint8_t {
   OrphanEvent = 12,
   OrphanDrillGroup = 13,
   OrphanDanceMoveDrill = 14,
+  DanceMoveDrillNotTrailing = 15,
 };
 
 [[nodiscard]] constexpr std::string_view chart_diagnostic_message(
     ChartDiagnosticCode code) noexcept {
   switch (code) {
     case ChartDiagnosticCode::EmptyChart:
-      return "finished chart must contain at least one Showtime";
+      return "finished chart must contain at least one dance move drill";
     case ChartDiagnosticCode::DuplicateEventId:
       return "chart event identifiers must be unique";
     case ChartDiagnosticCode::DuplicateEventRow:
@@ -84,7 +85,10 @@ enum class ChartDiagnosticCode : std::uint8_t {
     case ChartDiagnosticCode::OrphanDrillGroup:
       return "drill group is not owned by exactly one dance move drill";
     case ChartDiagnosticCode::OrphanDanceMoveDrill:
-      return "dance move drill is not owned by exactly one Showtime";
+      return "dance move drill is owned by more than one Showtime";
+    case ChartDiagnosticCode::DanceMoveDrillNotTrailing:
+      return "dance move drill outside a Showtime must follow every Showtime "
+             "event";
   }
   return "unknown chart diagnostic";
 }

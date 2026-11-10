@@ -43,6 +43,8 @@ struct SlkDrillGroup final {
 enum class SlkOrdinarySequenceEnd : std::uint8_t {
   Showtime = 0,
   FileBoundary = 1,
+  /// The records end without a trailing `r` boundary row.
+  EndOfRecords = 2,
 };
 
 class SlkDrillGroupAnalysis final {

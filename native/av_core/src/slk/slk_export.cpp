@@ -199,12 +199,31 @@ struct EncodedRow final {
   return count != 0U;
 }
 
+[[nodiscard]] bool append_drill_blocks(const ChartDraft& draft,
+                                       const ChartDanceMoveDrill& drill,
+                                       std::vector<EncodedRow>& rows) {
+  if (drill.drill_group_ids.empty()) {
+    return false;
+  }
+  const bool split = drill.drill_group_ids.size() > 1U;
+  for (const auto group_id : drill.drill_group_ids) {
+    const auto* group = find_group(draft, group_id.value);
+    std::uint64_t segment_count = 0U;
+    if (group == nullptr || !segment_n_count(draft, *group, segment_count)) {
+      return false;
+    }
+    const std::uint64_t c_value =
+        split ? segment_count * 100U + drill.move_n_count : drill.move_n_count;
+    if (!append_block(draft, group->npc_event_ids, c_value, rows) ||
+        !append_block(draft, group->player_event_ids, c_value, rows)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] SlkExportError encode_rows(
     const ChartDraft& draft, std::vector<EncodedRow>& rows) {
-  if (draft.showtimes().empty()) {
-    return SlkExportError::InvalidFinishedChart;
-  }
-
   std::size_t expected_count = draft.role_events().size();
   if (expected_count > std::numeric_limits<std::size_t>::max() -
                            draft.showtime_start_events().size()) {
@@ -222,27 +241,49 @@ struct EncodedRow final {
   ++expected_count;
   rows.reserve(expected_count);
 
+  std::vector<const ChartDanceMoveDrill*> unowned;
+  for (const auto& drill : draft.dance_move_drills()) {
+    bool owned = false;
+    for (const auto& showtime : draft.showtimes()) {
+      for (const auto drill_id : showtime.dance_move_drill_ids) {
+        if (drill_id.value == drill.id.value) {
+          owned = true;
+          break;
+        }
+      }
+      if (owned) {
+        break;
+      }
+    }
+    if (!owned) {
+      unowned.push_back(&drill);
+    }
+  }
+  std::sort(unowned.begin(), unowned.end(),
+            [&draft](const ChartDanceMoveDrill* left,
+                     const ChartDanceMoveDrill* right) {
+              const auto left_row = dance_move_drill_first_row(draft, left->id);
+              const auto right_row =
+                  dance_move_drill_first_row(draft, right->id);
+              const auto left_value =
+                  left_row.has_value()
+                      ? *left_row
+                      : std::numeric_limits<std::uint64_t>::max();
+              const auto right_value =
+                  right_row.has_value()
+                      ? *right_row
+                      : std::numeric_limits<std::uint64_t>::max();
+              return left_value != right_value
+                         ? left_value < right_value
+                         : left->id.value < right->id.value;
+            });
+
   const ChartShowtimeMoveEvent* last_show_move = nullptr;
   for (const auto& showtime : draft.showtimes()) {
     for (const auto drill_id : showtime.dance_move_drill_ids) {
       const auto* drill = find_drill(draft, drill_id.value);
-      if (drill == nullptr || drill->drill_group_ids.empty()) {
+      if (drill == nullptr || !append_drill_blocks(draft, *drill, rows)) {
         return SlkExportError::InvalidFinishedChart;
-      }
-      const bool split = drill->drill_group_ids.size() > 1U;
-      for (const auto group_id : drill->drill_group_ids) {
-        const auto* group = find_group(draft, group_id.value);
-        std::uint64_t segment_count = 0U;
-        if (group == nullptr || !segment_n_count(draft, *group, segment_count)) {
-          return SlkExportError::InvalidFinishedChart;
-        }
-        const std::uint64_t c_value =
-            split ? segment_count * 100U + drill->move_n_count
-                  : drill->move_n_count;
-        if (!append_block(draft, group->npc_event_ids, c_value, rows) ||
-            !append_block(draft, group->player_event_ids, c_value, rows)) {
-          return SlkExportError::InvalidFinishedChart;
-        }
       }
     }
 
@@ -260,18 +301,45 @@ struct EncodedRow final {
     }
   }
 
-  if (last_show_move == nullptr || rows.size() + 1U != expected_count) {
+  const auto trailing_begin = rows.size();
+  for (const auto* drill : unowned) {
+    if (!append_drill_blocks(draft, *drill, rows)) {
+      return SlkExportError::InvalidFinishedChart;
+    }
+  }
+  const bool has_trailing = rows.size() > trailing_begin;
+
+  if (rows.size() + 1U != expected_count ||
+      (!draft.showtimes().empty() && last_show_move == nullptr)) {
     return SlkExportError::InvalidFinishedChart;
   }
-  const std::uint64_t range_start =
-      last_show_move->row - last_show_move->row % 16U;
-  const std::uint64_t duration =
-      last_show_move->show_n_count <= 6U ? 16U : 32U;
-  if (range_start > std::numeric_limits<std::uint64_t>::max() - duration) {
+
+  std::uint64_t base = 0U;
+  bool has_base = false;
+  if (last_show_move != nullptr) {
+    const std::uint64_t range_start =
+        last_show_move->row - last_show_move->row % 16U;
+    const std::uint64_t duration =
+        last_show_move->show_n_count <= 6U ? 16U : 32U;
+    if (range_start > std::numeric_limits<std::uint64_t>::max() - duration) {
+      return SlkExportError::InvalidFinishedChart;
+    }
+    base = range_start + duration;
+    has_base = true;
+  }
+  if (has_trailing) {
+    const auto last_row = rows.back().row;
+    if (last_row == std::numeric_limits<std::uint64_t>::max()) {
+      return SlkExportError::SizeOverflow;
+    }
+    const auto next_row = last_row + 1U;
+    base = has_base && base > next_row ? base : next_row;
+    has_base = true;
+  }
+  if (!has_base) {
     return SlkExportError::InvalidFinishedChart;
   }
-  const std::uint64_t boundary =
-      std::max(kCanonicalBoundaryRow, range_start + duration);
+  const std::uint64_t boundary = std::max(kCanonicalBoundaryRow, base);
   if (!append_row(rows, {boundary, 'r', 0U})) {
     return SlkExportError::InvalidFinishedChart;
   }

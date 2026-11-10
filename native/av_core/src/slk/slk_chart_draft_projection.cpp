@@ -84,6 +84,28 @@ namespace {
   return true;
 }
 
+[[nodiscard]] bool append_drill(const SlkDanceMoveDrill& source,
+                                std::vector<ChartRoleEvent>& events,
+                                std::vector<ChartDrillGroup>& groups,
+                                std::vector<ChartDanceMoveDrill>& drills,
+                                std::uint64_t& failure_sheet_row) {
+  if (source.groups.empty()) {
+    failure_sheet_row = 0U;
+    return false;
+  }
+  const ChartDanceMoveDrillId drill_id{source.id.value};
+  ChartDanceMoveDrill drill{drill_id, source.move_n_count, {}};
+  for (const auto& mapping : source.groups) {
+    if (!append_group(source, mapping, drill_id, events, groups)) {
+      failure_sheet_row = mapping.npc_c_row.row.sheet_row;
+      return false;
+    }
+    drill.drill_group_ids.push_back({mapping.drill_group_id.value});
+  }
+  drills.push_back(std::move(drill));
+  return true;
+}
+
 }  // namespace
 
 SlkChartDraftProjectionResult::SlkChartDraftProjectionResult(
@@ -114,7 +136,7 @@ ChartDraft SlkChartDraftProjectionResult::take_draft() && {
 SlkChartDraftProjectionResult project_finished_slk_to_chart_draft(
     const FinishedSlkDocument& document) noexcept {
   const auto& semantics = document.semantics();
-  if (semantics.showtimes().empty()) {
+  if (semantics.showtimes().empty() && semantics.trailing_drills().empty()) {
     return SlkChartDraftProjectionResult{
         {SlkChartDraftProjectionError::InvalidFinishedDocument,
          semantics.boundary_row().has_value()
@@ -147,19 +169,14 @@ SlkChartDraftProjectionResult project_finished_slk_to_chart_draft(
                              {},
                              {}};
       for (const auto& source_drill : source_showtime.stage.drills()) {
-        const ChartDanceMoveDrillId drill_id{source_drill.id.value};
-        ChartDanceMoveDrill drill{drill_id, source_drill.move_n_count, {}};
-        for (const auto& mapping : source_drill.groups) {
-          if (!append_group(source_drill, mapping, drill_id, role_events,
-                            drill_groups)) {
-            return SlkChartDraftProjectionResult{
-                {SlkChartDraftProjectionError::InvalidFinishedDocument,
-                 mapping.npc_c_row.row.sheet_row}};
-          }
-          drill.drill_group_ids.push_back({mapping.drill_group_id.value});
+        std::uint64_t failure_sheet_row = 0U;
+        if (!append_drill(source_drill, role_events, drill_groups,
+                          dance_move_drills, failure_sheet_row)) {
+          return SlkChartDraftProjectionResult{
+              {SlkChartDraftProjectionError::InvalidFinishedDocument,
+               failure_sheet_row}};
         }
-        showtime.dance_move_drill_ids.push_back(drill_id);
-        dance_move_drills.push_back(std::move(drill));
+        showtime.dance_move_drill_ids.push_back({source_drill.id.value});
       }
 
       showtime_start_events.push_back(
@@ -188,6 +205,16 @@ SlkChartDraftProjectionResult project_finished_slk_to_chart_draft(
         showtime.show_move_event_ids.push_back(event_id);
       }
       showtimes.push_back(std::move(showtime));
+    }
+
+    for (const auto& source_drill : semantics.trailing_drills()) {
+      std::uint64_t failure_sheet_row = 0U;
+      if (!append_drill(source_drill, role_events, drill_groups,
+                        dance_move_drills, failure_sheet_row)) {
+        return SlkChartDraftProjectionResult{
+            {SlkChartDraftProjectionError::InvalidFinishedDocument,
+             failure_sheet_row}};
+      }
     }
 
     return SlkChartDraftProjectionResult{

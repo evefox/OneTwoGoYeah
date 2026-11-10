@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace otgy::core {
@@ -123,5 +124,10 @@ class ChartDraft final {
 /// Container order is part of the encoded draft snapshot.
 [[nodiscard]] bool chart_drafts_equal(const ChartDraft& left,
                                       const ChartDraft& right) noexcept;
+
+/// First row bound to the drill through its groups, or nullopt when the drill
+/// has no reachable events. Showtime-less drills are ordered by this row.
+[[nodiscard]] std::optional<std::uint64_t> dance_move_drill_first_row(
+    const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept;
 
 }  // namespace otgy::core

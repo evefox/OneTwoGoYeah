@@ -203,13 +203,44 @@ void test_stage_and_nested_analysis_errors() {
   });
   failure_of(empty_stage, SlkShowtimeError::EmptyOrdinaryStage);
 
-  std::vector<SlkParsedRow> missing_showtime;
+  std::vector<SlkParsedRow> trailing_stage;
   std::uint64_t sheet = 3U;
   std::uint64_t position = 0U;
-  append_group(missing_showtime, sheet, position, 1U, 1U, true);
-  missing_showtime.push_back(row(sheet, position, SlkRowType::R, 0U));
-  failure_of(records(std::move(missing_showtime)),
-             SlkShowtimeError::MissingShowtime);
+  append_group(trailing_stage, sheet, position, 1U, 1U, true);
+  const auto trailing_boundary_sheet = sheet;
+  trailing_stage.push_back(row(sheet, position, SlkRowType::R, 0U));
+  const auto trailing_result =
+      analyze_slk_showtimes(records(std::move(trailing_stage)));
+  assert(trailing_result);
+  assert(trailing_result.analysis()->showtimes().empty());
+  assert(trailing_result.analysis()->trailing_drills().size() == 1U);
+  assert(trailing_result.analysis()->trailing_drills().front().move_n_count ==
+         1U);
+  assert(trailing_result.analysis()->boundary_row()->sheet_row ==
+         trailing_boundary_sheet);
+
+  std::vector<SlkParsedRow> trailing_without_boundary;
+  sheet = 3U;
+  position = 0U;
+  append_group(trailing_without_boundary, sheet, position, 1U, 1U, true);
+  const auto no_boundary_result =
+      analyze_slk_showtimes(records(std::move(trailing_without_boundary)));
+  assert(no_boundary_result);
+  assert(!no_boundary_result.analysis()->boundary_row().has_value());
+  assert(no_boundary_result.analysis()->trailing_drills().size() == 1U);
+
+  auto mixed_rows = valid_rows();
+  const auto mixed_boundary = mixed_rows.back();
+  mixed_rows.pop_back();
+  sheet = mixed_boundary.sheet_row;
+  position = mixed_boundary.position.total_sixteenth;
+  append_group(mixed_rows, sheet, position, 1U, 1U, true);
+  mixed_rows.push_back(row(sheet, position, SlkRowType::R, 0U));
+  const auto mixed_result =
+      analyze_slk_showtimes(records(std::move(mixed_rows)));
+  assert(mixed_result);
+  assert(mixed_result.analysis()->showtimes().size() == 2U);
+  assert(mixed_result.analysis()->trailing_drills().size() == 1U);
 
   std::vector<SlkParsedRow> invalid_dance;
   sheet = 3U;

@@ -174,8 +174,8 @@ SlkDrillGroupAnalysisResult analyze_slk_drill_groups(
   }
 
   auto cursor = begin_row_index;
+  std::vector<SlkDrillGroup> groups;
   try {
-    std::vector<SlkDrillGroup> groups;
     while (cursor < rows.size()) {
       if (is_sequence_end(rows[cursor])) {
         const auto end = rows[cursor].type == SlkRowType::R
@@ -217,6 +217,11 @@ SlkDrillGroupAnalysisResult analyze_slk_drill_groups(
                      SlkDrillBlockRole::Npc)};
   }
 
+  if (!groups.empty()) {
+    return SlkDrillGroupAnalysisResult{SlkDrillGroupAnalysis{
+        std::move(groups), begin_row_index, cursor,
+        SlkOrdinarySequenceEnd::EndOfRecords}};
+  }
   return SlkDrillGroupAnalysisResult{
       make_failure(SlkDrillGroupError::MissingSequenceEnd, rows, cursor,
                    SlkDrillBlockRole::Npc)};

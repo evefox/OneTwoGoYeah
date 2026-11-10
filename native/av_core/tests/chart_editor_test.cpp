@@ -2253,6 +2253,40 @@ void add_dance_move(ChartEditor& editor, std::uint64_t first_row) {
   assert(editor.click(ChartColumn::Player, first_row + 10U));
 }
 
+/// Deleting and re-creating an earlier Showtime must insert the relation at its
+/// own row instead of appending it after a later Showtime. Appending used to
+/// leave the finished-chart order check rejecting the whole draft.
+void test_earlier_showtime_is_inserted_in_row_order() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  add_dance_move(editor, 0U);
+  add_dance_move(editor, 40U);
+
+  // The earlier Showtime is created first so the later one only collects the
+  // second dance move. It is then deleted and re-created at the same row.
+  assert(editor.click(ChartColumn::Showtime, 16U));
+  assert(editor.click(ChartColumn::Showtime, 64U));
+  assert(editor.draft().showtimes().size() == 2U);
+  assert(editor.click(ChartColumn::Showtime, 16U));
+  assert(editor.draft().showtimes().size() == 1U);
+  assert(editor.click(ChartColumn::Showtime, 16U));
+  assert(editor.draft().showtimes().size() == 2U);
+
+  const auto showtime_row =
+      [&editor](const otgy::core::ChartShowtime& showtime) {
+        for (const auto& event : editor.draft().showtime_start_events()) {
+          if (event.id.value == showtime.start_event_id.value) {
+            return event.row;
+          }
+        }
+        assert(false);
+        return std::uint64_t{0U};
+      };
+  assert(showtime_row(editor.draft().showtimes()[0]) == 16U);
+  assert(showtime_row(editor.draft().showtimes()[1]) == 64U);
+  assert(editor.draft().showtime_move_events().size() == 2U);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+}
+
 [[nodiscard]] std::vector<otgy::core::ChartEventId> role_event_ids_in_group(
     const ChartDraft& draft, otgy::core::ChartDrillGroupId group_id) {
   std::vector<otgy::core::ChartEventId> ids;
@@ -3335,6 +3369,7 @@ int main() {
   test_showtime_conflicts_position_and_retained_start();
   test_showtime_manual_position_boundaries();
   test_showtime_final_open_range_exceptions();
+  test_earlier_showtime_is_inserted_in_row_order();
   test_stale_showtime_pruning();
   test_split_dance_move_regenerates_showtime();
   test_nonterminal_npc_move_end_deletes_after_merge();

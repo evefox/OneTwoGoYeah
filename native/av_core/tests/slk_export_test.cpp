@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "av_core/chart/chart_editor.hpp"
 #include "av_core/chart/chart_validator.hpp"
 #include "av_core/slk/slk_chart_draft_projection.hpp"
 #include "av_core/slk/slk_export.hpp"
@@ -47,7 +48,8 @@ namespace {
   showtimes.front().show_d_rows.resize(1U);
   otgy::core::FinishedSlkDocument prefix_document{
       otgy::core::SlkShowtimeAnalysis{
-          std::move(showtimes), import.document()->semantics().boundary_row(),
+          std::move(showtimes), {},
+          import.document()->semantics().boundary_row(),
           import.document()->semantics().boundary_source_row_index()}};
   auto projection =
       otgy::core::project_finished_slk_to_chart_draft(prefix_document);
@@ -437,6 +439,88 @@ void test_range_fields_and_format_anchor_boundaries() {
       314U, 2U);
 }
 
+void add_export_dance_move(otgy::core::ChartEditor& editor,
+                           std::uint64_t first_row) {
+  assert(editor.click(otgy::core::ChartColumn::Npc, first_row));
+  assert(editor.click(otgy::core::ChartColumn::Npc, first_row + 2U));
+  assert(editor.click(otgy::core::ChartColumn::Npc, first_row + 4U));
+  assert(editor.click(otgy::core::ChartColumn::Npc, first_row + 6U));
+  assert(editor.click(otgy::core::ChartColumn::Npc, first_row + 6U));
+  assert(editor.click(otgy::core::ChartColumn::Player, first_row + 8U));
+  assert(editor.click(otgy::core::ChartColumn::Player, first_row + 10U));
+}
+
+void test_showtime_less_drills_export_and_round_trip() {
+  otgy::core::ChartEditor mixed{
+      otgy::core::ChartDraft{{}, {}, {}, {}, {}, {}}};
+  add_export_dance_move(mixed, 0U);
+  assert(mixed.click(otgy::core::ChartColumn::Showtime, 16U));
+  add_export_dance_move(mixed, 40U);
+  assert(mixed.draft().showtimes().size() == 1U);
+  assert(mixed.draft().dance_move_drills().size() == 2U);
+
+  auto mixed_validation = otgy::core::validate_finished_chart(mixed.draft());
+  assert(mixed_validation.is_finished());
+  const auto mixed_export = otgy::core::export_finished_chart_to_slk(
+      *mixed_validation.finished_chart());
+  assert(mixed_export);
+  const auto mixed_reimport = otgy::core::import_finished_slk(
+      mixed_export.bytes()->data(), mixed_export.bytes()->size());
+  assert(mixed_reimport);
+  assert(mixed_reimport.document()->semantics().showtimes().size() == 1U);
+  assert(mixed_reimport.document()->semantics().trailing_drills().size() == 1U);
+  const auto mixed_projection = otgy::core::project_finished_slk_to_chart_draft(
+      *mixed_reimport.document());
+  assert(mixed_projection);
+  auto mixed_round_validation =
+      otgy::core::validate_finished_chart(*mixed_projection.draft());
+  assert(mixed_round_validation.is_finished());
+  const auto mixed_round_export = otgy::core::export_finished_chart_to_slk(
+      *mixed_round_validation.finished_chart());
+  assert(mixed_round_export);
+  assert(*mixed_round_export.bytes() == *mixed_export.bytes());
+
+  otgy::core::ChartEditor plain{
+      otgy::core::ChartDraft{{}, {}, {}, {}, {}, {}}};
+  add_export_dance_move(plain, 0U);
+  add_export_dance_move(plain, 40U);
+  assert(plain.draft().showtimes().empty());
+  auto plain_validation = otgy::core::validate_finished_chart(plain.draft());
+  assert(plain_validation.is_finished());
+  const auto plain_export = otgy::core::export_finished_chart_to_slk(
+      *plain_validation.finished_chart());
+  assert(plain_export);
+  const auto plain_reimport = otgy::core::import_finished_slk(
+      plain_export.bytes()->data(), plain_export.bytes()->size());
+  assert(plain_reimport);
+  assert(plain_reimport.document()->semantics().showtimes().empty());
+  assert(plain_reimport.document()->semantics().trailing_drills().size() == 2U);
+  const auto plain_projection = otgy::core::project_finished_slk_to_chart_draft(
+      *plain_reimport.document());
+  assert(plain_projection);
+  auto plain_round_validation =
+      otgy::core::validate_finished_chart(*plain_projection.draft());
+  assert(plain_round_validation.is_finished());
+  const auto plain_round_export = otgy::core::export_finished_chart_to_slk(
+      *plain_round_validation.finished_chart());
+  assert(plain_round_export);
+  assert(*plain_round_export.bytes() == *plain_export.bytes());
+
+  otgy::core::ChartEditor long_plain{
+      otgy::core::ChartDraft{{}, {}, {}, {}, {}, {}}};
+  add_export_dance_move(long_plain, 2'000U);
+  auto long_validation = otgy::core::validate_finished_chart(long_plain.draft());
+  assert(long_validation.is_finished());
+  const auto long_export = otgy::core::export_finished_chart_to_slk(
+      *long_validation.finished_chart());
+  assert(long_export);
+  const auto long_parse = otgy::core::parse_slk_records(
+      long_export.bytes()->data(), long_export.bytes()->size());
+  assert(long_parse);
+  assert(long_parse.records()->rows().back().position.total_sixteenth ==
+         2'015U);
+}
+
 void test_export_error_messages() {
   for (unsigned int raw = 0U;
        raw <= static_cast<unsigned int>(
@@ -463,6 +547,7 @@ int main() {
   test_prefix_showtime_exports_and_reimports();
   test_direct_split_values_and_boundary_extension_reimport();
   test_range_fields_and_format_anchor_boundaries();
+  test_showtime_less_drills_export_and_round_trip();
   test_export_error_messages();
   return 0;
 }

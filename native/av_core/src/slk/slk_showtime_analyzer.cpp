@@ -56,10 +56,12 @@ namespace {
 
 SlkShowtimeAnalysis::SlkShowtimeAnalysis(
     std::vector<SlkShowtime> showtimes,
+    std::vector<SlkDanceMoveDrill> trailing_drills,
     std::optional<SlkParsedRow> boundary_row,
     std::optional<std::size_t> boundary_source_row_index) noexcept
     : showtimes_(std::move(showtimes)),
-      boundary_row_(boundary_row),
+      trailing_drills_(std::move(trailing_drills)),
+      boundary_row_(std::move(boundary_row)),
       boundary_source_row_index_(boundary_source_row_index) {}
 
 SlkShowtimeAnalysisResult::SlkShowtimeAnalysisResult(
@@ -101,14 +103,19 @@ SlkShowtimeAnalysisResult analyze_slk_showtimes(
       }
       auto groups = std::move(group_result).take_analysis();
 
-      if (groups.end() == SlkOrdinarySequenceEnd::FileBoundary) {
+      if (groups.end() != SlkOrdinarySequenceEnd::Showtime) {
+        std::vector<SlkDanceMoveDrill> trailing_drills;
         if (!groups.groups().empty()) {
-          return SlkShowtimeAnalysisResult{
-              make_failure(SlkShowtimeError::MissingShowtime, rows,
-                           groups.next_row_index(), showtimes.size())};
+          auto dance_result = analyze_slk_dance_move_drills(groups);
+          if (!dance_result) {
+            return SlkShowtimeAnalysisResult{dance_move_failure(
+                rows, groups, *dance_result.failure(), showtimes.size())};
+          }
+          auto stage = std::move(dance_result).take_analysis();
+          trailing_drills = std::move(stage).take_drills();
         }
         const auto boundary_index = groups.next_row_index();
-        if (showtimes.empty()) {
+        if (showtimes.empty() && trailing_drills.empty()) {
           return SlkShowtimeAnalysisResult{make_failure(
               SlkShowtimeError::EmptyChart, rows, boundary_index, 0U)};
         }
@@ -129,7 +136,8 @@ SlkShowtimeAnalysisResult analyze_slk_showtimes(
                 ? std::optional<std::size_t>{boundary_index}
                 : std::nullopt;
         return SlkShowtimeAnalysisResult{SlkShowtimeAnalysis{
-            std::move(showtimes), boundary, boundary_source_row_index}};
+            std::move(showtimes), std::move(trailing_drills), boundary,
+            boundary_source_row_index}};
       }
 
       if (groups.groups().empty()) {
@@ -190,7 +198,7 @@ SlkShowtimeAnalysisResult analyze_slk_showtimes(
       cursor = d_index;
       if (cursor >= rows.size()) {
         return SlkShowtimeAnalysisResult{SlkShowtimeAnalysis{
-            std::move(showtimes), std::nullopt, std::nullopt}};
+            std::move(showtimes), {}, std::nullopt, std::nullopt}};
       }
     }
   } catch (const std::bad_alloc&) {

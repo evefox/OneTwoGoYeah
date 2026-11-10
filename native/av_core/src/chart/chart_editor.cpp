@@ -1460,6 +1460,26 @@ struct CompleteDrill final {
               return left.row != right.row ? left.row < right.row
                                            : left.id.value < right.id.value;
             });
+  // The Showtime relation order is also the finished-chart and export order.
+  // A Showtime placed earlier than an existing one must be inserted at its row
+  // instead of being appended, or validation rejects the draft and export
+  // writes Showtimes out of time order.
+  const auto start_row = [&draft](ChartEventId id) {
+    for (const auto& event : draft.showtime_start_events) {
+      if (event.id.value == id.value) {
+        return event.row;
+      }
+    }
+    return std::uint64_t{0U};
+  };
+  std::sort(draft.showtimes.begin(), draft.showtimes.end(),
+            [&start_row](const ChartShowtime& left,
+                         const ChartShowtime& right) {
+              const auto left_row = start_row(left.start_event_id);
+              const auto right_row = start_row(right.start_event_id);
+              return left_row != right_row ? left_row < right_row
+                                           : left.id.value < right.id.value;
+            });
   return {ChartEditCode::Success, true, {event_id}};
 }
 

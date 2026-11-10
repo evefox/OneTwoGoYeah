@@ -170,14 +170,14 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 - 舞步测试覆盖直接值全范围、`3+2+3=8`、两位数段长 `10+1=11`、真实 `moveNCount` 顺序、深复制/移动，以及无效值、数量、编码、总和、提前/缺失结尾和伪拆分的稳定来源错误。
 - 增加 `analyze_slk_showtimes(records)`，从完整底层行逐阶段复用唯一分组/舞步入口，把连续 `d` 与有序 `DanceMoveDrill` 一一关联并在存在时消费末行 `[r & 0]`。
 - Showtime/`SHOW-D` 分别以自身 sheet row 作为同文档稳定标识，每个 `SHOW-D` 自有保存来源行、阶段内索引、演练引用和已校验 `showNCount`；规范/兼容文件分别关联 `6+11` 与 `8+9` 个引用。
-- 完整语义测试覆盖多阶段、稳定映射、可选边界与所有权，以及空阶段、缺少 Showtime、下层失败、`d` 数量/值、错误边界和空输入的结构化原子错误。
+- 完整语义测试覆盖多阶段、稳定映射、可选边界与所有权，以及空阶段、末尾无 Showtime 阶段、下层失败、`d` 数量/值、错误边界和空输入的结构化原子错误。
 - 增加 `import_finished_slk(bytes)` 原子入口，只编排现有记录解析与完整语义分析；全部成功才发布自有 `FinishedSlkDocument`，失败明确区分解析/语义层且不暴露部分值。
 - 严格导入测试覆盖两份真实文件、输入清除、深复制/移动、空/空指针/损坏头，以及语法合法的空谱面和缺失 `d`，并校验未使用下层错误保持 `None`。
 - 增加不依赖 SLK 的原生 `ChartDraft` 事件与关系容器，并由 `project_finished_slk_to_chart_draft(document)` 从已验证语义一次生成显式角色、稳定标识和 `showNCount`。
 - 规范/兼容投影分别得到 `408/384` 个角色事件，且各有 `2` 个 Showtime 起点、`17` 个 `SHOW-D`、`34` 个演练组、`17` 个舞步演练和 `2` 个 Showtime；全部引用、顺序、唯一 ID、所有权及无 `r` 事件均通过。
 - 增加 `validate_finished_chart(draft)`，只读校验事件唯一性、角色块、三层关系、完整数量和 `showNCount`；零诊断才深复制生成 `FinishedChart`，不修改或修复草稿。
 - 校验测试覆盖两份真实导入草稿，以及空草稿、重复 ID/时间行、孤立内容、块不匹配、舞步数量和 Showtime 值错误，验证诊断、快照所有权与输入不变。
-- 收紧 `FinishedChart` 边界：调用方不能直接构造快照，校验器进一步要求 `SHOW-C/SHOW-D` 恰好被关系拥有、按 Showtime/舞步演练/演练组/NPC/玩家/Showtime 展平后的事件位置严格递增，并拒绝展示范围整数溢出。
+- 收紧 `FinishedChart` 边界：调用方不能直接构造快照，校验器进一步要求 `SHOW-C/SHOW-D` 恰好被关系拥有、舞步演练最多被一个 Showtime 引用、无归属舞步演练必须位于全部 Showtime 事件之后，并按 Showtime/舞步演练/演练组/NPC/玩家/Showtime/末尾无归属舞步展平后的事件位置严格递增，并拒绝展示范围整数溢出。
 - 增加 `export_finished_chart_to_slk(FinishedChart)`，在 `av_core` 内编译固定 `z3116_lv5.slk` 的 2686 字节规范头，不在运行时读取 `example/`，只替换 `B`/`NN` 行数范围并按原始字节保留乱码标题、格式记录、列宽、筛选、CRLF 和结尾。
 - 增加 `project_chart_markers` 三列统一投影及前一个、前一个本列、后一个标记查询；底层容器乱序不改变结果，当前位置严格排除。
 - 增加 `project_showtime_moves` 和 `chart_note_ordinal`，从权威 `showNCount`/事件类型派生展示范围、连续序列首尾状态及 NPC/玩家独立 N 编号，不持久化派生值。
@@ -187,7 +187,7 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 - 增加 `encode_formal_draft`/`decode_formal_draft`，用内部 `OTGYPRJ\0` version 1 小端信封、显式类型/长度和 CRC32 保存完整 `ChartDraft` 及 BPM/Offset 原始 binary64 位模式。
 - 增加 `encode_recovery_snapshot`/`decode_recovery_snapshot`，复用相同容器安全与完整性校验但只保存 `ChartDraft`；不完整草稿无需通过成品校验即可精确往返，历史、音频和视图状态不进入负载。
 - 原生负载测试固定空正式/恢复负载的规范头、长度和 CRC 字节，并覆盖两份真实 SLK 完整关系、不完整编辑草稿、隐藏精度、类型错配、版本/长度/CRC、非法枚举、超大计数、截断和尾随数据。
-- 导出器从显式角色和三层关系唯一生成 NPC 后玩家的 `c/n/s`、Showtime `c0/d`、直接及 `segmentNCount * 100 + moveNCount` 拆分值，并通过共享位置换算写六列；最终边界固定为 `max(1920, lastShowD.rangeEnd)`。
+- 导出器从显式角色和三层关系唯一生成 NPC 后玩家的 `c/n/s`、Showtime `c0/d`、直接及 `segmentNCount * 100 + moveNCount` 拆分值，并通过共享位置换算写六列；末尾无 Showtime 舞步按行顺序生成普通阶段，最终边界固定为 `max(1920, lastShowD.rangeEnd, 末尾最后事件行 + 1)`。
 - 导出测试覆盖规范文件导入、投影、校验再导出的 30340 字节逐字节相同，兼容文件使用规范外壳后的完整原生语义往返，直接/拆分 `c` 值、超长边界、CRLF/BOM/结尾，以及工作表末行 `161/162/313/314/>314` 时两个格式锚点和 `B`/`NN` 范围字段。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。

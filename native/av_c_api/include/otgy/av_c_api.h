@@ -897,6 +897,7 @@ typedef struct otgy_chart_diagnostic {
 #define OTGY_CHART_DIAGNOSTIC_ORPHAN_EVENT UINT32_C(12)
 #define OTGY_CHART_DIAGNOSTIC_ORPHAN_DRILL_GROUP UINT32_C(13)
 #define OTGY_CHART_DIAGNOSTIC_ORPHAN_DANCE_MOVE_DRILL UINT32_C(14)
+#define OTGY_CHART_DIAGNOSTIC_DANCE_MOVE_DRILL_NOT_TRAILING UINT32_C(15)
 
 OTGY_C_API otgy_status otgy_chart_validate_finished(
     const otgy_chart* chart, otgy_chart_validation** out_validation,

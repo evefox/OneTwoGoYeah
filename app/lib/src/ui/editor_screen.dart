@@ -1706,6 +1706,7 @@ String _diagnosticLabel(int code) => switch (code) {
   11 => 'Showtime 无效',
   12 => '存在孤立事件',
   13 => '存在孤立演练组',
-  14 => '存在孤立舞步演练',
+  14 => '舞步演练被多个 Showtime 引用',
+  15 => 'Showtime 之外的舞步演练必须排在最后',
   _ => '谱面结构不完整（代码 $code）',
 };

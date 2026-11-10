@@ -67,6 +67,10 @@ class SlkDanceMoveDrillAnalysis final {
     return end_;
   }
 
+  [[nodiscard]] std::vector<SlkDanceMoveDrill> take_drills() && {
+    return std::move(drills_);
+  }
+
  private:
   std::vector<SlkDanceMoveDrill> drills_;
   std::size_t begin_row_index_;
