@@ -13,6 +13,10 @@ dependencies:
   otgy_native:
     path: packages/otgy_native
   path_provider: ^2.1.5
+  # path_provider_android 2.3.x uses JNI and aborts in release builds before
+  # the JNI environment is initialized. Stay on the last MethodChannel
+  # implementation until the upstream release issue is fixed.
+  path_provider_android: 2.2.23
   wakelock_plus: ^1.8.2
 
 dev_dependencies:
