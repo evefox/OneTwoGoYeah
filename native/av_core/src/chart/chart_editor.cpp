@@ -778,6 +778,54 @@ void erase_role_events(MutableDraft& draft,
   return {ChartEditCode::Success, true, {event_id}};
 }
 
+/// Ends the current group of a drill and moves every later group of that drill
+/// into a new DanceMoveDrill. Both creating an NPC-S from an existing N and the
+/// empty-click auto-end branch must use this same transition.
+[[nodiscard]] ChartEditCode split_trailing_drill_groups(
+    MutableDraft& draft, ChartDanceMoveDrillId drill_id,
+    ChartDrillGroupId current_group_id, IdState& ids) {
+  auto* drill = find_drill(draft, drill_id.value);
+  if (drill == nullptr) {
+    return ChartEditCode::InvalidDraft;
+  }
+  sort_drill_group_ids(draft, *drill);
+  const auto group = std::find_if(
+      drill->drill_group_ids.begin(), drill->drill_group_ids.end(),
+      [current_group_id](ChartDrillGroupId id) {
+        return id.value == current_group_id.value;
+      });
+  if (group == drill->drill_group_ids.end()) {
+    return ChartEditCode::InvalidDraft;
+  }
+  const auto trailing = group + 1;
+  if (trailing == drill->drill_group_ids.end()) {
+    return ChartEditCode::Success;
+  }
+  std::uint64_t split_id = 0U;
+  if (!allocate_id(ids, split_id)) {
+    return ChartEditCode::IdExhausted;
+  }
+  std::vector<ChartDrillGroupId> trailing_groups(trailing,
+                                                drill->drill_group_ids.end());
+  drill->drill_group_ids.erase(trailing, drill->drill_group_ids.end());
+  for (const auto trailing_group_id : trailing_groups) {
+    auto* trailing_group = find_group(draft, trailing_group_id.value);
+    if (trailing_group == nullptr) {
+      return ChartEditCode::InvalidDraft;
+    }
+    trailing_group->dance_move_drill_id = {split_id};
+    for (auto& member : draft.role_events) {
+      if (member.drill_group_id.value == trailing_group_id.value) {
+        member.dance_move_drill_id = {split_id};
+      }
+    }
+  }
+  draft.dance_move_drills.push_back(
+      {{split_id}, 0U, std::move(trailing_groups)});
+  recompute_move_n_count(draft, {split_id});
+  return ChartEditCode::Success;
+}
+
 [[nodiscard]] ChartEditResult click_empty_npc(
     const ChartDraft& original, MutableDraft& draft,
     const std::vector<ChartMarker>& markers, std::uint64_t row,
@@ -820,6 +868,17 @@ void erase_role_events(MutableDraft& draft,
   } else {
     return {ChartEditCode::InvalidDraft, false, {0U}};
   }
+  if (type == ChartRoleEventType::MoveEnd) {
+    const auto* source = find_role_event(draft, previous->id.value);
+    if (source == nullptr) {
+      return {ChartEditCode::InvalidDraft, false, {0U}};
+    }
+    const auto split = split_trailing_drill_groups(
+        draft, source->dance_move_drill_id, source->drill_group_id, ids);
+    if (split != ChartEditCode::Success) {
+      return {split, false, {0U}};
+    }
+  }
   return add_npc_action(draft, *previous, row, type, ids);
 }
 
@@ -848,41 +907,10 @@ void erase_role_events(MutableDraft& draft,
     }
     const auto drill_id = event->dance_move_drill_id;
     const auto group_id = event->drill_group_id;
-    auto* drill = find_drill(draft, drill_id.value);
-    if (drill == nullptr) {
-      return {ChartEditCode::InvalidDraft, false, {0U}};
-    }
-    sort_drill_group_ids(draft, *drill);
-    const auto group = std::find_if(
-        drill->drill_group_ids.begin(), drill->drill_group_ids.end(),
-        [group_id](ChartDrillGroupId id) { return id.value == group_id.value; });
-    if (group == drill->drill_group_ids.end()) {
-      return {ChartEditCode::InvalidDraft, false, {0U}};
-    }
-    const auto trailing = group + 1;
-    if (trailing != drill->drill_group_ids.end()) {
-      std::uint64_t split_id = 0U;
-      if (!allocate_id(ids, split_id)) {
-        return {ChartEditCode::IdExhausted, false, {0U}};
-      }
-      std::vector<ChartDrillGroupId> trailing_groups(trailing,
-                                                    drill->drill_group_ids.end());
-      drill->drill_group_ids.erase(trailing, drill->drill_group_ids.end());
-      for (const auto trailing_group_id : trailing_groups) {
-        auto* trailing_group = find_group(draft, trailing_group_id.value);
-        if (trailing_group == nullptr) {
-          return {ChartEditCode::InvalidDraft, false, {0U}};
-        }
-        trailing_group->dance_move_drill_id = {split_id};
-        for (auto& member : draft.role_events) {
-          if (member.drill_group_id.value == trailing_group_id.value) {
-            member.dance_move_drill_id = {split_id};
-          }
-        }
-      }
-      draft.dance_move_drills.push_back(
-          {{split_id}, 0U, std::move(trailing_groups)});
-      recompute_move_n_count(draft, {split_id});
+    const auto split = split_trailing_drill_groups(
+        draft, drill_id, group_id, ids);
+    if (split != ChartEditCode::Success) {
+      return {split, false, {0U}};
     }
     event = find_role_event(draft, current.id.value);
     if (event == nullptr) {

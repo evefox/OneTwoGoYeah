@@ -14,7 +14,11 @@
 namespace {
 
 using otgy::core::ChartColumn;
+using otgy::core::ChartDanceMoveDrill;
+using otgy::core::ChartDanceMoveDrillId;
 using otgy::core::ChartDraft;
+using otgy::core::ChartDrillGroup;
+using otgy::core::ChartDrillGroupId;
 using otgy::core::ChartEditCode;
 using otgy::core::ChartEditor;
 using otgy::core::ChartMarker;
@@ -2773,6 +2777,77 @@ void test_split_dance_move_regenerates_showtime() {
   assert(decoded.payload()->offset_seconds == offset);
 }
 
+/// Closing a group from the empty-click auto-end branch must use the same split
+/// as converting an existing NPC-N to NPC-S. Otherwise later groups stay in the
+/// same drill and the drill exceeds moveNCount 11.
+void test_empty_click_auto_end_splits_trailing_groups() {
+  std::vector<ChartRoleEvent> events;
+  std::uint64_t event_id = 1U;
+  ChartDrillGroup first{{10U}, {100U}, {}, {}};
+  ChartDrillGroup second{{20U}, {100U}, {}, {}};
+  const auto add_event = [&events, &event_id](
+                             std::uint64_t row, ChartRoleEventType type,
+                             ChartDrillGroupId group_id,
+                             ChartDanceMoveDrillId drill_id) {
+    events.push_back({{event_id++}, row, ChartRole::Npc, type, group_id,
+                      drill_id});
+  };
+  add_event(0U, ChartRoleEventType::BlockStart, {10U}, {100U});
+  for (std::uint64_t row = 1U; row <= 11U; ++row) {
+    add_event(row, ChartRoleEventType::Note, {10U}, {100U});
+  }
+  add_event(50U, ChartRoleEventType::BlockStart, {20U}, {100U});
+  for (std::uint64_t row = 51U; row <= 54U; ++row) {
+    add_event(row, ChartRoleEventType::Note, {20U}, {100U});
+  }
+  for (const auto& event : events) {
+    auto& group = event.drill_group_id.value == 10U ? first : second;
+    group.npc_event_ids.push_back(event.id);
+  }
+  std::vector<ChartDanceMoveDrill> drills{
+      {{100U}, 15U, {{10U}, {20U}}}};
+  ChartEditor editor{ChartDraft{events, {}, {}, {first, second},
+                                std::move(drills), {}}};
+  const auto before = editor.draft();
+
+  assert(editor.click(ChartColumn::Npc, 12U));
+  assert(editor.draft().dance_move_drills().size() == 2U);
+  const auto original = std::find_if(
+      editor.draft().dance_move_drills().begin(),
+      editor.draft().dance_move_drills().end(),
+      [](const ChartDanceMoveDrill& drill) { return drill.id.value == 100U; });
+  assert(original != editor.draft().dance_move_drills().end());
+  assert(original->move_n_count == 11U);
+  assert(original->drill_group_ids.size() == 1U);
+  assert(original->drill_group_ids.front().value == 10U);
+  const auto split_drill =
+      std::find_if(editor.draft().dance_move_drills().begin(),
+                   editor.draft().dance_move_drills().end(),
+                   [](const ChartDanceMoveDrill& drill) {
+                     return drill.id.value != 100U;
+                   });
+  assert(split_drill != editor.draft().dance_move_drills().end());
+  assert(split_drill->move_n_count == 4U);
+  assert(split_drill->drill_group_ids.size() == 1U);
+  assert(split_drill->drill_group_ids.front().value == 20U);
+  for (const auto& group : editor.draft().drill_groups()) {
+    if (group.id.value == 20U) {
+      assert(group.dance_move_drill_id.value == split_drill->id.value);
+    }
+  }
+  for (const auto& event : editor.draft().role_events()) {
+    if (event.drill_group_id.value == 20U) {
+      assert(event.dance_move_drill_id.value == split_drill->id.value);
+    }
+    if (event.row == 12U) {
+      assert(event.type == ChartRoleEventType::MoveEnd);
+      assert(event.drill_group_id.value == 10U);
+    }
+  }
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+}
+
 void test_nonterminal_npc_move_end_deletes_after_merge() {
   ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
   for (const auto row : {2U, 3U, 4U, 5U}) {
@@ -3372,6 +3447,7 @@ int main() {
   test_earlier_showtime_is_inserted_in_row_order();
   test_stale_showtime_pruning();
   test_split_dance_move_regenerates_showtime();
+  test_empty_click_auto_end_splits_trailing_groups();
   test_nonterminal_npc_move_end_deletes_after_merge();
   test_showtime_boundary_prevents_dance_move_merge();
   test_interleaved_drill_move_end_delete_merges_all_groups();
