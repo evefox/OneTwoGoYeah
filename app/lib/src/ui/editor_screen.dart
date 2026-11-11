@@ -1048,23 +1048,64 @@ class _EditorScreenState extends State<EditorScreen>
     }
     const type = XTypeGroup(label: 'SLK 谱面', extensions: ['slk']);
     final name = '${_controller.suggestedProjectBaseName}.slk';
-    final location = await getSaveLocation(
-      suggestedName: name,
-      acceptedTypeGroups: const [type],
-    );
-    if (location == null) {
-      return;
-    }
+    final mobile =
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    String? documentUri;
+    var committed = false;
     try {
-      await XFile.fromData(
-        result.bytes!,
-        name: name,
-        mimeType: 'application/octet-stream',
-      ).saveTo(location.path);
+      if (mobile) {
+        documentUri = await AudioExportPublisher.selectPlatformDocument(
+          suggestedName: name,
+          mimeType: 'application/octet-stream',
+        );
+        if (documentUri == null) {
+          return;
+        }
+        await AudioExportPublisher.publishPlatformDocument(
+          bytes: result.bytes!,
+          documentUri: documentUri,
+          isCancelled: () => !mounted,
+        );
+        if (!mounted) {
+          await AudioExportPublisher.discardPlatformDocument(
+            documentUri: documentUri,
+          );
+          return;
+        }
+        await AudioExportPublisher.commitPlatformDocument(
+          documentUri: documentUri,
+        );
+        committed = true;
+      } else {
+        final location = await getSaveLocation(
+          suggestedName: name,
+          acceptedTypeGroups: const [type],
+        );
+        if (location == null) {
+          return;
+        }
+        await XFile.fromData(
+          result.bytes!,
+          name: name,
+          mimeType: 'application/octet-stream',
+        ).saveTo(location.path);
+      }
       _controller.showNotice('SLK 已导出');
     } on Object catch (error, stack) {
+      if (mobile && documentUri != null && !committed) {
+        try {
+          await AudioExportPublisher.discardPlatformDocument(
+            documentUri: documentUri,
+          );
+        } on Object {
+          // Best effort cleanup; the original failure remains authoritative.
+        }
+      }
       _recordException('slk.export', error, stack);
-      _controller.showNotice('SLK 导出失败。', error: true);
+      if (mounted) {
+        _controller.showNotice('SLK 导出失败。', error: true);
+      }
     }
   }
 

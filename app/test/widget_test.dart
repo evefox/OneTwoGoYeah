@@ -1138,6 +1138,70 @@ void main() {
     },
   );
 
+  testWidgets('Android SLK export uses the system document channel', (
+    tester,
+  ) async {
+    final previousPlatform = debugDefaultTargetPlatformOverride;
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    const channel = MethodChannel('io.onetwogoyeah/files');
+    final methods = <String>[];
+    final written = <int>[];
+    var session = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          methods.add(call.method);
+          final arguments = call.arguments as Map<Object?, Object?>;
+          switch (call.method) {
+            case 'createDocument':
+              expect(arguments['mimeType'], 'application/octet-stream');
+              expect(arguments['suggestedName'], endsWith('.slk'));
+              return 'content://test/slk';
+            case 'openDocumentWrite':
+              session += 1;
+              return session;
+            case 'writeDocumentChunk':
+              expect(arguments['session'], session);
+              written.addAll(arguments['bytes'] as List<int>);
+              return null;
+            case 'finishDocumentWrite':
+              expect(arguments['session'], session);
+              return null;
+            case 'commitDocument':
+              expect(arguments['uri'], 'content://test/slk');
+              return null;
+            default:
+              fail('unexpected files channel method ${call.method}');
+          }
+        });
+    try {
+      final slk = File('../example/z3116_lv5.slk').readAsBytesSync();
+      controller.importSlkBytes(slk, 'z3116_lv5.slk');
+      await pumpEditor(tester, size: const Size(390, 844));
+
+      await tester.tap(find.byKey(const ValueKey('export-slk')));
+      await tester.pumpAndSettle();
+
+      expect(
+        methods,
+        containsAllInOrder([
+          'createDocument',
+          'openDocumentWrite',
+          'writeDocumentChunk',
+          'finishDocumentWrite',
+          'commitDocument',
+        ]),
+      );
+      expect(written, isNotEmpty);
+      expect(String.fromCharCodes(written.take(9)), 'ID;PWXL;N');
+      expect(find.text('SLK 已导出'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = previousPlatform;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    }
+  });
+
   testWidgets('iOS audio export uses the system document channel', (
     tester,
   ) async {
