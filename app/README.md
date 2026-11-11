@@ -52,14 +52,14 @@ The script reads the actual `app/pubspec.yaml` version and supplies its build
 name and number together with `OTGY_APP_VERSION`. It enables
 `OTGY_DIAGNOSTICS=true` and injects `OTGY_BUILD_ID` (full git commit, clean/dirty
 status and UTC timestamp) and `OTGY_BUILD_TIME` (UTC ISO 8601). Identity values
-contain no local user or SDK paths. Arguments after `--` allow only APK
-`--split-per-abi` and `--target-platform` (android-arm, android-arm64, android-x64),
-or iOS `--no-codesign`. Mode, build-name, build-number, dart defines/define files,
-configuration and entry-point overrides are rejected before Flutter starts.
-For example:
+contain no local user or SDK paths. Android acceptance APKs are always built for
+`arm64-v8a`; ABI and other packaging options are rejected before Flutter starts,
+so only iOS `--no-codesign` may follow `--`. Mode, build-name, build-number,
+dart defines/define files, configuration and entry-point overrides are rejected
+as well. For example:
 
 ```sh
-python3 scripts/build-acceptance.py apk --dry-run -- --split-per-abi --target-platform=android-arm64
+python3 scripts/build-acceptance.py apk --dry-run
 ```
 
 Acceptance builds retain local sanitized JSONL logs: up to four files of
@@ -101,16 +101,25 @@ tests. Run the commands from this directory after `flutter pub get` has
 completed:
 
 ```sh
-../build/flutter-sdk/bin/flutter build apk --release
+python3 ../scripts/build_android_release.py
 ../build/flutter-sdk/bin/flutter build macos --release
 ```
 
-The Android APK is written to
-`build/app/outputs/flutter-apk/app-release.apk`. The macOS application is
-written to `build/macos/Build/Products/Release/OneTwoGoYeah.app`; archive the
-application directory as a zip or dmg without changing its contents. An
-Android App Bundle can be generated with `flutter build appbundle --release`
-when a store upload is needed.
+Android releases target 64-bit ARM phones only. The script builds with
+`--target-platform android-arm64`, verifies the APK contains nothing but
+`arm64-v8a` native libraries, and copies it to
+`build/releases/OneTwoGoYeah-<version>-arm64.apk` (for example
+`OneTwoGoYeah-1.0.0-arm64.apk`) while printing its SHA-256. It accepts only
+`--dry-run`; every other argument is rejected. The intermediate Flutter output
+remains at `app/build/app/outputs/flutter-apk/app-release.apk`. armeabi-v7a and
+x86_64 packages are not produced; build one by hand only when a specific
+32-bit device or emulator needs it.
+
+The macOS application is written to
+`build/macos/Build/Products/Release/OneTwoGoYeah.app`; archive the application
+directory as a zip or dmg without changing its contents. An Android App Bundle
+can be generated with `flutter build appbundle --release` when a store upload
+is needed.
 
 The current Android release configuration uses the local debug signing key for
 private device testing. It is not a store-release signing configuration. A

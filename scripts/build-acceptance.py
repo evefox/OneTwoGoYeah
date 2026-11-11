@@ -9,6 +9,11 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.dont_write_bytecode = True
+
+import build_common
+
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app"
@@ -16,22 +21,7 @@ TARGETS = ("apk", "macos", "windows", "ios")
 
 
 def read_version():
-    lines = (APP / "pubspec.yaml").read_text(encoding="utf-8").splitlines()
-    values = [line.partition(":")[2].split("#", 1)[0].strip()
-              for line in lines if re.match(r"^version\s*:", line)]
-    if len(values) != 1:
-        raise ValueError("pubspec.yaml must contain exactly one top-level version")
-    version = values[0]
-    if version.startswith(("'", '"')):
-        if len(version) < 2 or version[-1] != version[0]:
-            raise ValueError("invalid quoted pubspec version")
-        version = version[1:-1]
-    if not re.fullmatch(
-        r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\+[0-9]+", version
-    ):
-        raise ValueError("pubspec version must be major.minor.patch[-prerelease]+build")
-    name, number = version.rsplit("+", 1)
-    return version, name, number
+    return build_common.read_version(APP)
 
 
 def git_output(*arguments):
@@ -56,42 +46,22 @@ def build_identity():
 def passthrough_arguments(target, arguments):
     """Allow only platform packaging options; identity overrides cannot pass."""
     allowed = {
-        "apk": {"--split-per-abi"},
+        "apk": set(),
         "ios": {"--no-codesign"},
         "macos": set(),
         "windows": set(),
     }
     result = []
-    index = 0
-    while index < len(arguments):
-        argument = arguments[index]
+    for argument in arguments:
         if argument in allowed[target]:
             if argument in result:
                 raise ValueError(f"duplicate Flutter option: {argument}")
             result.append(argument)
-        elif target == "apk" and (
-            argument == "--target-platform" or argument.startswith("--target-platform=")
-        ):
-            if any(item.startswith("--target-platform=") for item in result):
-                raise ValueError("duplicate Flutter option: --target-platform")
-            if argument == "--target-platform":
-                index += 1
-                if index == len(arguments):
-                    raise ValueError("--target-platform requires a value")
-                value = arguments[index]
-            else:
-                value = argument.partition("=")[2]
-            platforms = value.split(",")
-            if any(item not in {"android-arm", "android-arm64", "android-x64"}
-                   for item in platforms) or len(set(platforms)) != len(platforms):
-                raise ValueError("invalid APK target platforms")
-            result.append(f"--target-platform={value}")
         else:
             raise ValueError(
                 f"unsupported Flutter option: {argument}; only platform packaging "
                 "options are allowed, never mode, version, defines or identity overrides"
             )
-        index += 1
     return result
 
 
@@ -119,6 +89,7 @@ def main():
             f"--dart-define=OTGY_APP_VERSION={version}",
             f"--dart-define=OTGY_BUILD_ID={build_id}",
             f"--dart-define=OTGY_BUILD_TIME={build_time}",
+            *(["--target-platform=android-arm64"] if options.target == "apk" else []),
             *extra,
         ]
         print(json.dumps({"workingDirectory": str(APP), "command": command}, indent=2), flush=True)

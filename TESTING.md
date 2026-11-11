@@ -860,15 +860,19 @@ Android 平台构建完成后运行 `tool/verify_android_native_asset.sh`，逐�
 ```text
 python3 -c "from pathlib import Path; p = Path('scripts/build-acceptance.py'); compile(p.read_text(encoding='utf-8'), str(p), 'exec')"
 python3 scripts/test_build_acceptance.py
+python3 scripts/test_build_release.py
 python3 scripts/build-acceptance.py apk --dry-run
 python3 scripts/build-acceptance.py macos --dry-run
 python3 scripts/build-acceptance.py windows --dry-run
 python3 scripts/build-acceptance.py ios --dry-run -- --no-codesign
+python3 scripts/build_android_release.py --dry-run
 ```
 
 读取 dry-run 的 JSON `command` 数组，逐项确认目标正确，固定 `--release`、`--no-pub`、禁用统计/版本检查；`--build-name`、`--build-number`、`OTGY_APP_VERSION` 均来源于当前 pubspec。`OTGY_BUILD_ID` 必须包含本地完整 git HEAD、clean/dirty 与 UTC 时间，`OTGY_BUILD_TIME` 是相同采集时刻的 UTC ISO 8601，身份字段没有本机路径或用户名；SDK 命令路径不属于身份字段。测试必须对 clean 和 dirty 仓库及非当前工作目录调用检查读取根目录正确，对更新后的 pubspec 检查版本随之变化，对缺失/重复/非法版本失败而不是静默使用旧版本。
 
-使用 dry-run 覆盖分离值与 `=` 形式的禁止透传：`--debug`、`--profile`、`--release`、`--build-name`、`--build-number`、`--dart-define=OTGY_DIAGNOSTICS=false`、`OTGY_APP_VERSION/OTGY_BUILD_ID/OTGY_BUILD_TIME` 的 defines、`--dart-define-from-file`、`--config-only` 和替代入口 `--target`。未知或缩写参数、嵌套 `--`、重复或非法平台打包选项也必须以非零状态退出，不启动 Flutter。白名单 APK `--split-per-abi`、`--target-platform` 和 iOS `--no-codesign` 则进入命令；不支持的构建目标拒绝。dry-run 即使指定不存在的 Flutter 可执行路径也能输出命令，证明没有启动 SDK。
+使用 dry-run 覆盖分离值与 `=` 形式的禁止透传：`--debug`、`--profile`、`--release`、`--build-name`、`--build-number`、`--dart-define=OTGY_DIAGNOSTICS=false`、`OTGY_APP_VERSION/OTGY_BUILD_ID/OTGY_BUILD_TIME` 的 defines、`--dart-define-from-file`、`--config-only` 和替代入口 `--target`。未知或缩写参数、嵌套 `--`、重复或非法平台打包选项也必须以非零状态退出，不启动 Flutter。APK 命令固定包含 `--target-platform=android-arm64`；任何 APK 追加打包选项（包括 `--split-per-abi` 与非 arm64 的 `--target-platform`）都必须以非零状态拒绝，只有 iOS `--no-codesign` 进入命令；不支持的构建目标拒绝。dry-run 即使指定不存在的 Flutter 可执行路径也能输出命令，证明没有启动 SDK。
+
+`scripts/build_android_release.py` 同样只执行 dry-run 和内存测试，不启动 Flutter：命令固定以 `--target-platform android-arm64` 结尾，输出路径必须是 `build/releases/OneTwoGoYeah-<version>-arm64.apk`（版本取自共享的 pubspec 解析），任何额外参数都以非零状态拒绝。共享辅助测试覆盖文件名派生、`apk_abis` 对单 ABI/多 ABI/无 `lib/` APK 的读取，以及构建成功后的复制、SHA-256 输出和非 arm64 产物拒绝（绝不生成命名文件）；这些测试使用临时 ZIP 与模拟子进程结果，不读取或改写真实 `build/releases/`。
 
 以上只验证命令与入口，不证明实际应用包构建成功。专用脚本测试以内存 `compile` 加载入口，四平台 CLI dry-run 在临时工作目录执行并使用不存在的 Flutter 路径；版本缺失/重复/非法与版本变化使用临时 pubspec，clean/dirty 使用模拟 git 返回，不修改真实 pubspec、不创建 git 提交。禁止透传测试对脚本子进程调用设置失败哨兵，确认拒绝发生在启动 git 或 Flutter 前。真实包需另行在对应已缓存的 SDK/平台工具环境构建并核对包版本与诊断身份；不得把 dry-run、内存语法检查或专用脚本测试记录成真实构建、安装或设备验收通过。
 

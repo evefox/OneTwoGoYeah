@@ -391,7 +391,9 @@ JSON 发布复用 `io.onetwogoyeah/files`：桌面在同名 `.json` 或发布瞬
 
 `scripts/build-acceptance.py` 使用 Python 标准库生成并运行验收 Release 命令，只支持 `apk`、`macos`、`windows`、`ios`，不安装或操作设备。脚本从实际 `app/pubspec.yaml` 的唯一顶层 `version` 读取版本，同时传递对应 `--build-name`、`--build-number` 与 `OTGY_APP_VERSION`；注入 `OTGY_DIAGNOSTICS=true`、`OTGY_BUILD_ID`、`OTGY_BUILD_TIME`。构建 ID 由完整 git commit、clean/dirty 状态和 UTC 时间构成，构建时间采用 UTC ISO 8601；身份字段不包含本机用户名、工作目录或 SDK 路径。
 
-脚本默认优先使用仓库缓存的 `build/flutter-sdk/bin/flutter`（Windows 为 `flutter.bat`），否则使用 PATH 中的 Flutter；`--flutter` 可指定已有 SDK。固定 `--release`、`--no-pub`、禁用 analytics 与版本检查，要求依赖和平台工具预先缓存，不自动解析依赖或下载 SDK。`--dry-run` 只读取本地版本和 git 身份并输出实际命令 JSON，不运行 Flutter。`--` 后仅允许已定义的打包白名单：APK 的 `--split-per-abi`、`--target-platform`，iOS 的 `--no-codesign`；其他参数一律拒绝，包括模式、版本、全部 dart defines/define 文件、配置与目标入口覆盖，防止替换诊断开关或身份。常规构建仍默认关闭详细日志。
+脚本默认优先使用仓库缓存的 `build/flutter-sdk/bin/flutter`（Windows 为 `flutter.bat`），否则使用 PATH 中的 Flutter；`--flutter` 可指定已有 SDK。固定 `--release`、`--no-pub`、禁用 analytics 与版本检查，要求依赖和平台工具预先缓存，不自动解析依赖或下载 SDK。`--dry-run` 只读取本地版本和 git 身份并输出实际命令 JSON，不运行 Flutter。APK 目标固定追加 `--target-platform=android-arm64`；`--` 后仅允许 iOS 的 `--no-codesign`，`--split-per-abi`、`--target-platform` 及其他打包参数一律拒绝，模式、版本、全部 dart defines/define 文件、配置与目标入口覆盖同样拒绝，防止替换诊断开关或身份或产出非 arm64 包。常规构建仍默认关闭详细日志。
+
+`scripts/build_android_release.py` 是面向 64 位 ARM 真机的普通 Release 入口：从同一 pubspec 版本构建 `--target-platform android-arm64`，不接受任何 Flutter 参数覆盖；构建后校验 APK 的 `lib/` 只含 `arm64-v8a`，再复制为 `build/releases/OneTwoGoYeah-<version>-arm64.apk` 并打印 SHA-256。32 位与模拟器 ABI 不进入发布流程。
 
 ## 平台边界
 

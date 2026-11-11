@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 
+sys.dont_write_bytecode = True
 SCRIPT = Path(__file__).resolve().with_name("build-acceptance.py")
 ROOT = SCRIPT.parent.parent
 source = SCRIPT.read_text(encoding="utf-8")
@@ -72,6 +73,8 @@ class AcceptanceBuildTests(unittest.TestCase):
                     expected = f"{commit}-{'dirty' if dirty else 'clean'}-{instant.strftime('%Y%m%dT%H%M%S.%fZ')}"
                     self.assertEqual(defines["OTGY_BUILD_ID"], expected)
                     self.assertEqual(argv.count("--release"), 1)
+                    if target == "apk":
+                        self.assertEqual(argv[-1], "--target-platform=android-arm64")
                     if target == "ios":
                         self.assertEqual(argv[-1], "--no-codesign")
 
@@ -120,18 +123,18 @@ class AcceptanceBuildTests(unittest.TestCase):
                 builder.build_identity()
 
     def test_packaging_whitelist(self):
-        cases = [("apk", ["--split-per-abi"], ["--split-per-abi"]),
-                 ("apk", ["--target-platform", "android-arm64"], ["--target-platform=android-arm64"]),
-                 ("apk", ["--split-per-abi", "--target-platform=android-arm,android-arm64,android-x64"],
-                  ["--split-per-abi", "--target-platform=android-arm,android-arm64,android-x64"]),
-                 ("ios", ["--no-codesign"], ["--no-codesign"]), ("macos", [], []), ("windows", [], [])]
         with patch.object(builder, "build_identity", return_value=("safe-id", "safe-time")):
-            for target, options, expected in cases:
-                with self.subTest(target=target, options=options):
-                    code, output, errors = self.invoke([target, "--dry-run", "--", *options])
+            code, output, errors = self.invoke(["ios", "--dry-run", "--", "--no-codesign"])
+            self.assertEqual(code, 0, errors)
+            self.assertEqual(json.loads(output)["command"][-1], "--no-codesign")
+            for target in ("apk", "macos", "windows"):
+                with self.subTest(target=target):
+                    code, output, errors = self.invoke([target, "--dry-run"])
                     self.assertEqual(code, 0, errors)
-                    if expected:
-                        self.assertEqual(json.loads(output)["command"][-len(expected):], expected)
+                    argv = json.loads(output)["command"]
+                    self.assertNotIn("--no-codesign", argv)
+                    self.assertEqual("--target-platform=android-arm64" in argv,
+                                     target == "apk")
 
     def test_reject_overrides_before_subprocess(self):
         options = ["--debug", "--profile", "--release", "--build-name", "--build-number",
@@ -141,7 +144,9 @@ class AcceptanceBuildTests(unittest.TestCase):
         for key in ("OTGY_DIAGNOSTICS", "OTGY_APP_VERSION", "OTGY_BUILD_ID", "OTGY_BUILD_TIME"):
             forbidden += [[f"--dart-define={key}=false"], ["--dart-define", f"{key}=false"]]
         forbidden += [["--unknown"], ["--target-plat=android-arm64"], ["--"],
-                      ["--split-per-abi", "--split-per-abi"], ["--split-per-abi=true"],
+                      ["--split-per-abi"], ["--split-per-abi", "--split-per-abi"],
+                      ["--split-per-abi=true"],
+                      ["--target-platform", "android-arm64"], ["--target-platform=android-arm64"],
                       ["--target-platform"], ["--target-platform="], ["--target-platform=android-arm64,android-arm64"],
                       ["--target-platform=android-arm64,"], ["--target-platform=linux-x64"],
                       ["--target-platform=android-arm64", "--target-platform", "android-x64"],

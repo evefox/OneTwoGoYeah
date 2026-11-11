@@ -24,11 +24,15 @@ libVorbis 在两种 ISA 上的 libm 低位、浮点收缩/向量化和 x86 专�
 和标量参考转换；Ogg 解码/编码以及依赖其 PCM 的 BPM/联合分析共用一套更新后
 黄金，未放宽任何比较容差。
 - Android Release APK 已使用 Flutter `3.47.2`、Dart `3.13.2`、SDK `36`
-和 NDK `28.2.13676358` 构建，包含 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`
-三种 ABI；原生资产检查确认三种 ABI 均导出 `otgy_chart_create_empty`，且
-不依赖或打包 `libc++_shared.so`。包版本为 `1.0.0 (versionCode 1)`，APK
-大小为 `59,333,139` 字节，当前使用本地 Debug signing key，仅适合个人真机
-测试，不适合商店发布。
+和 NDK `28.2.13676358` 构建，只包含 `arm64-v8a`。
+`scripts/build_android_release.py` 固定 `--target-platform android-arm64`，构建后
+校验产物 ABI，再生成 `build/releases/OneTwoGoYeah-1.0.0-arm64.apk`；该包的
+`libotgy_native.so` 导出 `otgy_chart_create_empty`，依赖 `libm.so`，不依赖或
+打包 `libc++_shared.so`。包版本为 `1.0.0 (versionCode 1)`，APK 大小为
+`22,445,828` 字节，SHA-256 为
+`70b8631e9ee2101a893b02fc352f5e9a3cd0d134c851d2a2567110cd5cd408e9`。当前
+使用本地 Debug signing key，仅适合个人真机测试，不适合商店发布；32 位与
+模拟器 ABI 不再进入发布流程。
 - macOS Release App 已使用 Xcode `26.6`（macOS SDK `26.5`）构建；主程序为
 `x86_64 + arm64` Universal，版本为 `1.0.0 (1)`。`codesign --verify` 通过，
 但当前为本机 Ad Hoc 签名，保留 `com.apple.security.files.user-selected.read-write`
@@ -38,11 +42,9 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 在真实 iOS 设备上完成签名安装和运行冒烟。
 - 已在 `build/releases/` 生成带离线许可证资料的本地归档（该目录被 Git 忽略）：
 `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
-`OneTwoGoYeah-1.0.0+1-android-release.apk`、
 `OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
 `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
     ```text
-    f92c30eca6682a0fc87510d0f7e8c35c296fa9f685f523b5b958c0090031899b  OneTwoGoYeah-1.0.0+1-android-release.apk
     79418516971a076c253f8831e82f83f95a78551113ef28adf3d3a991a9a0e978  OneTwoGoYeah-1.0.0+1-android-bundle.zip
     3bfbbf0f2c3f8c63386353e5275d76dec0fb8c2fa14a0545ff54affea20ce1aa  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
     9ab041eacc50b8a8a4d58182c175b3ffc394428033f5a5bae1eff392d2f43f4a  OneTwoGoYeah-1.0.0+1-macos-universal-release.zip
