@@ -17,6 +17,11 @@ const double editorCursorViewportFraction = 0.25;
 const double mobileEditorContentRightInset = 24;
 const Duration playbackVisualPredictionLimit = Duration(milliseconds: 50);
 
+/// Hidden playback-sound test entry. Disabled in normal builds; set to true
+/// in tests or local debugging to restore the long-press menu.
+@visibleForTesting
+bool soundTestMenuEnabled = false;
+
 enum EditorWaveformLayer { original, overlayOriginal, filtered }
 
 double editorWaveformRowOpacity(int alpha, EditorWaveformLayer layer) {
@@ -1199,6 +1204,17 @@ class _UsageGuideButtonState extends State<_UsageGuideButton> {
     );
   }
 
+  void _openSoundTestMenu() {
+    _hintCancelled = true;
+    _hideHint();
+    widget.onHintShown();
+    showDialog<void>(
+      context: context,
+      builder: (context) =>
+          _PlaybackSoundTestDialog(controller: widget.controller),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final enabled = _enabled;
@@ -1219,27 +1235,40 @@ class _UsageGuideButtonState extends State<_UsageGuideButton> {
                 ],
               )
             : const BoxDecoration(),
-        child: IconButton(
-          key: const ValueKey('usage-guide-button'),
-          onPressed: enabled ? _openGuide : null,
-          tooltip: enabled
+        child: Tooltip(
+          key: const ValueKey('usage-guide-tooltip'),
+          message: enabled
               ? '使用指南'
               : widget.controller.isPlaying
               ? '播放中'
               : '请先退出选择或粘贴模式',
-          style: IconButton.styleFrom(
-            backgroundColor: enabled
-                ? EditorColors.accent
-                : EditorColors.surfaceRaised,
-            foregroundColor: enabled
-                ? EditorColors.canvas
-                : EditorColors.textMuted.withValues(alpha: 0.42),
-            minimumSize: const Size(40, 40),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+          triggerMode: TooltipTriggerMode.manual,
+          child: GestureDetector(
+            onLongPress: enabled && soundTestMenuEnabled
+                ? _openSoundTestMenu
+                : null,
+            child: IconButton(
+              key: const ValueKey('usage-guide-button'),
+              onPressed: enabled ? _openGuide : null,
+              style: IconButton.styleFrom(
+                backgroundColor: enabled
+                    ? EditorColors.accent
+                    : EditorColors.surfaceRaised,
+                foregroundColor: enabled
+                    ? EditorColors.canvas
+                    : EditorColors.textMuted.withValues(alpha: 0.42),
+                minimumSize: const Size(40, 40),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              icon: const Icon(
+                Icons.help_outline,
+                size: 20,
+                semanticLabel: '使用指南',
+              ),
             ),
           ),
-          icon: const Icon(Icons.help_outline, size: 20),
         ),
       ),
     );
@@ -1308,6 +1337,67 @@ class _UsageGuideButtonState extends State<_UsageGuideButton> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Hidden playback-sound test panel. Long-pressing the usage-guide button
+/// opens it; it only swaps the packaged WAV set and never touches the draft.
+class _PlaybackSoundTestDialog extends StatelessWidget {
+  const _PlaybackSoundTestDialog({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, child) {
+        final enabled = controller.generalActionsEnabled && !controller.isBusy;
+        return AlertDialog(
+          key: const ValueKey('playback-sound-test-dialog'),
+          title: const Text('音效测试'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('音效版本', style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(height: 6),
+              SegmentedButton<PlaybackSoundVariant>(
+                key: const ValueKey('playback-sound-test-variant'),
+                segments: const [
+                  ButtonSegment(
+                    value: PlaybackSoundVariant.original,
+                    label: Text('原始'),
+                  ),
+                  ButtonSegment(
+                    value: PlaybackSoundVariant.trimmed,
+                    label: Text('裁切'),
+                  ),
+                ],
+                selected: {controller.playbackSoundVariant},
+                showSelectedIcon: false,
+                onSelectionChanged: enabled
+                    ? (value) =>
+                          controller.setPlaybackSoundVariant(value.single)
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '裁切音效仅移除中文音效开头的 3–30 ms 静音；英文音效不变。'
+                '设置只属于当前会话，从下一次播放开始生效。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

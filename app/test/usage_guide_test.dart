@@ -202,7 +202,12 @@ void main() {
       find.byKey(const ValueKey('usage-guide-button')),
     );
     expect(button.onPressed, isNull);
-    expect(button.tooltip, '请先退出选择或粘贴模式');
+    expect(
+      tester
+          .widget<Tooltip>(find.byKey(const ValueKey('usage-guide-tooltip')))
+          .message,
+      '请先退出选择或粘贴模式',
+    );
 
     controller.exitChartInteraction();
     await tester.pump();

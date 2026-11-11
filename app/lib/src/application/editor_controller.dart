@@ -16,6 +16,11 @@ enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
 
 enum EditorPlaybackMode { idle, chartPreview, rhythmTest }
 
+/// Selects which packaged WAV set feeds chart playback. The trimmed variant
+/// only differs for the Chinese clips listed in
+/// [_trimmedPlaybackSoundFiles]; all other clips keep their shipped asset.
+enum PlaybackSoundVariant { original, trimmed }
+
 enum EditorChartInteractionMode { normal, selection, pastePending }
 
 const double targetEditorRowSpacing = 46;
@@ -62,6 +67,20 @@ const _playbackSoundFiles = <(PlaybackSoundId, String)>[
   (PlaybackSoundId.turn1, 'turn_1'),
   (PlaybackSoundId.turn2, 'turn_2'),
 ];
+
+/// Chinese clips whose shipped WAV starts with more than 1 ms of digital
+/// silence. The trimmed variant loads these from
+/// `assets/sounds_trimmed/zh`; every other clip keeps its shipped asset.
+/// Keep in sync with `scripts/trim_playback_sounds.py`.
+const _trimmedPlaybackSoundFiles = <String>{
+  'f1-6',
+  'f1-8',
+  'f1-9',
+  'm1-4',
+  'm1-6',
+  'm1-7',
+  'm1-9',
+};
 
 final class _BackgroundAudioAnalysis {
   const _BackgroundAudioAnalysis({
@@ -180,6 +199,7 @@ class EditorController extends ChangeNotifier {
   double _waveformFilterStrength = 0.75;
   bool _waveformOverlayOriginal = true;
   PlaybackSoundLanguage _playbackSoundLanguage = PlaybackSoundLanguage.chinese;
+  PlaybackSoundVariant _playbackSoundVariant = PlaybackSoundVariant.trimmed;
   PlaybackDanceMode _playbackDanceMode = PlaybackDanceMode.fourKey;
   bool _transitionSoundsEnabled = false;
   String? _audioFileName;
@@ -427,6 +447,7 @@ class EditorController extends ChangeNotifier {
   bool get waveformOverlayOriginal => _waveformOverlayOriginal;
   bool get waveformFilterEnabled => _waveformFilter != WaveformFilter.none;
   PlaybackSoundLanguage get playbackSoundLanguage => _playbackSoundLanguage;
+  PlaybackSoundVariant get playbackSoundVariant => _playbackSoundVariant;
   PlaybackDanceMode get playbackDanceMode => _playbackDanceMode;
   bool get transitionSoundsEnabled => _transitionSoundsEnabled;
   bool get hasAudio => _audio != null;
@@ -1477,6 +1498,23 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setPlaybackSoundVariant(PlaybackSoundVariant value) {
+    if (!generalActionsEnabled ||
+        isPlaying ||
+        _isBusy ||
+        value == _playbackSoundVariant) {
+      return;
+    }
+    // The variant menu is only reachable while no playback start is busy, so
+    // no sound bank load can be in flight here.
+    _playbackSoundVariant = value;
+    _playbackSoundBank?.dispose();
+    _playbackSoundBank = null;
+    _playbackSoundBankFuture = null;
+    _invalidatePlaybackSoundSession();
+    notifyListeners();
+  }
+
   void setPlaybackDanceMode(PlaybackDanceMode value) {
     if (!generalActionsEnabled ||
         isPlaying ||
@@ -1767,8 +1805,22 @@ class EditorController extends ChangeNotifier {
     for (final language in PlaybackSoundLanguage.values) {
       final directory = language == PlaybackSoundLanguage.chinese ? 'zh' : 'en';
       for (final (id, fileName) in _playbackSoundFiles) {
+        final replaced =
+            language == PlaybackSoundLanguage.chinese &&
+            _trimmedPlaybackSoundFiles.contains(fileName);
+        final trimmed =
+            replaced && _playbackSoundVariant == PlaybackSoundVariant.trimmed;
+        // The replaced originals are kept out of the app bundle. Restore
+        // `assets/sounds_original/zh/` in pubspec.yaml before enabling the
+        // original sound-test variant.
+        final original =
+            replaced && _playbackSoundVariant == PlaybackSoundVariant.original;
         final data = await rootBundle.load(
-          'assets/sounds/$directory/$fileName.wav',
+          trimmed
+              ? 'assets/sounds_trimmed/zh/$fileName.wav'
+              : original
+              ? 'assets/sounds_original/zh/$fileName.wav'
+              : 'assets/sounds/$directory/$fileName.wav',
         );
         assets.add(
           PlaybackSoundAsset(
