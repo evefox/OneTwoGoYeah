@@ -464,6 +464,13 @@ void test_showtime_less_drills_export_and_round_trip() {
   const auto mixed_export = otgy::core::export_finished_chart_to_slk(
       *mixed_validation.finished_chart());
   assert(mixed_export);
+  const auto mixed_parse = otgy::core::parse_slk_records(
+      mixed_export.bytes()->data(), mixed_export.bytes()->size());
+  assert(mixed_parse);
+  // The trailing Showtime-less stage suppresses the compatibility boundary.
+  for (const auto& row : mixed_parse.records()->rows()) {
+    assert(row.type != otgy::core::SlkRowType::R);
+  }
   const auto mixed_reimport = otgy::core::import_finished_slk(
       mixed_export.bytes()->data(), mixed_export.bytes()->size());
   assert(mixed_reimport);
@@ -490,6 +497,12 @@ void test_showtime_less_drills_export_and_round_trip() {
   const auto plain_export = otgy::core::export_finished_chart_to_slk(
       *plain_validation.finished_chart());
   assert(plain_export);
+  const auto plain_parse = otgy::core::parse_slk_records(
+      plain_export.bytes()->data(), plain_export.bytes()->size());
+  assert(plain_parse);
+  for (const auto& row : plain_parse.records()->rows()) {
+    assert(row.type != otgy::core::SlkRowType::R);
+  }
   const auto plain_reimport = otgy::core::import_finished_slk(
       plain_export.bytes()->data(), plain_export.bytes()->size());
   assert(plain_reimport);
@@ -517,8 +530,14 @@ void test_showtime_less_drills_export_and_round_trip() {
   const auto long_parse = otgy::core::parse_slk_records(
       long_export.bytes()->data(), long_export.bytes()->size());
   assert(long_parse);
+  // The last stage has no Showtime, so no compatibility boundary is written.
+  for (const auto& row : long_parse.records()->rows()) {
+    assert(row.type != otgy::core::SlkRowType::R);
+  }
+  assert(long_parse.records()->rows().back().type ==
+         otgy::core::SlkRowType::S);
   assert(long_parse.records()->rows().back().position.total_sixteenth ==
-         2'015U);
+         2'014U);
 }
 
 void test_export_error_messages() {

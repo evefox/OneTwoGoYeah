@@ -187,7 +187,7 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 - 增加 `encode_formal_draft`/`decode_formal_draft`，用内部 `OTGYPRJ\0` version 1 小端信封、显式类型/长度和 CRC32 保存完整 `ChartDraft` 及 BPM/Offset 原始 binary64 位模式。
 - 增加 `encode_recovery_snapshot`/`decode_recovery_snapshot`，复用相同容器安全与完整性校验但只保存 `ChartDraft`；不完整草稿无需通过成品校验即可精确往返，历史、音频和视图状态不进入负载。
 - 原生负载测试固定空正式/恢复负载的规范头、长度和 CRC 字节，并覆盖两份真实 SLK 完整关系、不完整编辑草稿、隐藏精度、类型错配、版本/长度/CRC、非法枚举、超大计数、截断和尾随数据。
-- 导出器从显式角色和三层关系唯一生成 NPC 后玩家的 `c/n/s`、Showtime `c0/d`、直接及 `segmentNCount * 100 + moveNCount` 拆分值，并通过共享位置换算写六列；末尾无 Showtime 舞步按行顺序生成普通阶段，最终边界固定为 `max(1920, lastShowD.rangeEnd, 末尾最后事件行 + 1)`。
+- 导出器从显式角色和三层关系唯一生成 NPC 后玩家的 `c/n/s`、Showtime `c0/d`、直接及 `segmentNCount * 100 + moveNCount` 拆分值，并通过共享位置换算写六列；末尾无 Showtime 舞步按行顺序生成普通阶段，且不生成 `[r & 0]`；最后一段为 Showtime 阶段时边界为 `max(1920, lastShowD.rangeEnd)`。
 - 导出测试覆盖规范文件导入、投影、校验再导出的 30340 字节逐字节相同，兼容文件使用规范外壳后的完整原生语义往返，直接/拆分 `c` 值、超长边界、CRLF/BOM/结尾，以及工作表末行 `161/162/313/314/>314` 时两个格式锚点和 `B`/`NN` 范围字段。
 - 把 `.onsets`、`.bpm_candidates`、`.offsets`、`.sync_candidates` 明确标记为 Git binary，禁止跨平台检出时的换行或文本规范化。
 - 对末尾图块的四舍五入索引显式限制到最后一个有效 PCM 帧，消除参考代码的越界未定义行为；负数幅值缩放显式匹配算术右移结果。

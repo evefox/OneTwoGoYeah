@@ -235,10 +235,6 @@ struct EncodedRow final {
     return SlkExportError::SizeOverflow;
   }
   expected_count += draft.showtime_move_events().size();
-  if (expected_count == std::numeric_limits<std::size_t>::max()) {
-    return SlkExportError::SizeOverflow;
-  }
-  ++expected_count;
   rows.reserve(expected_count);
 
   std::vector<const ChartDanceMoveDrill*> unowned;
@@ -309,37 +305,29 @@ struct EncodedRow final {
   }
   const bool has_trailing = rows.size() > trailing_begin;
 
-  if (rows.size() + 1U != expected_count ||
+  if (rows.size() != expected_count ||
       (!draft.showtimes().empty() && last_show_move == nullptr)) {
     return SlkExportError::InvalidFinishedChart;
   }
 
-  std::uint64_t base = 0U;
-  bool has_base = false;
-  if (last_show_move != nullptr) {
-    const std::uint64_t range_start =
-        last_show_move->row - last_show_move->row % 16U;
-    const std::uint64_t duration =
-        last_show_move->show_n_count <= 6U ? 16U : 32U;
-    if (range_start > std::numeric_limits<std::uint64_t>::max() - duration) {
-      return SlkExportError::InvalidFinishedChart;
-    }
-    base = range_start + duration;
-    has_base = true;
-  }
+  // The compatibility boundary only closes a final Showtime stage. When the
+  // last stage is a Showtime-less ordinary stage, the file ends at its last
+  // event and no boundary row is written.
   if (has_trailing) {
-    const auto last_row = rows.back().row;
-    if (last_row == std::numeric_limits<std::uint64_t>::max()) {
-      return SlkExportError::SizeOverflow;
-    }
-    const auto next_row = last_row + 1U;
-    base = has_base && base > next_row ? base : next_row;
-    has_base = true;
+    return SlkExportError::None;
   }
-  if (!has_base) {
+  if (last_show_move == nullptr) {
     return SlkExportError::InvalidFinishedChart;
   }
-  const std::uint64_t boundary = std::max(kCanonicalBoundaryRow, base);
+  const std::uint64_t range_start =
+      last_show_move->row - last_show_move->row % 16U;
+  const std::uint64_t duration =
+      last_show_move->show_n_count <= 6U ? 16U : 32U;
+  if (range_start > std::numeric_limits<std::uint64_t>::max() - duration) {
+    return SlkExportError::InvalidFinishedChart;
+  }
+  const std::uint64_t boundary =
+      std::max(kCanonicalBoundaryRow, range_start + duration);
   if (!append_row(rows, {boundary, 'r', 0U})) {
     return SlkExportError::InvalidFinishedChart;
   }
