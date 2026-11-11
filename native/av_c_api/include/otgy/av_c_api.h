@@ -735,6 +735,12 @@ OTGY_C_API otgy_status otgy_chart_editor_create(
     const otgy_chart* chart, otgy_chart_editor** out_editor,
     otgy_error** out_error);
 OTGY_C_API void otgy_chart_editor_destroy(otgy_chart_editor* editor);
+/// Rebuilds the DanceMoveDrill relation from the visible NPC C/N/S sequence.
+/// Sets *out_changed to 1 when the draft was repaired in place. This is a
+/// load-time normalization: it clears undo/redo and rebuilds or removes stale
+/// Showtime relations. Idempotent; returns 0 for an already-correct draft.
+OTGY_C_API otgy_status otgy_chart_editor_repair_relations(
+    otgy_chart_editor* editor, uint8_t* out_changed, otgy_error** out_error);
 OTGY_C_API uint8_t otgy_chart_editor_can_undo(const otgy_chart_editor* editor);
 OTGY_C_API uint8_t otgy_chart_editor_can_redo(const otgy_chart_editor* editor);
 OTGY_C_API uint64_t otgy_chart_editor_get_undo_count(

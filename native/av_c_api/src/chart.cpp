@@ -391,6 +391,32 @@ otgy_status otgy_chart_editor_create(
 
 void otgy_chart_editor_destroy(otgy_chart_editor* editor) { delete editor; }
 
+otgy_status otgy_chart_editor_repair_relations(
+    otgy_chart_editor* editor, std::uint8_t* out_changed,
+    otgy_error** out_error) {
+  if (out_changed != nullptr) {
+    *out_changed = 0U;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_changed == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto result = editor->value.repair_relations();
+    if (result == otgy::core::ChartRepairStatus::AllocationFailure) {
+      return out_of_memory(out_error);
+    }
+    if (result == otgy::core::ChartRepairStatus::InvalidDraft) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_CHART_EDIT,
+          static_cast<std::uint32_t>(result),
+          "chart relations cannot be repaired");
+    }
+    *out_changed =
+        result == otgy::core::ChartRepairStatus::Repaired ? 1U : 0U;
+    return OTGY_STATUS_OK;
+  });
+}
+
 std::uint8_t otgy_chart_editor_can_undo(const otgy_chart_editor* editor) {
   return editor != nullptr && editor->value.can_undo() ? 1U : 0U;
 }

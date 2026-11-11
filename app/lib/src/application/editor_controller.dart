@@ -1108,18 +1108,18 @@ class EditorController extends ChangeNotifier {
     recordDiagnostic('project.importSlk', {'changed': true});
   }
 
-  void loadFormalDraft({
+  bool loadFormalDraft({
     required Uint8List payload,
     required String draftId,
     required String draftName,
   }) {
     if (!generalActionsEnabled) {
       recordDiagnostic('project.load', {'blocked': true});
-      return;
+      return false;
     }
     final decoded = _diagnosticCall(
       'project.load',
-      () => NativeChartEditor.decodeFormal(payload),
+      () => NativeChartEditor.decodeFormalWithRepair(payload),
     );
     _replaceEditor(decoded.editor);
     _bpm = decoded.bpm;
@@ -1128,25 +1128,29 @@ class EditorController extends ChangeNotifier {
     _sourceKind = WorkspaceSourceKind.savedDraft;
     _sourceName = draftName;
     _draftId = draftId;
-    _savedPayload = Uint8List.fromList(payload);
-    _isDirty = false;
+    _savedPayload = decoded.repaired ? null : Uint8List.fromList(payload);
+    _isDirty = decoded.repaired;
     _projectRevision++;
     _currentRow = 0;
     _synchronizeAutomaticEditZoom();
     notifyListeners();
-    recordDiagnostic('project.load', {'changed': true});
+    recordDiagnostic('project.load', {
+      'changed': true,
+      'repaired': decoded.repaired,
+    });
+    return decoded.repaired;
   }
 
-  void restoreRecovery(Uint8List payload) {
+  bool restoreRecovery(Uint8List payload) {
     if (!generalActionsEnabled) {
       recordDiagnostic('project.restore', {'blocked': true});
-      return;
+      return false;
     }
     final pending = _diagnosticCall(
       'project.restore',
-      () => NativeChartEditor.decodeRecovery(payload),
+      () => NativeChartEditor.decodeRecoveryWithRepair(payload),
     );
-    _replaceEditor(pending);
+    _replaceEditor(pending.editor);
     _sourceKind = WorkspaceSourceKind.untitled;
     _sourceName = null;
     _draftId = null;
@@ -1155,7 +1159,11 @@ class EditorController extends ChangeNotifier {
     _projectRevision++;
     _currentRow = 0;
     notifyListeners();
-    recordDiagnostic('project.restore', {'changed': true});
+    recordDiagnostic('project.restore', {
+      'changed': true,
+      'repaired': pending.repaired,
+    });
+    return pending.repaired;
   }
 
   Uint8List encodeFormalDraft() =>

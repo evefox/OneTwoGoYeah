@@ -418,11 +418,20 @@ final class DecodedFormalDraft {
     required this.editor,
     required this.bpm,
     required this.offset,
+    this.repaired = false,
   });
 
   final NativeChartEditor editor;
   final double bpm;
   final double offset;
+  final bool repaired;
+}
+
+final class DecodedRecovery {
+  const DecodedRecovery({required this.editor, this.repaired = false});
+
+  final NativeChartEditor editor;
+  final bool repaired;
 }
 
 final class ChartDiagnostic {
@@ -1039,14 +1048,25 @@ final class NativeChartEditor {
     }
   }
 
-  static DecodedFormalDraft decodeFormal(Uint8List bytes) {
+  static DecodedFormalDraft decodeFormal(Uint8List bytes) =>
+      _decodeFormalDraft(bytes, repair: false);
+
+  static DecodedFormalDraft decodeFormalWithRepair(Uint8List bytes) =>
+      _decodeFormalDraft(bytes, repair: true);
+
+  static DecodedFormalDraft _decodeFormalDraft(
+    Uint8List bytes, {
+    required bool repair,
+  }) {
     return using((arena) {
       final input = _copyBytes(bytes, arena);
       final outChart = arena<Pointer<native.otgy_chart>>();
       final outEditor = arena<Pointer<native.otgy_chart_editor>>();
       final outBpm = arena<Double>();
       final outOffset = arena<Double>();
+      final outChanged = arena<Uint8>();
       final outError = arena<Pointer<native.otgy_error>>();
+      var editorTransferred = false;
       try {
         _checkStatus(
           native.otgy_project_decode_formal_draft(
@@ -1062,12 +1082,30 @@ final class NativeChartEditor {
           native.otgy_chart_editor_create(outChart.value, outEditor, outError),
           outError,
         );
+        var repaired = false;
+        if (repair) {
+          _checkStatus(
+            native.otgy_chart_editor_repair_relations(
+              outEditor.value,
+              outChanged,
+              outError,
+            ),
+            outError,
+          );
+          repaired = outChanged.value != 0;
+        }
+        final editor = NativeChartEditor._(outEditor.value);
+        editorTransferred = true;
         return DecodedFormalDraft(
-          editor: NativeChartEditor._(outEditor.value),
+          editor: editor,
           bpm: outBpm.value,
           offset: outOffset.value,
+          repaired: repaired,
         );
       } finally {
+        if (!editorTransferred && outEditor.value != nullptr) {
+          native.otgy_chart_editor_destroy(outEditor.value);
+        }
         if (outChart.value != nullptr) {
           native.otgy_chart_destroy(outChart.value);
         }
@@ -1076,12 +1114,23 @@ final class NativeChartEditor {
     });
   }
 
-  static NativeChartEditor decodeRecovery(Uint8List bytes) {
+  static NativeChartEditor decodeRecovery(Uint8List bytes) =>
+      _decodeRecoveryDraft(bytes, repair: false).editor;
+
+  static DecodedRecovery decodeRecoveryWithRepair(Uint8List bytes) =>
+      _decodeRecoveryDraft(bytes, repair: true);
+
+  static DecodedRecovery _decodeRecoveryDraft(
+    Uint8List bytes, {
+    required bool repair,
+  }) {
     return using((arena) {
       final input = _copyBytes(bytes, arena);
       final outChart = arena<Pointer<native.otgy_chart>>();
       final outEditor = arena<Pointer<native.otgy_chart_editor>>();
+      final outChanged = arena<Uint8>();
       final outError = arena<Pointer<native.otgy_error>>();
+      var editorTransferred = false;
       try {
         _checkStatus(
           native.otgy_project_decode_recovery_snapshot(
@@ -1095,8 +1144,25 @@ final class NativeChartEditor {
           native.otgy_chart_editor_create(outChart.value, outEditor, outError),
           outError,
         );
-        return NativeChartEditor._(outEditor.value);
+        var repaired = false;
+        if (repair) {
+          _checkStatus(
+            native.otgy_chart_editor_repair_relations(
+              outEditor.value,
+              outChanged,
+              outError,
+            ),
+            outError,
+          );
+          repaired = outChanged.value != 0;
+        }
+        final editor = NativeChartEditor._(outEditor.value);
+        editorTransferred = true;
+        return DecodedRecovery(editor: editor, repaired: repaired);
       } finally {
+        if (!editorTransferred && outEditor.value != nullptr) {
+          native.otgy_chart_editor_destroy(outEditor.value);
+        }
         if (outChart.value != nullptr) {
           native.otgy_chart_destroy(outChart.value);
         }

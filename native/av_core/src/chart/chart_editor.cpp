@@ -2166,6 +2166,271 @@ void ChartEditor::revalidate_selection() noexcept {
   std::sort(selections_.begin(), selections_.end(), selection_less);
 }
 
+ChartRepairStatus ChartEditor::repair_relations() noexcept {
+  try {
+    MutableDraft candidate{draft_};
+    prune_eventless_groups(candidate);
+
+    struct GroupInfo final {
+      ChartDrillGroupId id;
+      std::uint64_t first_row;
+      bool has_npc_end;
+    };
+    std::vector<GroupInfo> groups;
+    groups.reserve(candidate.drill_groups.size());
+    for (const auto& group : candidate.drill_groups) {
+      std::uint64_t first_row = std::numeric_limits<std::uint64_t>::max();
+      bool has_npc_end = false;
+      bool has_event = false;
+      for (const auto& event : candidate.role_events) {
+        if (event.drill_group_id.value != group.id.value) {
+          continue;
+        }
+        has_event = true;
+        first_row = std::min(first_row, event.row);
+        if (event.role == ChartRole::Npc &&
+            event.type == ChartRoleEventType::MoveEnd) {
+          has_npc_end = true;
+        }
+      }
+      if (has_event) {
+        groups.push_back({group.id, first_row, has_npc_end});
+      }
+    }
+    std::sort(groups.begin(), groups.end(),
+              [](const GroupInfo& left, const GroupInfo& right) {
+                return left.first_row != right.first_row
+                           ? left.first_row < right.first_row
+                           : left.id.value < right.id.value;
+              });
+
+    std::vector<std::vector<ChartDrillGroupId>> sets;
+    std::vector<ChartDrillGroupId> current;
+    for (const auto& group : groups) {
+      current.push_back(group.id);
+      if (group.has_npc_end) {
+        sets.push_back(std::move(current));
+        current.clear();
+      }
+    }
+    if (!current.empty()) {
+      sets.push_back(std::move(current));
+    }
+
+    const auto row_of = [&groups](ChartDrillGroupId id) {
+      for (const auto& group : groups) {
+        if (group.id.value == id.value) {
+          return group.first_row;
+        }
+      }
+      return std::numeric_limits<std::uint64_t>::max();
+    };
+    const auto same_group_set =
+        [&row_of](const std::vector<ChartDrillGroupId>& left,
+                  const std::vector<ChartDrillGroupId>& right) {
+          if (left.size() != right.size()) {
+            return false;
+          }
+          auto sorted_left = left;
+          auto sorted_right = right;
+          const auto less = [&row_of](ChartDrillGroupId a,
+                                      ChartDrillGroupId b) {
+            const auto a_row = row_of(a);
+            const auto b_row = row_of(b);
+            return a_row != b_row ? a_row < b_row : a.value < b.value;
+          };
+          std::sort(sorted_left.begin(), sorted_left.end(), less);
+          std::sort(sorted_right.begin(), sorted_right.end(), less);
+          for (std::size_t index = 0U; index < sorted_left.size(); ++index) {
+            if (sorted_left[index].value != sorted_right[index].value) {
+              return false;
+            }
+          }
+          return true;
+        };
+
+    struct OldDrill final {
+      ChartDanceMoveDrillId id;
+      std::vector<ChartDrillGroupId> groups;
+    };
+    std::vector<OldDrill> old_drills;
+    old_drills.reserve(candidate.dance_move_drills.size());
+    for (const auto& drill : candidate.dance_move_drills) {
+      old_drills.push_back({drill.id, drill.drill_group_ids});
+    }
+
+    IdState ids{next_id_, id_available_};
+    std::vector<ChartDanceMoveDrillId> new_ids;
+    new_ids.reserve(sets.size());
+    std::vector<bool> old_used(old_drills.size(), false);
+    for (const auto& set : sets) {
+      ChartDanceMoveDrillId chosen{0U};
+      for (std::size_t index = 0U; index < old_drills.size(); ++index) {
+        if (!old_used[index] &&
+            same_group_set(set, old_drills[index].groups)) {
+          chosen = old_drills[index].id;
+          old_used[index] = true;
+          break;
+        }
+      }
+      if (chosen.value == 0U) {
+        std::uint64_t value = 0U;
+        if (!allocate_id(ids, value)) {
+          return ChartRepairStatus::AllocationFailure;
+        }
+        chosen = {value};
+      }
+      new_ids.push_back(chosen);
+    }
+
+    std::vector<ChartDanceMoveDrill> new_drills;
+    new_drills.reserve(sets.size());
+    for (std::size_t index = 0U; index < sets.size(); ++index) {
+      ChartDanceMoveDrill drill{new_ids[index], 0U, sets[index]};
+      for (const auto group_id : sets[index]) {
+        auto* group = find_group(candidate, group_id.value);
+        if (group == nullptr) {
+          continue;
+        }
+        group->dance_move_drill_id = drill.id;
+        for (auto& event : candidate.role_events) {
+          if (event.drill_group_id.value != group_id.value) {
+            continue;
+          }
+          event.dance_move_drill_id = drill.id;
+          if (event.role == ChartRole::Npc &&
+              event.type == ChartRoleEventType::Note) {
+            ++drill.move_n_count;
+          }
+        }
+      }
+      new_drills.push_back(std::move(drill));
+    }
+    candidate.dance_move_drills = std::move(new_drills);
+
+    // A Showtime built on the old relation is stale after regrouping. Rebuild
+    // it in place from the repaired complete moves so a loaded draft keeps its
+    // visible Showtime marker instead of silently losing it.
+    std::size_t showtime_index = 0U;
+    while (showtime_index < candidate.showtimes.size()) {
+      auto& showtime = candidate.showtimes[showtime_index];
+      if (!showtime_is_stale(candidate, showtime)) {
+        ++showtime_index;
+        continue;
+      }
+      const auto showtime_id = showtime.id.value;
+      const auto start_event_id = showtime.start_event_id;
+      const auto* start =
+          find_showtime_start_event(candidate, start_event_id);
+      if (start == nullptr) {
+        candidate.showtimes.erase(candidate.showtimes.begin() +
+                                  static_cast<std::ptrdiff_t>(showtime_index));
+        candidate.showtime_start_events.erase(
+            std::remove_if(candidate.showtime_start_events.begin(),
+                           candidate.showtime_start_events.end(),
+                           [showtime_id](const ChartShowtimeStartEvent& event) {
+                             return event.showtime_id.value == showtime_id;
+                           }),
+            candidate.showtime_start_events.end());
+        candidate.showtime_move_events.erase(
+            std::remove_if(candidate.showtime_move_events.begin(),
+                           candidate.showtime_move_events.end(),
+                           [showtime_id](const ChartShowtimeMoveEvent& event) {
+                             return event.showtime_id.value == showtime_id;
+                           }),
+            candidate.showtime_move_events.end());
+        continue;
+      }
+      const auto start_row = start->row;
+      candidate.showtime_move_events.erase(
+          std::remove_if(candidate.showtime_move_events.begin(),
+                         candidate.showtime_move_events.end(),
+                         [showtime_id](const ChartShowtimeMoveEvent& event) {
+                           return event.showtime_id.value == showtime_id;
+                         }),
+          candidate.showtime_move_events.end());
+      showtime.show_move_event_ids.clear();
+      showtime.dance_move_drill_ids.clear();
+
+      std::uint64_t first_row = start_row;
+      bool position_ok = true;
+      if (start_row % 16U == 0U) {
+        if (start_row == std::numeric_limits<std::uint64_t>::max()) {
+          position_ok = false;
+        } else {
+          first_row = start_row + 1U;
+        }
+      } else {
+        const auto measure = start_row / 16U;
+        if (measure == std::numeric_limits<std::uint64_t>::max() / 16U) {
+          position_ok = false;
+        } else {
+          first_row = (measure + 1U) * 16U;
+        }
+      }
+      auto rebuilt = false;
+      if (position_ok) {
+        auto markers = project_chart_markers(ChartDraft{
+            candidate.role_events, candidate.showtime_start_events,
+            candidate.showtime_move_events, candidate.drill_groups,
+            candidate.dance_move_drills, candidate.showtimes});
+        if (!markers) {
+          return markers.error() == ChartProjectionError::AllocationFailure
+                     ? ChartRepairStatus::AllocationFailure
+                     : ChartRepairStatus::InvalidDraft;
+        }
+        const auto completion = complete_showtime(
+            candidate, *markers.markers(), {showtime_id}, start_row,
+            start_event_id, first_row, ids);
+        if (!completion &&
+            (completion.code == ChartEditCode::AllocationFailure ||
+             completion.code == ChartEditCode::IdExhausted)) {
+          return ChartRepairStatus::AllocationFailure;
+        }
+        rebuilt = static_cast<bool>(completion);
+      }
+      if (!rebuilt) {
+        candidate.showtime_start_events.erase(
+            std::remove_if(candidate.showtime_start_events.begin(),
+                           candidate.showtime_start_events.end(),
+                           [showtime_id](const ChartShowtimeStartEvent& event) {
+                             return event.showtime_id.value == showtime_id;
+                           }),
+            candidate.showtime_start_events.end());
+        candidate.showtime_move_events.erase(
+            std::remove_if(candidate.showtime_move_events.begin(),
+                           candidate.showtime_move_events.end(),
+                           [showtime_id](const ChartShowtimeMoveEvent& event) {
+                             return event.showtime_id.value == showtime_id;
+                           }),
+            candidate.showtime_move_events.end());
+        candidate.showtimes.erase(candidate.showtimes.begin() +
+                                  static_cast<std::ptrdiff_t>(showtime_index));
+        continue;
+      }
+      ++showtime_index;
+    }
+
+    auto finished = std::move(candidate).finish();
+    if (chart_drafts_equal(draft_, finished)) {
+      return ChartRepairStatus::Unchanged;
+    }
+    draft_ = std::move(finished);
+    next_id_ = ids.next;
+    id_available_ = ids.available;
+    undo_.clear();
+    redo_.clear();
+    selections_.clear();
+    clipboard_ = ChartClipboardFragment{};
+    has_clipboard_ = false;
+    pending_cut_ = false;
+    cut_source_ = ChartDraft{{}, {}, {}, {}, {}, {}};
+    return ChartRepairStatus::Repaired;
+  } catch (const std::bad_alloc&) {
+    return ChartRepairStatus::AllocationFailure;
+  }
+}
+
 ChartSessionResult ChartEditor::select(ChartColumn column,
                                        std::uint64_t row) noexcept {
   try {

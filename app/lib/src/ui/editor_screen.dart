@@ -258,8 +258,13 @@ class _EditorScreenState extends State<EditorScreen>
       return;
     }
     if (restore ?? false) {
-      _controller.restoreRecovery(payload);
-      _controller.showNotice('已恢复上次谱面编辑');
+      final repaired = _controller.restoreRecovery(payload);
+      if (repaired) {
+        await _flushRecovery();
+        _controller.showNotice('已恢复并修复上次谱面编辑');
+      } else {
+        _controller.showNotice('已恢复上次谱面编辑');
+      }
     } else {
       await _store?.deleteRecovery();
       _record('recovery.discarded', {});
@@ -731,11 +736,33 @@ class _EditorScreenState extends State<EditorScreen>
         continue;
       }
       try {
-        _controller.loadFormalDraft(
+        final repaired = _controller.loadFormalDraft(
           payload: action.draft.payload,
           draftId: action.draft.id,
           draftName: action.draft.name,
         );
+        if (repaired) {
+          final repairedPayload = _controller.encodeFormalDraft();
+          try {
+            await store.saveDraft(
+              id: action.draft.id,
+              name: action.draft.name,
+              payload: repairedPayload,
+            );
+            _controller.markSaved(
+              draftId: action.draft.id,
+              draftName: action.draft.name,
+              payload: repairedPayload,
+            );
+            _controller.showNotice('已修复旧草稿的舞步关系并保存');
+            _record('draft.repair.persisted', {'draftId': action.draft.id});
+          } on Object catch (error, stack) {
+            _recordException('draft.repair.persist', error, stack);
+            if (mounted) {
+              _controller.showNotice('草稿已修复，但自动保存失败；请手动保存。', error: true);
+            }
+          }
+        }
         return;
       } on Object catch (error, stack) {
         _recordException('draft.load', error, stack);

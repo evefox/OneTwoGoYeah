@@ -129,6 +129,13 @@ struct ChartSessionResult final {
   }
 };
 
+enum class ChartRepairStatus : std::uint8_t {
+  Unchanged = 0,
+  Repaired = 1,
+  InvalidDraft = 2,
+  AllocationFailure = 3,
+};
+
 /// Read-only paste assessment. Spans and ghost IDs refer to clipboard objects,
 /// never newly allocated chart objects. Representable geometry is returned even
 /// for an occupied destination or a changed cut source.
@@ -169,6 +176,14 @@ class ChartEditor final {
   [[nodiscard]] ChartEditResult clear() noexcept;
   [[nodiscard]] ChartEditResult undo() noexcept;
   [[nodiscard]] ChartEditResult redo() noexcept;
+
+  /// Rebuilds the DanceMoveDrill relation from the visible NPC C/N/S sequence.
+  /// Each group belongs to the move whose visible sequence contains it; an NPC
+  /// MoveEnd closes the current move. Existing drill identifiers are reused
+  /// when a rebuilt move has exactly the same group set. This is a load-time
+  /// normalization, not an undoable edit: a change clears history and prunes
+  /// Showtimes that the normal stale-Showtime rule would remove. Idempotent.
+  [[nodiscard]] ChartRepairStatus repair_relations() noexcept;
 
   /// Session commands. They never touch the draft and never add history.
   [[nodiscard]] ChartSessionResult select(ChartColumn column,

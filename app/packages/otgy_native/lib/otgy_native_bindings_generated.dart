@@ -1423,6 +1423,23 @@ external int otgy_chart_editor_create(
 @ffi.Native<ffi.Void Function(ffi.Pointer<otgy_chart_editor>)>()
 external void otgy_chart_editor_destroy(ffi.Pointer<otgy_chart_editor> editor);
 
+/// Rebuilds the DanceMoveDrill relation from the visible NPC C/N/S sequence.
+/// Sets `out_changed` to 1 when the draft was repaired in place. This is a
+/// load-time normalization: it clears undo/redo and rebuilds or removes stale
+/// Showtime relations. Idempotent; returns 0 for an already-correct draft.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<ffi.Uint8>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_repair_relations(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<ffi.Uint8> out_changed,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<ffi.Uint8 Function(ffi.Pointer<otgy_chart_editor>)>()
 external int otgy_chart_editor_can_undo(ffi.Pointer<otgy_chart_editor> editor);
 

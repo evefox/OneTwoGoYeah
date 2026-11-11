@@ -20,6 +20,10 @@ using otgy::core::ChartDraft;
 using otgy::core::ChartDrillGroup;
 using otgy::core::ChartDrillGroupId;
 using otgy::core::ChartEditCode;
+using otgy::core::ChartEventId;
+using otgy::core::ChartShowtime;
+using otgy::core::ChartShowtimeMoveEvent;
+using otgy::core::ChartShowtimeStartEvent;
 using otgy::core::ChartEditor;
 using otgy::core::ChartMarker;
 using otgy::core::ChartMarkerType;
@@ -2911,6 +2915,98 @@ void test_empty_click_auto_end_splits_trailing_groups() {
   assert(otgy::core::chart_drafts_equal(editor.draft(), before));
 }
 
+/// A malformed draft that is already stored must be normalized when loaded:
+/// visible NPC ends define the moves, not the old drill relation. A stale
+/// Showtime is rebuilt from the repaired complete moves at its original row.
+void test_repair_relations_rebuilds_visible_moves() {
+  std::vector<ChartRoleEvent> events;
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDanceMoveDrill> drills;
+  std::vector<ChartShowtimeStartEvent> starts;
+  std::vector<ChartShowtimeMoveEvent> moves;
+  std::vector<ChartShowtime> showtimes;
+
+  std::uint64_t event_id = 1U;
+  const auto add_block = [&events](std::uint64_t& next_id,
+                                   ChartRole role, std::uint64_t first_row,
+                                   ChartDrillGroupId group_id,
+                                   ChartDanceMoveDrillId drill_id,
+                                   std::vector<ChartEventId>& relation) {
+    const auto add = [&](ChartRoleEventType type, std::uint64_t row) {
+      relation.push_back({next_id});
+      events.push_back(
+          {{next_id}, row, role, type, group_id, drill_id});
+      ++next_id;
+    };
+    add(ChartRoleEventType::BlockStart, first_row);
+    add(ChartRoleEventType::Note, first_row + 2U);
+    add(ChartRoleEventType::MoveEnd, first_row + 4U);
+  };
+  const auto add_group = [&](ChartDrillGroupId group_id,
+                             ChartDanceMoveDrillId drill_id,
+                             std::uint64_t npc_row,
+                             std::uint64_t player_row) {
+    ChartDrillGroup group{group_id, drill_id, {}, {}};
+    add_block(event_id, ChartRole::Npc, npc_row, group_id, drill_id,
+              group.npc_event_ids);
+    add_block(event_id, ChartRole::Player, player_row, group_id, drill_id,
+              group.player_event_ids);
+    groups.push_back(std::move(group));
+  };
+  add_group({10U}, {100U}, 0U, 10U);
+  add_group({20U}, {100U}, 20U, 30U);
+  add_group({30U}, {200U}, 40U, 50U);
+  drills.push_back({{100U}, 2U, {{10U}, {20U}}});
+  drills.push_back({{200U}, 1U, {{30U}}});
+
+  const ChartEventId start_id{500U};
+  starts.push_back({start_id, 60U, {501U}});
+  moves.push_back({{502U}, 64U, {501U}, {100U}, 2U});
+  moves.push_back({{503U}, 80U, {501U}, {200U}, 1U});
+  showtimes.push_back({{501U}, start_id, {{100U}, {200U}}, {{502U}, {503U}}});
+
+  ChartEditor editor{ChartDraft{events,         starts, moves,
+                                groups,         drills, showtimes}};
+  const auto status = editor.repair_relations();
+  assert(status == otgy::core::ChartRepairStatus::Repaired);
+  assert(editor.draft().dance_move_drills().size() == 3U);
+  for (const auto& drill : editor.draft().dance_move_drills()) {
+    assert(drill.move_n_count == 1U);
+    assert(drill.drill_group_ids.size() == 1U);
+  }
+  assert(editor.draft().showtimes().size() == 1U);
+  const auto& repaired_showtime = editor.draft().showtimes().front();
+  assert(repaired_showtime.start_event_id.value == 500U);
+  assert(repaired_showtime.show_move_event_ids.size() == 3U);
+  assert(repaired_showtime.dance_move_drill_ids.size() == 3U);
+  for (const auto event_id_value : repaired_showtime.show_move_event_ids) {
+    const auto move =
+        std::find_if(editor.draft().showtime_move_events().begin(),
+                     editor.draft().showtime_move_events().end(),
+                     [event_id_value](
+                         const otgy::core::ChartShowtimeMoveEvent& event) {
+                       return event.id.value == event_id_value.value;
+                     });
+    assert(move != editor.draft().showtime_move_events().end());
+    assert(move->show_n_count == 1U);
+  }
+  assert(editor.draft().showtime_move_events().size() == 3U);
+  assert(editor.undo_count() == 0U);
+  assert(editor.redo_count() == 0U);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Unchanged);
+}
+
+void test_repair_relations_leaves_valid_draft_unchanged() {
+  auto editor = build_two_complete_moves();
+  assert(editor.click(ChartColumn::Showtime, 52U));
+  const auto before = editor.draft();
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Unchanged);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+}
+
 void test_nonterminal_npc_move_end_deletes_after_merge() {
   ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
   for (const auto row : {2U, 3U, 4U, 5U}) {
@@ -3512,6 +3608,8 @@ int main() {
   test_split_dance_move_regenerates_showtime();
   test_later_move_end_does_not_split_earlier_group();
   test_empty_click_auto_end_splits_trailing_groups();
+  test_repair_relations_rebuilds_visible_moves();
+  test_repair_relations_leaves_valid_draft_unchanged();
   test_nonterminal_npc_move_end_deletes_after_merge();
   test_showtime_boundary_prevents_dance_move_merge();
   test_interleaved_drill_move_end_delete_merges_all_groups();
