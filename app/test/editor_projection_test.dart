@@ -62,13 +62,13 @@ void main() {
       controller.setBpm(127.882);
 
       final rowsInFiveSeconds = 127.882 / 3;
-      expect(controller.playbackVisualPixelsPerSecond, 170);
+      expect(controller.playbackVisualPixelsPerSecond, 100);
       expect(
         controller.playbackRowSpacing * rowsInFiveSeconds,
-        closeTo(850, 1e-9),
+        closeTo(500, 1e-9),
       );
 
-      await controller.setZoom(7);
+      await controller.setZoom(6.5);
       expect(
         controller.playbackVisualPixelsPerSecond,
         controller.pixelsPerSecond,

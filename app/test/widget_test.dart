@@ -2435,7 +2435,7 @@ void main() {
         (playingPainter as dynamic).rowSpacing as double,
         controller.playbackRowSpacing,
       );
-      expect(find.text('播放视图 170 px/s'), findsOneWidget);
+      expect(find.text('播放视图 100 px/s'), findsOneWidget);
 
       await tester.pump(const Duration(milliseconds: 16));
       expect(controller.currentRow, confirmedStart);

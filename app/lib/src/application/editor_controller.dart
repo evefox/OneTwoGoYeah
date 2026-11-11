@@ -24,7 +24,11 @@ enum PlaybackSoundVariant { original, trimmed }
 enum EditorChartInteractionMode { normal, selection, pastePending }
 
 const double targetEditorRowSpacing = 46;
-const double playbackVisualZoom = 8;
+
+/// Playback view density. UI Zoom 6.73 makes the shared core return
+/// 100 px/s; the playback projection is capped at that same value and uses
+/// this density for its waveform cache.
+const double _playbackVisualZoom = 6.73;
 
 typedef AudioExportSaveCallback = Future<void> Function(
   AudioExportResult result,
@@ -496,7 +500,7 @@ class EditorController extends ChangeNotifier {
   double get playbackVisualPixelsPerSecond => math
       .min(
         _pixelsPerSecond.toDouble(),
-        _pixelsPerSecondForZoom(playbackVisualZoom).toDouble(),
+        _pixelsPerSecondForZoom(_playbackVisualZoom).toDouble(),
       )
       .toDouble();
 
@@ -559,19 +563,19 @@ class EditorController extends ChangeNotifier {
               pendingZoom,
               filter: _waveformFilter,
             );
-      final playbackWaveform = pendingZoom == playbackVisualZoom
+      final playbackWaveform = pendingZoom == _playbackVisualZoom
           ? editWaveform
-          : _generateWaveformProjection(pending, playbackVisualZoom);
+          : _generateWaveformProjection(pending, _playbackVisualZoom);
       final playbackFilteredWaveform = _waveformFilter == WaveformFilter.none
           ? (
               blocks: const <WaveformBlock>[],
               pixelsPerSecond: playbackWaveform.pixelsPerSecond,
             )
-          : pendingZoom == playbackVisualZoom
+          : pendingZoom == _playbackVisualZoom
           ? editFilteredWaveform
           : _generateWaveformProjection(
               pending,
-              playbackVisualZoom,
+              _playbackVisualZoom,
               filter: _waveformFilter,
             );
 
@@ -1638,17 +1642,17 @@ class EditorController extends ChangeNotifier {
                 filter: _waveformFilter,
               );
         final playbackWaveform = includePlayback
-            ? _zoom == playbackVisualZoom
+            ? _zoom == _playbackVisualZoom
                   ? editWaveform
-                  : _generateWaveformProjection(audio, playbackVisualZoom)
+                  : _generateWaveformProjection(audio, _playbackVisualZoom)
             : null;
         final playbackFilteredWaveform =
             includePlayback && _waveformFilter != WaveformFilter.none
-            ? _zoom == playbackVisualZoom
+            ? _zoom == _playbackVisualZoom
                   ? editFilteredWaveform
                   : _generateWaveformProjection(
                       audio,
-                      playbackVisualZoom,
+                      _playbackVisualZoom,
                       filter: _waveformFilter,
                     )
             : null;
