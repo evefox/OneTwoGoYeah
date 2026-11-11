@@ -886,7 +886,7 @@ targetRow(i) = clickedFirstPlyNRow + sourceRow(i) - sourceFirstNpcNRow
 
 #### 自动补全来源与排布
 
-从起始位置向更早时间遍历当前连续 Showtime 序列：统计已有 `SHOW-D` 数量，遇到所属 `SHOW-C` 后停止统计 `SHOW-D`。随后继续向前，只取上一个 Showtime 阶段结束之后、当前 `SHOW-C` 之前的完整 `DanceMoveDrill`，并按谱面时间从早到晚排列。不完整舞步演练暂不计入可补全列表。
+从起始位置向更早时间遍历当前连续 Showtime 序列：统计已有 `SHOW-D` 数量，遇到所属 `SHOW-C` 后停止统计 `SHOW-D`。随后继续向前，只取上一个 Showtime 阶段结束之后、当前 `SHOW-C` 之前的完整 `DanceMoveDrill`，并按谱面时间从早到晚排列。上一个阶段结束取最后一个 `SHOW-D` 的展示范围终点 `rangeEnd`，不是它的锚点行；起点落在 `[锚点行, rangeEnd)` 内的舞步仍属于上一阶段，起点恰好等于 `rangeEnd` 的舞步可以作为候选。不完整舞步演练暂不计入可补全列表。
 
 按顺序从完整舞步演练列表开头扣除已有 `SHOW-D` 数量：
 

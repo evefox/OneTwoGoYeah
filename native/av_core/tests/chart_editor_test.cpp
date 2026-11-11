@@ -2918,6 +2918,77 @@ void test_empty_click_auto_end_splits_trailing_groups() {
 /// A malformed draft that is already stored must be normalized when loaded:
 /// visible NPC ends define the moves, not the old drill relation. A stale
 /// Showtime is rebuilt from the repaired complete moves at its original row.
+/// The next Showtime starts after the previous Showtime's last display range,
+/// not after its SHOW-D anchor row. A complete move inside that range must not
+/// become a candidate, while a move starting exactly at rangeEnd must.
+void test_showtime_completion_uses_previous_range_end() {
+  std::vector<ChartRoleEvent> events;
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDanceMoveDrill> drills;
+  std::vector<ChartShowtimeStartEvent> starts;
+  std::vector<ChartShowtimeMoveEvent> moves;
+  std::vector<ChartShowtime> showtimes;
+  std::uint64_t event_id = 1U;
+  const auto add_block = [&events](std::uint64_t& next_id, ChartRole role,
+                                   std::uint64_t first,
+                                   ChartDrillGroupId group_id,
+                                   ChartDanceMoveDrillId drill_id,
+                                   std::vector<ChartEventId>& relation) {
+    const auto add = [&](ChartRoleEventType type, std::uint64_t row) {
+      relation.push_back({next_id});
+      events.push_back({{next_id}, row, role, type, group_id, drill_id});
+      ++next_id;
+    };
+    add(ChartRoleEventType::BlockStart, first);
+    add(ChartRoleEventType::Note, first + 2U);
+    add(ChartRoleEventType::MoveEnd, first + 4U);
+  };
+  const auto add_move = [&](ChartDrillGroupId group_id,
+                            ChartDanceMoveDrillId drill_id,
+                            std::uint64_t npc_first,
+                            std::uint64_t player_first) {
+    ChartDrillGroup group{group_id, drill_id, {}, {}};
+    add_block(event_id, ChartRole::Npc, npc_first, group_id, drill_id,
+              group.npc_event_ids);
+    add_block(event_id, ChartRole::Player, player_first, group_id, drill_id,
+              group.player_event_ids);
+    groups.push_back(std::move(group));
+    drills.push_back({drill_id, 1U, {group_id}});
+  };
+  add_move({10U}, {100U}, 0U, 10U);
+  add_move({20U}, {200U}, 72U, 82U);
+  add_move({30U}, {300U}, 96U, 106U);
+
+  ChartDrillGroup player_only{{40U}, {400U}, {}, {}};
+  add_block(event_id, ChartRole::Player, 120U, {40U}, {400U},
+            player_only.player_event_ids);
+  groups.push_back(std::move(player_only));
+  drills.push_back({{400U}, 0U, {{40U}}});
+
+  const ChartEventId previous_start{500U};
+  starts.push_back({previous_start, 16U, {501U}});
+  moves.push_back({{502U}, 64U, {501U}, {100U}, 7U});
+  showtimes.push_back(
+      {{501U}, previous_start, {{100U}}, {{502U}}});
+
+  ChartEditor editor{ChartDraft{events, starts, moves, groups, drills,
+                                showtimes}};
+  assert(editor.click(ChartColumn::Showtime, 128U));
+  const auto& result = editor.draft().showtimes();
+  const auto next = std::find_if(
+      result.begin(), result.end(), [&editor](const ChartShowtime& showtime) {
+        for (const auto& event : editor.draft().showtime_start_events()) {
+          if (event.id.value == showtime.start_event_id.value) {
+            return event.row == 128U;
+          }
+        }
+        return false;
+      });
+  assert(next != result.end());
+  assert(next->dance_move_drill_ids.size() == 1U);
+  assert(next->dance_move_drill_ids.front().value == 300U);
+}
+
 void test_repair_relations_rebuilds_visible_moves() {
   std::vector<ChartRoleEvent> events;
   std::vector<ChartDrillGroup> groups;
@@ -3603,6 +3674,7 @@ int main() {
   test_showtime_conflicts_position_and_retained_start();
   test_showtime_manual_position_boundaries();
   test_showtime_final_open_range_exceptions();
+  test_showtime_completion_uses_previous_range_end();
   test_earlier_showtime_is_inserted_in_row_order();
   test_stale_showtime_pruning();
   test_split_dance_move_regenerates_showtime();

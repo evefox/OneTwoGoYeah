@@ -1439,13 +1439,18 @@ struct CompleteDrill final {
     const MutableDraft& draft, const std::vector<ChartMarker>& markers,
     std::uint64_t showtime_start_row) {
   bool has_previous_showtime_move = false;
-  std::uint64_t previous_showtime_move_row = 0U;
+  std::uint64_t previous_showtime_range_end = 0U;
   for (const auto& marker : markers) {
     if (marker.row >= showtime_start_row) {
       break;
     }
     if (marker.type == ChartMarkerType::ShowtimeMove) {
-      previous_showtime_move_row = marker.row;
+      const auto range_start = marker.row - marker.row % 16U;
+      const auto duration = marker.show_n_count <= 6U ? 16U : 32U;
+      previous_showtime_range_end =
+          range_start > std::numeric_limits<std::uint64_t>::max() - duration
+              ? std::numeric_limits<std::uint64_t>::max()
+              : range_start + duration;
       has_previous_showtime_move = true;
     }
   }
@@ -1456,7 +1461,7 @@ struct CompleteDrill final {
     if (!complete_drill(draft, drill, candidate) ||
         candidate.last_row >= showtime_start_row ||
         (has_previous_showtime_move &&
-         candidate.first_row <= previous_showtime_move_row)) {
+         candidate.first_row < previous_showtime_range_end)) {
       continue;
     }
     result.push_back(candidate);
