@@ -209,6 +209,26 @@ void main() {
     }
   });
 
+  test('shared clips ship once outside the language directories', () {
+    for (final name in const ['space_bar', 'turn_1', 'turn_2']) {
+      expect(
+        File('assets/sounds/common/$name.wav').existsSync(),
+        isTrue,
+        reason: name,
+      );
+      expect(
+        File('assets/sounds/en/$name.wav').existsSync(),
+        isFalse,
+        reason: '$name must not be duplicated under en',
+      );
+      expect(
+        File('assets/sounds/zh/$name.wav').existsSync(),
+        isFalse,
+        reason: '$name must not be duplicated under zh',
+      );
+    }
+  });
+
   test('English clips have no trimmed variant', () {
     expect(Directory('assets/sounds_trimmed/en').existsSync(), isFalse);
   });

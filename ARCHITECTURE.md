@@ -925,6 +925,8 @@ Flutter 只能消费这些目标和状态，不能自行重算页距或只按音
 PCM16，接受单声道或双声道并规范为平面双声道，拒绝缺失、重复、损坏或非 PCM16
 资源。音效选择配置包含中文/英文、4K/8K、切换音效开关和显式 `uint64` 随机种子；
 Flutter 不能根据标记类型选择文件，C ABI 只能转换枚举、字节视图、配置与所有权。
+`space_bar`、`turn_1` 和 `turn_2` 在两种语言下逐字节相同，只从 `assets/sounds/common`
+打包一次；Flutter 为两种语言传入同一份字节，核心仍按语言建立各自拥有型资源。
 
 音效版本只改变 Flutter 交给核心的 WAV 字节，不改变核心契约。默认使用裁切资源：
 中文的 7 个片段从 `assets/sounds_trimmed/zh` 加载，其余片段仍从 `assets/sounds` 加载；
@@ -933,6 +935,10 @@ Flutter 不能根据标记类型选择文件，C ABI 只能转换枚举、字节
 `原始` 变体和隐藏测试入口保留在 Flutter 侧，入口默认关闭；恢复原始变体前必须先把
 `assets/sounds_original/zh/` 加入打包资源。音效版本是会话状态，不进入核心配置结构，
 也不写入项目、草稿或偏好文件。
+
+使用指南截图按桌面和触屏两套保存在不被 pubspec 声明的 `assets/guide_source`，
+`scripts/optimize_guide_images.py` 生成 WebP 到 `assets/guide`，只有后者进入安装包；
+运行时仍按平台在桌面和触屏两套 WebP 之间二选一。
 
 音效计划只读取 `ChartDraft` 的显式语义关系。核心按固定伪随机算法为 `NPC-N` 选择
 `m1-` 前缀的 4K `2/4/6/8` 或 8K `1/2/3/4/6/7/8/9`。每个

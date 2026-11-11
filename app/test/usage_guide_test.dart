@@ -7,6 +7,7 @@ import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_project_store.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_ui_preferences.dart';
+import 'package:one_two_go_yeah/src/ui/usage_guide_content.dart';
 import 'package:otgy_native/otgy_native.dart';
 
 void main() {
@@ -56,6 +57,22 @@ void main() {
     await settle(tester);
   }
 
+  test('guide slides use bundled WebP images', () {
+    for (final slide in usageGuideSlides) {
+      for (final asset in [slide.desktopAsset, slide.mobileAsset]) {
+        expect(asset.endsWith('.webp'), isTrue, reason: asset);
+        expect(File(asset).existsSync(), isTrue, reason: asset);
+      }
+    }
+    for (final platform in ['desktop', 'mobile']) {
+      final pngs = Directory('assets/guide/$platform')
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.png'));
+      expect(pngs, isEmpty, reason: 'PNG sources belong in guide_source');
+    }
+  });
+
   testWidgets('opens full-screen help without touching the draft', (
     tester,
   ) async {
@@ -85,8 +102,8 @@ void main() {
     expect(
       (firstSlide.image as AssetImage).assetName,
       mobile
-          ? 'assets/guide/mobile/guide_overview.png'
-          : 'assets/guide/desktop/guide_overview.png',
+          ? 'assets/guide/mobile/guide_overview.webp'
+          : 'assets/guide/desktop/guide_overview.webp',
     );
     expect(find.text('左右滑动查看各区域'), findsOneWidget);
 
@@ -185,8 +202,8 @@ void main() {
     expect(
       (slide.image as AssetImage).assetName,
       mobile
-          ? 'assets/guide/mobile/guide_gestures.png'
-          : 'assets/guide/desktop/guide_gestures.png',
+          ? 'assets/guide/mobile/guide_gestures.webp'
+          : 'assets/guide/desktop/guide_gestures.webp',
     );
     expect(find.text('双指调整网格间距；长按选择后可复制或剪切'), findsOneWidget);
   });

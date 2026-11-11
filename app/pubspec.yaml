@@ -33,4 +33,5 @@ flutter:
     - assets/guide/mobile/
     - assets/sounds/en/
     - assets/sounds/zh/
+    - assets/sounds/common/
     - assets/sounds_trimmed/zh/

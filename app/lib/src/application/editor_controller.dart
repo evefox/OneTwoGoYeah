@@ -82,6 +82,10 @@ const _trimmedPlaybackSoundFiles = <String>{
   'm1-9',
 };
 
+/// Clips that are byte-identical in both languages and ship once from
+/// `assets/sounds/common`.
+const _sharedPlaybackSoundFiles = <String>{'space_bar', 'turn_1', 'turn_2'};
+
 final class _BackgroundAudioAnalysis {
   const _BackgroundAudioAnalysis({
     required this.source,
@@ -1815,8 +1819,11 @@ class EditorController extends ChangeNotifier {
         // original sound-test variant.
         final original =
             replaced && _playbackSoundVariant == PlaybackSoundVariant.original;
+        final shared = _sharedPlaybackSoundFiles.contains(fileName);
         final data = await rootBundle.load(
-          trimmed
+          shared
+              ? 'assets/sounds/common/$fileName.wav'
+              : trimmed
               ? 'assets/sounds_trimmed/zh/$fileName.wav'
               : original
               ? 'assets/sounds_original/zh/$fileName.wav'
