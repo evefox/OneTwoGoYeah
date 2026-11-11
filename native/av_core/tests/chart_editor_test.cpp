@@ -2989,6 +2989,62 @@ void test_showtime_completion_uses_previous_range_end() {
   assert(next->dance_move_drill_ids.front().value == 300U);
 }
 
+/// Deleting an NPC-S must not merge across another drill's visible NPC-S. The
+/// other S closes a different move, even when the next group by first row
+/// belongs to a later drill.
+void test_deleting_end_does_not_merge_across_another_npc_end() {
+  std::vector<ChartRoleEvent> events;
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDanceMoveDrill> drills;
+  std::uint64_t event_id = 1U;
+  const auto add_block = [&events](std::uint64_t& next_id, ChartRole role,
+                                   std::uint64_t first,
+                                   std::uint64_t note_offset,
+                                   std::uint64_t end_offset,
+                                   ChartDrillGroupId group_id,
+                                   ChartDanceMoveDrillId drill_id,
+                                   std::vector<ChartEventId>& relation) {
+    const auto add = [&](ChartRoleEventType type, std::uint64_t row) {
+      relation.push_back({next_id});
+      events.push_back({{next_id}, row, role, type, group_id, drill_id});
+      ++next_id;
+    };
+    add(ChartRoleEventType::BlockStart, first);
+    add(ChartRoleEventType::Note, first + note_offset);
+    add(ChartRoleEventType::MoveEnd, first + end_offset);
+  };
+  const auto add_group = [&](ChartDrillGroupId group_id,
+                             ChartDanceMoveDrillId drill_id,
+                             std::uint64_t npc_first,
+                             std::uint64_t npc_note_offset,
+                             std::uint64_t npc_end_offset,
+                             std::uint64_t player_first,
+                             std::uint64_t player_note_offset,
+                             std::uint64_t player_end_offset) {
+    ChartDrillGroup group{group_id, drill_id, {}, {}};
+    add_block(event_id, ChartRole::Npc, npc_first, npc_note_offset,
+              npc_end_offset, group_id, drill_id, group.npc_event_ids);
+    add_block(event_id, ChartRole::Player, player_first, player_note_offset,
+              player_end_offset, group_id, drill_id, group.player_event_ids);
+    groups.push_back(std::move(group));
+    drills.push_back({drill_id, 1U, {group_id}});
+  };
+  // Group 20 spans group 10: its C/N/S rows are 0/10/20, so its end lies
+  // between group 10's end at 6 and group 30's start at 30.
+  add_group({20U}, {200U}, 0U, 10U, 20U, 100U, 10U, 20U);
+  add_group({10U}, {100U}, 2U, 2U, 4U, 102U, 2U, 4U);
+  add_group({30U}, {300U}, 30U, 2U, 4U, 130U, 2U, 4U);
+
+  ChartEditor editor{
+      ChartDraft{events, {}, {}, groups, drills, {}}};
+  assert(editor.click(ChartColumn::Npc, 6U));
+  assert(editor.draft().dance_move_drills().size() == 3U);
+  for (const auto& drill : editor.draft().dance_move_drills()) {
+    assert(drill.drill_group_ids.size() == 1U);
+    assert(drill.id.value != 100U || drill.drill_group_ids.front().value == 10U);
+  }
+}
+
 void test_repair_relations_rebuilds_visible_moves() {
   std::vector<ChartRoleEvent> events;
   std::vector<ChartDrillGroup> groups;
@@ -3680,6 +3736,7 @@ int main() {
   test_split_dance_move_regenerates_showtime();
   test_later_move_end_does_not_split_earlier_group();
   test_empty_click_auto_end_splits_trailing_groups();
+  test_deleting_end_does_not_merge_across_another_npc_end();
   test_repair_relations_rebuilds_visible_moves();
   test_repair_relations_leaves_valid_draft_unchanged();
   test_nonterminal_npc_move_end_deletes_after_merge();

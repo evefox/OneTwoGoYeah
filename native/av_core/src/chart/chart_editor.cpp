@@ -944,14 +944,29 @@ void erase_role_events(MutableDraft& draft,
         next_row = candidate_row;
       }
     }
-    const bool has_showtime_barrier =
+    const bool has_sequence_barrier =
         next_group != nullptr &&
         std::any_of(markers.begin(), markers.end(),
-                    [current, next_row](const ChartMarker& marker) {
-                      return marker.row > current.row && marker.row < next_row &&
-                             marker.column == ChartColumn::Showtime;
+                    [&draft, current, current_group_id,
+                     next_row](const ChartMarker& marker) {
+                      if (marker.row <= current.row ||
+                          marker.row >= next_row) {
+                        return false;
+                      }
+                      if (marker.column == ChartColumn::Showtime) {
+                        return true;
+                      }
+                      if (marker.column != ChartColumn::Npc ||
+                          marker.type != ChartMarkerType::NpcMoveEnd) {
+                        return false;
+                      }
+                      const auto* event =
+                          find_role_event_const(draft, marker.id.value);
+                      return event == nullptr ||
+                             event->drill_group_id.value !=
+                                 current_group_id.value;
                     });
-    if (is_last_group && next_group != nullptr && !has_showtime_barrier &&
+    if (is_last_group && next_group != nullptr && !has_sequence_barrier &&
         next_group->dance_move_drill_id.value != destination_id.value) {
       const auto source_id = next_group->dance_move_drill_id;
       auto* source = find_drill(draft, source_id.value);
