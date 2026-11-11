@@ -1833,6 +1833,28 @@ abstract final class OtgyNative {
     });
   }
 
+  static int nearestWholeBeatOffset({
+    required double bpm,
+    required double offsetSeconds,
+  }) {
+    return using((arena) {
+      final baseline = arena<native.otgy_timing_parameters>()
+        ..ref.bpm = bpm
+        ..ref.offset_seconds = offsetSeconds;
+      final result = arena<Int64>();
+      final error = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(
+          native.otgy_nearest_whole_beat_offset(baseline.ref, result, error),
+          error,
+        );
+        return result.value;
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
   static double sixteenthRowToSeconds({
     required double bpm,
     required double offset,

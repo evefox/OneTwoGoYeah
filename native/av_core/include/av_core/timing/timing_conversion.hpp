@@ -64,6 +64,23 @@ class TimingConversionResult final {
   std::variant<double, TimingConversionError> storage_;
 };
 
+class WholeBeatCountResult final {
+ public:
+  explicit WholeBeatCountResult(std::int64_t value) noexcept;
+  explicit WholeBeatCountResult(TimingConversionError error) noexcept;
+
+  [[nodiscard]] bool has_value() const noexcept;
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return has_value();
+  }
+
+  [[nodiscard]] const std::int64_t* value() const noexcept;
+  [[nodiscard]] TimingConversionError error() const noexcept;
+
+ private:
+  std::variant<std::int64_t, TimingConversionError> storage_;
+};
+
 /// Converts audio seconds to a continuous zero-based chart beat position.
 ///
 /// App Offset is the music start time relative to beat zero, so the mapping is
@@ -95,5 +112,10 @@ class TimingConversionResult final {
 /// Offset. The result is clamped to the supported Offset range.
 [[nodiscard]] TimingConversionResult adjust_offset_by_beats(
     TimingParameters baseline, double cumulative_beats) noexcept;
+
+/// Returns the signed whole-beat count that, added to the baseline Offset,
+/// moves it closest to zero. Exact half-beat ties round away from zero.
+[[nodiscard]] WholeBeatCountResult nearest_whole_beat_offset(
+    TimingParameters baseline) noexcept;
 
 }  // namespace otgy::core

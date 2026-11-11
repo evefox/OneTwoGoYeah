@@ -14,6 +14,7 @@ namespace {
 using otgy::core::TimingConversionError;
 using otgy::core::TimingConversionResult;
 using otgy::core::TimingParameters;
+using otgy::core::WholeBeatCountResult;
 
 [[nodiscard]] double value_of(const TimingConversionResult& result) {
   assert(result);
@@ -23,6 +24,21 @@ using otgy::core::TimingParameters;
 }
 
 void assert_error(const TimingConversionResult& result,
+                  TimingConversionError expected) {
+  assert(!result);
+  assert(result.value() == nullptr);
+  assert(result.error() == expected);
+}
+
+[[nodiscard]] std::int64_t beat_count_of(
+    const WholeBeatCountResult& result) {
+  assert(result);
+  assert(result.error() == TimingConversionError::None);
+  assert(result.value() != nullptr);
+  return *result.value();
+}
+
+void assert_error(const WholeBeatCountResult& result,
                   TimingConversionError expected) {
   assert(!result);
   assert(result.value() == nullptr);
@@ -108,6 +124,41 @@ void test_offset_beat_adjustment_uses_the_original_baseline() {
   assert_error(otgy::core::adjust_offset_by_beats(
                    kBaseline, std::numeric_limits<double>::infinity()),
                TimingConversionError::NonFinitePosition);
+}
+
+void test_nearest_whole_beat_offset_moves_closest_to_zero() {
+  constexpr double kBpm = 120.0;
+  constexpr double kBeat = 0.5;
+
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({kBpm, 0.433})) == -1);
+  assert(value_of(otgy::core::adjust_offset_by_beats(
+             {kBpm, 0.433}, -1.0)) == 0.433 - kBeat);
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({kBpm, 0.2})) == 0);
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({kBpm, -0.433})) == 1);
+  assert(value_of(otgy::core::adjust_offset_by_beats(
+             {kBpm, -0.433}, 1.0)) == -0.433 + kBeat);
+
+  // Exact half-beat ties round away from zero.
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({kBpm, 0.25})) == -1);
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({kBpm, -0.25})) == 1);
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({kBpm, 0.0})) == 0);
+
+  assert(beat_count_of(
+             otgy::core::nearest_whole_beat_offset({100.0, 10.0})) == -17);
+  assert_error(otgy::core::nearest_whole_beat_offset({0.0, 0.0}),
+               TimingConversionError::NoGrid);
+  assert_error(
+      otgy::core::nearest_whole_beat_offset(
+          {kBpm, std::numeric_limits<double>::infinity()}),
+      TimingConversionError::NonFiniteOffset);
+  assert_error(otgy::core::nearest_whole_beat_offset({kBpm, 31.0}),
+               TimingConversionError::OffsetOutOfRange);
 }
 
 void test_zero_bpm_has_no_time_grid() {
@@ -225,6 +276,7 @@ int main() {
   test_default_timing_and_chart_coordinates();
   test_app_offset_sign_and_unrounded_values();
   test_offset_beat_adjustment_uses_the_original_baseline();
+  test_nearest_whole_beat_offset_moves_closest_to_zero();
   test_zero_bpm_has_no_time_grid();
   test_parameter_and_position_errors();
   test_finite_overflow_errors();

@@ -1435,7 +1435,7 @@ void main() {
           .widget<TextField>(find.byKey(const ValueKey('offset-input')))
           .controller!
           .text,
-      '-0.433',
+      '0.036',
     );
 
     for (var index = 0; index < 2; index++) {
@@ -1444,11 +1444,11 @@ void main() {
       final expectedOffset = OtgyNative.adjustOffsetByBeats(
         bpm: analyzedBpm,
         baselineOffset: analyzedOffset,
-        cumulativeBeats: -(index + 1).toDouble(),
+        cumulativeBeats: 1.0 - (index + 1),
       );
       expect(controller.offset, expectedOffset);
     }
-    expect(controller.offset.toStringAsFixed(3), '-1.372');
+    expect(controller.offset.toStringAsFixed(3), '-0.902');
     expect(controller.bpm, analyzedBpm);
   });
 
@@ -1467,7 +1467,6 @@ void main() {
         fitness: 1,
       ),
     );
-    controller.nudgeOffsetByBeat(1);
     expect(controller.offset.toStringAsFixed(3), '0.036');
 
     AudioExportResult? exported;

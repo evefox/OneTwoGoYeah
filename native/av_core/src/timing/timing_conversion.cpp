@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace otgy::core {
 namespace {
@@ -72,6 +73,29 @@ const double* TimingConversionResult::value() const noexcept {
 }
 
 TimingConversionError TimingConversionResult::error() const noexcept {
+  if (const auto* error =
+          std::get_if<TimingConversionError>(&storage_)) {
+    return *error;
+  }
+  return TimingConversionError::None;
+}
+
+WholeBeatCountResult::WholeBeatCountResult(std::int64_t value) noexcept
+    : storage_(value) {}
+
+WholeBeatCountResult::WholeBeatCountResult(
+    TimingConversionError error) noexcept
+    : storage_(error) {}
+
+bool WholeBeatCountResult::has_value() const noexcept {
+  return std::holds_alternative<std::int64_t>(storage_);
+}
+
+const std::int64_t* WholeBeatCountResult::value() const noexcept {
+  return std::get_if<std::int64_t>(&storage_);
+}
+
+TimingConversionError WholeBeatCountResult::error() const noexcept {
   if (const auto* error =
           std::get_if<TimingConversionError>(&storage_)) {
     return *error;
@@ -174,6 +198,35 @@ TimingConversionResult adjust_offset_by_beats(
   }
   return TimingConversionResult{std::clamp(
       adjusted_offset, -kMaximumOffsetSeconds, kMaximumOffsetSeconds)};
+}
+
+WholeBeatCountResult nearest_whole_beat_offset(
+    TimingParameters baseline) noexcept {
+  const auto error = validate_parameters(baseline);
+  if (error != TimingConversionError::None) {
+    return WholeBeatCountResult{error};
+  }
+  if (baseline.bpm == 0.0) {
+    return WholeBeatCountResult{TimingConversionError::NoGrid};
+  }
+  const double seconds_per_beat = kSecondsPerMinute / baseline.bpm;
+  if (!std::isfinite(seconds_per_beat) || seconds_per_beat <= 0.0) {
+    return WholeBeatCountResult{TimingConversionError::ResultOutOfRange};
+  }
+  const double beats = -baseline.offset_seconds / seconds_per_beat;
+  if (!std::isfinite(beats)) {
+    return WholeBeatCountResult{TimingConversionError::ResultOutOfRange};
+  }
+  const double rounded = std::round(beats);
+  constexpr double kInt64Lower =
+      static_cast<double>(std::numeric_limits<std::int64_t>::min());
+  constexpr double kInt64Upper =
+      static_cast<double>(std::numeric_limits<std::int64_t>::max());
+  if (!std::isfinite(rounded) || rounded < kInt64Lower ||
+      rounded >= kInt64Upper) {
+    return WholeBeatCountResult{TimingConversionError::ResultOutOfRange};
+  }
+  return WholeBeatCountResult{static_cast<std::int64_t>(rounded)};
 }
 
 }  // namespace otgy::core

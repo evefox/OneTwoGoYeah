@@ -826,11 +826,18 @@ Offset 微调同样通过共享核心领域命令执行。Flutter 输入适配�
 secondsPerBeat  = 60 / bpm
 cumulativeBeats = sum(forwardOne: +1, forwardHalf: +0.5,
                       backwardHalf: -0.5, backwardOne: -1)
+initialBeats    = round(-baselineOffset / secondsPerBeat)  // 仅应用分析候选
 offset          = clamp(baselineOffset + secondsPerBeat * cumulativeBeats,
                         -30, 30)
 ```
 
-应用分析候选、成功加载音频或正式草稿以及合法 Offset 直接输入都会把对应未舍入 Offset 设为新基准并把累计拍数归零。修改 BPM 时不重新解释旧拍数，而是保留当时的有效 Offset、以它建立新基准并归零拍数；到达 Offset 边界时同样从边界开启新序列。基准和拍数只是当前编辑会话的命令状态，不进入正式草稿、SLK 或导出快照；每次共享核心计算得到的最终 binary64 Offset 仍是唯一权威值。
+应用分析候选时，以候选未舍入 Offset 为新基准，累计拍数初始化为共享核心
+`nearest_whole_beat_offset` 返回的 `initialBeats`，使实际 Offset 落在半拍范围内；
+候选的 BPM、Offset 和 fitness 均不修改。成功加载音频或正式草稿以及合法 Offset
+直接输入会把对应未舍入 Offset 设为新基准并把累计拍数归零。修改 BPM 时不重新解释
+旧拍数，而是保留当时的有效 Offset、以它建立新基准并归零拍数；到达 Offset 边界时
+同样从边界开启新序列。基准和拍数只是当前编辑会话的命令状态，不进入正式草稿、SLK
+或导出快照；每次共享核心计算得到的最终 binary64 Offset 仍是唯一权威值。
 
 合法 Offset 直接输入在编辑结束后提交；按拍移动仍立即提交。每次提交都会使时序转换和时序网格派生数据失效，同时保留 PCM、波形图块和音频分析结果。显示文本只从最终权威 binary64 值派生；音频导出直接快照该值并在共享核心中量化为裁剪或补静音帧，绝不解析三位小数文本。
 

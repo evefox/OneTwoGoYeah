@@ -77,6 +77,29 @@ void main() {
     },
   );
 
+  test('applying an analysis candidate moves the offset closest to zero', () {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    const candidate = AudioAnalysisCandidate(
+      bpm: 120,
+      detectorOffsetSeconds: -0.433,
+      appOffsetSeconds: 0.433,
+      fitness: 1,
+    );
+
+    controller.applyAnalysisCandidate(candidate);
+
+    expect(controller.bpm, 120);
+    expect(controller.offset, closeTo(-0.067, 1e-12));
+    expect(candidate.appOffsetSeconds, 0.433);
+
+    // The beat baseline remains the raw candidate offset.
+    controller.nudgeOffsetByBeat(1);
+    expect(controller.offset, closeTo(0.433, 1e-12));
+    controller.nudgeOffsetByBeat(-1);
+    expect(controller.offset, closeTo(-0.067, 1e-12));
+  });
+
   test('row midpoint belongs to the later row', () {
     expect(
       projectEditorRow(

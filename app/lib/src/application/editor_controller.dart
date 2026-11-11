@@ -982,8 +982,27 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _bpm = candidate.bpm;
-    _offset = candidate.appOffsetSeconds;
-    _resetOffsetBeatAdjustment();
+    final canNormalize =
+        candidate.bpm > 0 &&
+        candidate.bpm <= 100000 &&
+        candidate.appOffsetSeconds >= -30 &&
+        candidate.appOffsetSeconds <= 30;
+    if (canNormalize) {
+      final wholeBeats = OtgyNative.nearestWholeBeatOffset(
+        bpm: candidate.bpm,
+        offsetSeconds: candidate.appOffsetSeconds,
+      );
+      _offsetBeatBaseline = candidate.appOffsetSeconds;
+      _offsetBeatAdjustment = wholeBeats.toDouble();
+      _offset = OtgyNative.adjustOffsetByBeats(
+        bpm: candidate.bpm,
+        baselineOffset: _offsetBeatBaseline,
+        cumulativeBeats: _offsetBeatAdjustment,
+      );
+    } else {
+      _offset = candidate.appOffsetSeconds;
+      _resetOffsetBeatAdjustment();
+    }
     _synchronizeAutomaticEditZoom();
     _updateDirty();
   }

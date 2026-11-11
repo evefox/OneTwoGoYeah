@@ -908,6 +908,19 @@ external int otgy_adjust_offset_by_beats(
 @ffi.Native<
   otgy_status Function(
     otgy_timing_parameters,
+    ffi.Pointer<ffi.Int64>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_nearest_whole_beat_offset(
+  otgy_timing_parameters baseline,
+  ffi.Pointer<ffi.Int64> out_beats,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    otgy_timing_parameters,
     ffi.Double,
     ffi.Double,
     ffi.Pointer<ffi.Pointer<otgy_timing_grid>>,
@@ -1424,7 +1437,7 @@ external int otgy_chart_editor_create(
 external void otgy_chart_editor_destroy(ffi.Pointer<otgy_chart_editor> editor);
 
 /// Rebuilds the DanceMoveDrill relation from the visible NPC C/N/S sequence.
-/// Sets `out_changed` to 1 when the draft was repaired in place. This is a
+/// Sets *out_changed to 1 when the draft was repaired in place. This is a
 /// load-time normalization: it clears undo/redo and rebuilds or removes stale
 /// Showtime relations. Idempotent; returns 0 for an already-correct draft.
 @ffi.Native<
@@ -2802,3 +2815,5 @@ const int OTGY_CHART_DIAGNOSTIC_ORPHAN_EVENT = 12;
 const int OTGY_CHART_DIAGNOSTIC_ORPHAN_DRILL_GROUP = 13;
 
 const int OTGY_CHART_DIAGNOSTIC_ORPHAN_DANCE_MOVE_DRILL = 14;
+
+const int OTGY_CHART_DIAGNOSTIC_DANCE_MOVE_DRILL_NOT_TRAILING = 15;

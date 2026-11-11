@@ -156,6 +156,26 @@ void main() {
     expect(adjusted.toStringAsFixed(3), '-1.372');
   });
 
+  test('nearest whole-beat Offset moves the baseline closest to zero', () {
+    expect(
+      OtgyNative.nearestWholeBeatOffset(bpm: 120, offsetSeconds: 0.433),
+      -1,
+    );
+    expect(OtgyNative.nearestWholeBeatOffset(bpm: 120, offsetSeconds: 0.2), 0);
+    expect(
+      OtgyNative.nearestWholeBeatOffset(bpm: 120, offsetSeconds: -0.433),
+      1,
+    );
+    expect(
+      OtgyNative.nearestWholeBeatOffset(bpm: 120, offsetSeconds: 0.25),
+      -1,
+    );
+    expect(
+      OtgyNative.nearestWholeBeatOffset(bpm: 120, offsetSeconds: -0.25),
+      1,
+    );
+  });
+
   test(
     'SLK import and export remain byte compatible with the canonical file',
     () {
@@ -235,7 +255,7 @@ void main() {
       PlaybackSoundAsset(
         language: PlaybackSoundLanguage.chinese,
         id: PlaybackSoundId.spaceBar,
-        wavBytes: File('../../assets/sounds/zh/space_bar.wav')
+        wavBytes: File('../../assets/sounds/common/space_bar.wav')
             .readAsBytesSync(),
       ),
     ]);

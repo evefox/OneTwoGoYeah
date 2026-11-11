@@ -19,6 +19,19 @@ otgy_status return_timing_result(
   return OTGY_STATUS_OK;
 }
 
+otgy_status return_whole_beat_result(
+    const otgy::core::WholeBeatCountResult& result, std::int64_t* out_value,
+    otgy_error** out_error) noexcept {
+  if (!result) {
+    return core_error(
+        out_error, OTGY_ERROR_DOMAIN_TIMING_CONVERSION,
+        static_cast<std::uint32_t>(result.error()),
+        otgy::core::timing_conversion_error_message(result.error()));
+  }
+  *out_value = *result.value();
+  return OTGY_STATUS_OK;
+}
+
 otgy::core::PlaybackPosition to_core(otgy_playback_position value) noexcept {
   return {static_cast<otgy::core::PlaybackPhase>(value.phase),
           value.timeline_seconds, value.audio_duration_seconds};
@@ -133,6 +146,19 @@ otgy_status otgy_adjust_offset_by_beats(
         otgy::core::adjust_offset_by_beats(
             otgy::c_api::to_core(baseline), cumulative_beats),
         out_value, out_error);
+  });
+}
+
+otgy_status otgy_nearest_whole_beat_offset(
+    otgy_timing_parameters baseline, int64_t* out_beats,
+    otgy_error** out_error) {
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_beats == nullptr) {
+      return invalid_argument(out_error);
+    }
+    return return_whole_beat_result(
+        otgy::core::nearest_whole_beat_offset(otgy::c_api::to_core(baseline)),
+        out_beats, out_error);
   });
 }
 

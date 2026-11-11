@@ -971,6 +971,16 @@ void test_timing_and_coordination() {
              same_double(abi_offset, *direct_offset.value()),
          "Offset beat adjustment differs");
 
+  const otgy::core::TimingParameters nearest_baseline{120.0, 0.433};
+  const otgy_timing_parameters nearest_abi{120.0, 0.433};
+  const auto direct_nearest =
+      otgy::core::nearest_whole_beat_offset(nearest_baseline);
+  std::int64_t abi_nearest = 0;
+  expect(otgy_nearest_whole_beat_offset(nearest_abi, &abi_nearest,
+                                        &raw_error) == OTGY_STATUS_OK &&
+             abi_nearest == *direct_nearest.value(),
+         "nearest whole-beat Offset differs");
+
   const auto direct_no_grid =
       otgy::core::seconds_to_beat({0.0, 0.0}, 1.0);
   expect(otgy_seconds_to_beat({0.0, 0.0}, 1.0, &abi_beat_row, &raw_error) ==
