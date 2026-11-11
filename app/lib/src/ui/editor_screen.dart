@@ -754,6 +754,9 @@ class _EditorScreenState extends State<EditorScreen>
               draftName: action.draft.name,
               payload: repairedPayload,
             );
+            _recoveryTimer?.cancel();
+            _flushedProjectRevision = _controller.projectRevision;
+            await store.deleteRecovery();
             _controller.showNotice('已修复旧草稿的舞步关系并保存');
             _record('draft.repair.persisted', {'draftId': action.draft.id});
           } on Object catch (error, stack) {
