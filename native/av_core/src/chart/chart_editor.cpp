@@ -1387,6 +1387,10 @@ struct BlockCheck final {
 struct CompleteDrill final {
   ChartDanceMoveDrillId id;
   std::uint64_t first_row;
+  // The earliest N of either role. A block start is not part of the dance
+  // move itself, so it must not decide whether the move belongs to the
+  // previous Showtime's display range.
+  std::uint64_t first_note_row;
   std::uint64_t last_row;
   std::uint64_t move_n_count;
 };
@@ -1400,9 +1404,11 @@ struct CompleteDrill final {
   }
   std::uint64_t note_count = 0U;
   bool has_rows = false;
+  bool has_notes = false;
   bool has_relation_row = false;
   std::uint64_t relation_row = 0U;
   std::uint64_t first_row = 0U;
+  std::uint64_t first_note_row = 0U;
   std::uint64_t last_row = 0U;
   for (std::size_t index = 0U; index < drill.drill_group_ids.size(); ++index) {
     const auto* group =
@@ -1437,16 +1443,26 @@ struct CompleteDrill final {
       first_row = !has_rows ? event->row : std::min(first_row, event->row);
       last_row = !has_rows ? event->row : std::max(last_row, event->row);
       has_rows = true;
+      if (event->type == ChartRoleEventType::Note) {
+        first_note_row =
+            !has_notes ? event->row : std::min(first_note_row, event->row);
+        has_notes = true;
+      }
     }
     for (const auto* event : player.events) {
       first_row = std::min(first_row, event->row);
       last_row = std::max(last_row, event->row);
+      if (event->type == ChartRoleEventType::Note) {
+        first_note_row =
+            !has_notes ? event->row : std::min(first_note_row, event->row);
+        has_notes = true;
+      }
     }
   }
-  if (!has_rows || note_count != drill.move_n_count) {
+  if (!has_rows || !has_notes || note_count != drill.move_n_count) {
     return false;
   }
-  result = {drill.id, first_row, last_row, drill.move_n_count};
+  result = {drill.id, first_row, first_note_row, last_row, drill.move_n_count};
   return true;
 }
 
@@ -1476,7 +1492,7 @@ struct CompleteDrill final {
     if (!complete_drill(draft, drill, candidate) ||
         candidate.last_row >= showtime_start_row ||
         (has_previous_showtime_move &&
-         candidate.first_row < previous_showtime_range_end)) {
+         candidate.first_note_row < previous_showtime_range_end)) {
       continue;
     }
     result.push_back(candidate);

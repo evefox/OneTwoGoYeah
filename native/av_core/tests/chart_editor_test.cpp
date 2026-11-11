@@ -2976,6 +2976,83 @@ void test_showtime_completion_uses_previous_range_end() {
   assert(next->dance_move_drill_ids.front().value == 300U);
 }
 
+/// The previous-stage boundary is decided by the first N of a dance move, not
+/// by its NPC-C block start. The final half measure of the last SHOW-D is the
+/// only place where the next stage's NPC-C may sit inside the display range,
+/// so a move whose NPC-C is there and whose first N starts exactly at rangeEnd
+/// must still be a candidate for the next Showtime.
+void test_showtime_completion_ignores_block_start_for_previous_range() {
+  std::vector<ChartRoleEvent> events;
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDanceMoveDrill> drills;
+  std::vector<ChartShowtimeStartEvent> starts;
+  std::vector<ChartShowtimeMoveEvent> moves;
+  std::vector<ChartShowtime> showtimes;
+  std::uint64_t event_id = 1U;
+  const auto add_block = [&events, &event_id](
+                             ChartRole role, ChartDrillGroupId group_id,
+                             ChartDanceMoveDrillId drill_id,
+                             std::uint64_t start_row, std::uint64_t note_row,
+                             std::uint64_t end_row,
+                             std::vector<ChartEventId>& relation) {
+    const std::pair<ChartRoleEventType, std::uint64_t> rows[] = {
+        {ChartRoleEventType::BlockStart, start_row},
+        {ChartRoleEventType::Note, note_row},
+        {ChartRoleEventType::MoveEnd, end_row}};
+    for (const auto& row : rows) {
+      relation.push_back({event_id});
+      events.push_back(
+          {{event_id}, row.second, role, row.first, group_id, drill_id});
+      ++event_id;
+    }
+  };
+  const auto add_move = [&add_block, &groups, &drills](
+                            ChartDrillGroupId group_id,
+                            ChartDanceMoveDrillId drill_id,
+                            std::uint64_t npc_start, std::uint64_t npc_note,
+                            std::uint64_t npc_end, std::uint64_t player_start,
+                            std::uint64_t player_note,
+                            std::uint64_t player_end) {
+    ChartDrillGroup group{group_id, drill_id, {}, {}};
+    add_block(ChartRole::Npc, group_id, drill_id, npc_start, npc_note, npc_end,
+              group.npc_event_ids);
+    add_block(ChartRole::Player, group_id, drill_id, player_start, player_note,
+              player_end, group.player_event_ids);
+    groups.push_back(std::move(group));
+    drills.push_back({drill_id, 1U, {group_id}});
+  };
+
+  // Previous Showtime: its SHOW-D has seven N and covers [64, 96).
+  add_move({10U}, {100U}, 0U, 2U, 4U, 6U, 8U, 10U);
+  // A move whose first N starts inside the display range is not a candidate.
+  add_move({20U}, {200U}, 70U, 72U, 76U, 78U, 80U, 84U);
+  // NPC-C sits in the allowed final open half measure [88, 96); the move
+  // itself starts exactly at rangeEnd.
+  add_move({30U}, {300U}, 88U, 96U, 100U, 102U, 110U, 114U);
+
+  const ChartEventId previous_start{500U};
+  starts.push_back({previous_start, 16U, {501U}});
+  moves.push_back({{502U}, 64U, {501U}, {100U}, 7U});
+  showtimes.push_back({{501U}, previous_start, {{100U}}, {{502U}}});
+
+  ChartEditor editor{ChartDraft{events, starts, moves, groups, drills,
+                                showtimes}};
+  assert(editor.click(ChartColumn::Showtime, 128U));
+  const auto& result = editor.draft().showtimes();
+  const auto next = std::find_if(
+      result.begin(), result.end(), [&editor](const ChartShowtime& showtime) {
+        for (const auto& event : editor.draft().showtime_start_events()) {
+          if (event.id.value == showtime.start_event_id.value) {
+            return event.row == 128U;
+          }
+        }
+        return false;
+      });
+  assert(next != result.end());
+  assert(next->dance_move_drill_ids.size() == 1U);
+  assert(next->dance_move_drill_ids.front().value == 300U);
+}
+
 /// Deleting an NPC-S must not merge across another drill's visible NPC-S. The
 /// other S closes a different move, even when the next group by first row
 /// belongs to a later drill.
@@ -3718,6 +3795,7 @@ int main() {
   test_showtime_manual_position_boundaries();
   test_showtime_final_open_range_exceptions();
   test_showtime_completion_uses_previous_range_end();
+  test_showtime_completion_ignores_block_start_for_previous_range();
   test_earlier_showtime_is_inserted_in_row_order();
   test_stale_showtime_pruning();
   test_split_dance_move_regenerates_showtime();
