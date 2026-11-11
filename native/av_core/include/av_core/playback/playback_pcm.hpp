@@ -20,6 +20,7 @@ enum class PlaybackPcmError : std::uint8_t {
   InvalidSoundConfiguration = 4,
   MissingSoundAsset = 5,
   SoundTimingFailure = 6,
+  InvalidKeepDuration = 7,
 };
 
 [[nodiscard]] constexpr std::string_view playback_pcm_error_message(
@@ -39,6 +40,8 @@ enum class PlaybackPcmError : std::uint8_t {
       return "playback sound bank is missing a required asset";
     case PlaybackPcmError::SoundTimingFailure:
       return "playback sound event cannot be projected to an audio frame";
+    case PlaybackPcmError::InvalidKeepDuration:
+      return "playback keep duration must be finite and non-negative";
   }
   return "unknown playback PCM error";
 }
@@ -87,5 +90,27 @@ class PlaybackPcmResult final {
 /// silence; non-negative positions skip source frames. The input is unchanged.
 [[nodiscard]] PlaybackPcmResult render_playback_pcm(
     const Pcm16& pcm, double timeline_start_seconds) noexcept;
+
+/// Keeps at most `keep_seconds` from the beginning of an already rendered
+/// playback buffer.
+///
+/// The keep duration is projected to the nearest frame with exact half frames
+/// rounded away from zero. The caller uses the returned frame count to slice
+/// the interleaved buffer; the PCM mixing itself is never re-run.
+class PlaybackFrameLimitResult final {
+ public:
+  explicit PlaybackFrameLimitResult(std::uint64_t frame_count) noexcept;
+  explicit PlaybackFrameLimitResult(PlaybackPcmError error) noexcept;
+
+  [[nodiscard]] explicit operator bool() const noexcept;
+  [[nodiscard]] const std::uint64_t* frame_count() const noexcept;
+  [[nodiscard]] PlaybackPcmError error() const noexcept;
+
+ private:
+  std::variant<std::uint64_t, PlaybackPcmError> storage_;
+};
+
+[[nodiscard]] PlaybackFrameLimitResult calculate_playback_frame_limit(
+    std::uint32_t sample_rate, double keep_seconds) noexcept;
 
 }  // namespace otgy::core

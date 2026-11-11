@@ -263,7 +263,9 @@ class _AudioToolbarState extends State<_AudioToolbar> {
               controller.bpm > 0 &&
               !controller.isChartPlaying &&
               (controller.isRhythmTesting ||
-                  (controller.generalActionsEnabled && !controller.isBusy))
+                  (controller.generalActionsEnabled &&
+                      !controller.isBusy &&
+                      controller.rhythmTestStartEnabled))
           ? controller.toggleRhythmTest
           : null,
       tooltip: controller.isRhythmTesting
@@ -276,6 +278,8 @@ class _AudioToolbarState extends State<_AudioToolbar> {
           ? '请先设置 BPM'
           : !controller.generalActionsEnabled
           ? '请先退出选择或粘贴模式'
+          : !controller.rhythmTestStartEnabled
+          ? '已到音乐结束位置'
           : '节奏测试',
       style: _toolbarIconButtonStyle,
       icon: controller.isRhythmTesting

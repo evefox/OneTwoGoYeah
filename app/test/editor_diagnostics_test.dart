@@ -249,6 +249,8 @@ void main() {
         'hasAudio',
         'bpm',
         'offset',
+        'audioEndMode',
+        'audioEndRow',
         'currentRow',
         'markerCount',
         'showtimeMoveCount',

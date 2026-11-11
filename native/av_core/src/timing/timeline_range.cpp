@@ -69,6 +69,16 @@ TimelineRangeResult calculate_timeline_range(
     TimingParameters timing, std::optional<double> audio_end_seconds,
     const std::vector<std::uint64_t>& event_sixteenth_rows,
     const std::vector<std::uint64_t>& show_range_end_rows) noexcept {
+  return calculate_timeline_range_with_end(
+      timing, audio_end_seconds, std::nullopt, event_sixteenth_rows,
+      show_range_end_rows);
+}
+
+TimelineRangeResult calculate_timeline_range_with_end(
+    TimingParameters timing, std::optional<double> audio_end_seconds,
+    std::optional<std::uint64_t> custom_end_sixteenth_row,
+    const std::vector<std::uint64_t>& event_sixteenth_rows,
+    const std::vector<std::uint64_t>& show_range_end_rows) noexcept {
   if (audio_end_seconds.has_value() &&
       (!std::isfinite(*audio_end_seconds) || *audio_end_seconds < 0.0)) {
     return TimelineRangeResult{TimelineRangeError::InvalidAudioEnd};
@@ -105,6 +115,21 @@ TimelineRangeResult calculate_timeline_range(
     }
     if (*audio_end_row.value() > extent.row) {
       extent = {*audio_end_row.value(), *audio_end_seconds};
+    }
+  }
+
+  if (custom_end_sixteenth_row.has_value()) {
+    if (*custom_end_sixteenth_row > kMaximumExactIntegerRow) {
+      return TimelineRangeResult{TimelineRangeError::RowOutOfRange};
+    }
+    const double row_value =
+        static_cast<double>(*custom_end_sixteenth_row);
+    if (row_value > extent.row) {
+      const auto seconds = sixteenth_row_to_seconds(timing, row_value);
+      if (!seconds) {
+        return TimelineRangeResult{conversion_error(seconds.error())};
+      }
+      extent = {row_value, *seconds.value()};
     }
   }
 

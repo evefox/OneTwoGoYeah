@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(av_core STATIC
+  src/audio/audio_end.cpp
   src/audio/audio_export.cpp
   src/audio/audio_export_name.cpp
   src/audio/audio_export_quality.cpp

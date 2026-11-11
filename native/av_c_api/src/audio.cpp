@@ -300,6 +300,100 @@ otgy_status otgy_audio_export_snapshot_create(
   });
 }
 
+otgy_status otgy_audio_export_snapshot_create_with_end(
+    const otgy_pcm* pcm, std::uint64_t pcm_identity, double offset_seconds,
+    double bpm, std::uint8_t end_mode, std::uint64_t end_sixteenth_row,
+    std::uint8_t quality, otgy_audio_source_info source_info,
+    otgy_string_view requested_base_name, otgy_audio_export_metadata metadata,
+    otgy_audio_export_snapshot** out_snapshot, otgy_error** out_error) {
+  if (out_snapshot != nullptr) {
+    *out_snapshot = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    std::string_view base_name;
+    std::string_view title;
+    std::string_view artist;
+    std::string_view album;
+    if (pcm == nullptr || out_snapshot == nullptr || end_mode > 1U ||
+        !valid_string(requested_base_name, base_name) ||
+        !valid_string(metadata.title, title) ||
+        !valid_string(metadata.artist, artist) ||
+        !valid_string(metadata.album, album)) {
+      if (end_mode > 1U) {
+        return invalid_argument(out_error, OTGY_ABI_ERROR_INVALID_BOOLEAN,
+                                kInvalidBoolean);
+      }
+      return invalid_argument(out_error);
+    }
+    const otgy::core::OggVorbisMetadata core_metadata{
+        std::string(title), std::string(artist), std::string(album)};
+    const otgy::core::AudioEndSpec end{
+        end_mode == OTGY_AUDIO_END_MODE_BEAT
+            ? otgy::core::AudioEndMode::Beat
+            : otgy::core::AudioEndMode::SourceEnd,
+        end_sixteenth_row};
+    auto result = otgy::core::create_audio_export_snapshot_with_end(
+        pcm->value, pcm_identity, offset_seconds, bpm, end, quality,
+        otgy::c_api::to_core(source_info), base_name, core_metadata);
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_AUDIO_EXPORT_SNAPSHOT,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::audio_export_snapshot_error_message(result.error()));
+    }
+    return make_handle<otgy_audio_export_snapshot>(
+        otgy_audio_export_snapshot{std::move(result).take_snapshot()},
+        out_snapshot, out_error);
+  });
+}
+
+otgy_status otgy_calculate_audio_end_export_seconds(
+    std::uint8_t end_mode, std::uint64_t end_sixteenth_row, double bpm,
+    double offset_seconds, double audio_duration_seconds,
+    double* out_seconds, otgy_error** out_error) {
+  if (out_seconds != nullptr) {
+    *out_seconds = 0.0;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_seconds == nullptr || end_mode > 1U) {
+      if (end_mode > 1U) {
+        return invalid_argument(out_error, OTGY_ABI_ERROR_INVALID_BOOLEAN,
+                                kInvalidBoolean);
+      }
+      return invalid_argument(out_error);
+    }
+    if (!std::isfinite(offset_seconds) ||
+        !std::isfinite(audio_duration_seconds) ||
+        audio_duration_seconds < 0.0) {
+      return core_error(out_error, OTGY_ERROR_DOMAIN_AUDIO_END,
+                        static_cast<std::uint32_t>(
+                            otgy::core::AudioEndError::InvalidSampleRate),
+                        "audio duration is invalid");
+    }
+    if (end_mode == OTGY_AUDIO_END_MODE_SOURCE_END) {
+      const double seconds = audio_duration_seconds + offset_seconds;
+      if (!std::isfinite(seconds) || seconds < 0.0) {
+        return core_error(
+            out_error, OTGY_ERROR_DOMAIN_AUDIO_END,
+            static_cast<std::uint32_t>(otgy::core::AudioEndError::EmptyOutput),
+            otgy::core::audio_end_error_message(
+                otgy::core::AudioEndError::EmptyOutput));
+      }
+      *out_seconds = seconds;
+      return OTGY_STATUS_OK;
+    }
+    const auto result = otgy::core::calculate_audio_end_export_seconds(
+        end_sixteenth_row, bpm);
+    if (!result) {
+      return core_error(out_error, OTGY_ERROR_DOMAIN_AUDIO_END,
+                        static_cast<std::uint32_t>(result.error()),
+                        otgy::core::audio_end_error_message(result.error()));
+    }
+    *out_seconds = *result.seconds();
+    return OTGY_STATUS_OK;
+  });
+}
+
 otgy_status otgy_audio_export_cancel_flag_create(
     otgy_audio_export_cancel_flag** out_flag, otgy_error** out_error) {
   if (out_flag != nullptr) {

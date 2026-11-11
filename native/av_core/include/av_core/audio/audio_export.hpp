@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "av_core/audio/audio_end.hpp"
 #include "av_core/audio/audio_export_quality.hpp"
 #include "av_core/audio/ogg_vorbis_encoder.hpp"
 #include "av_core/audio/pcm_offset.hpp"
@@ -25,6 +26,8 @@ enum class AudioExportSnapshotError : std::uint8_t {
   RemovesAllFrames = 6,
   SizeOverflow = 7,
   AllocationFailure = 8,
+  InvalidEnd = 9,
+  EmptyOutputAfterEnd = 10,
 };
 
 [[nodiscard]] constexpr std::string_view audio_export_snapshot_error_message(
@@ -48,6 +51,10 @@ enum class AudioExportSnapshotError : std::uint8_t {
       return "audio export snapshot dimensions exceed the representable size";
     case AudioExportSnapshotError::AllocationFailure:
       return "unable to allocate the audio export snapshot";
+    case AudioExportSnapshotError::InvalidEnd:
+      return "audio export end position is invalid";
+    case AudioExportSnapshotError::EmptyOutputAfterEnd:
+      return "audio export end position leaves no source audio";
   }
   return "unknown audio export snapshot error";
 }
@@ -59,6 +66,17 @@ class AudioExportSnapshotResult;
     const Pcm16& pcm, std::uint64_t pcm_identity, double offset_seconds,
     std::uint8_t quality, AudioSourceInfo source_info,
     std::string_view requested_base_name,
+    const OggVorbisMetadata& metadata = {}) noexcept;
+
+/// Captures the export length in addition to the existing snapshot inputs.
+///
+/// `bpm` and `end` are resolved to an exact frame count here, so later project
+/// edits cannot change an in-flight export. A `SourceEnd` spec keeps the
+/// decoded source length after the Offset head shift.
+[[nodiscard]] AudioExportSnapshotResult create_audio_export_snapshot_with_end(
+    const Pcm16& pcm, std::uint64_t pcm_identity, double offset_seconds,
+    double bpm, AudioEndSpec end, std::uint8_t quality,
+    AudioSourceInfo source_info, std::string_view requested_base_name,
     const OggVorbisMetadata& metadata = {}) noexcept;
 
 class AudioExportSnapshot final {
@@ -89,17 +107,26 @@ class AudioExportSnapshot final {
   [[nodiscard]] PcmOffsetPlan offset_plan() const noexcept {
     return offset_plan_;
   }
+  [[nodiscard]] AudioEndPlan end_plan() const noexcept { return end_plan_; }
+  [[nodiscard]] bool has_custom_end() const noexcept {
+    return custom_end_;
+  }
 
  private:
   friend AudioExportSnapshotResult create_audio_export_snapshot(
       const Pcm16&, std::uint64_t, double, std::uint8_t, AudioSourceInfo,
       std::string_view, const OggVorbisMetadata&) noexcept;
+  friend AudioExportSnapshotResult create_audio_export_snapshot_with_end(
+      const Pcm16&, std::uint64_t, double, double, AudioEndSpec,
+      std::uint8_t, AudioSourceInfo, std::string_view,
+      const OggVorbisMetadata&) noexcept;
 
   AudioExportSnapshot(Pcm16 pcm, std::uint64_t pcm_identity,
                       double offset_seconds, std::uint8_t quality,
                       AudioSourceInfo source_info, std::string base_name,
                       OggVorbisMetadata metadata,
-                      PcmOffsetPlan offset_plan) noexcept;
+                      PcmOffsetPlan offset_plan, AudioEndPlan end_plan,
+                      bool custom_end) noexcept;
 
   Pcm16 pcm_;
   std::uint64_t pcm_identity_;
@@ -109,6 +136,8 @@ class AudioExportSnapshot final {
   std::string base_name_;
   OggVorbisMetadata metadata_;
   PcmOffsetPlan offset_plan_;
+  AudioEndPlan end_plan_;
+  bool custom_end_;
 };
 
 class AudioExportSnapshotResult final {

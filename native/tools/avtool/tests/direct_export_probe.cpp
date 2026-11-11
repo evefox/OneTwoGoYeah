@@ -54,15 +54,22 @@ template <typename Value>
 
 int main(int argc, char* argv[]) {
   std::cout.imbue(std::locale::classic());
-  if (argc != 6) {
+  const bool has_end = argc == 8;
+  if (argc != 6 && !has_end) {
     return 1;
   }
 
   const auto encoded_input = read_file(argv[1]);
   const auto offset = parse_number<double>(argv[3]);
   const auto quality_value = parse_number<unsigned int>(argv[4]);
+  std::optional<double> bpm;
+  std::optional<std::uint64_t> end_row;
+  if (has_end) {
+    bpm = parse_number<double>(argv[6]);
+    end_row = parse_number<std::uint64_t>(argv[7]);
+  }
   if (encoded_input.empty() || !offset || !quality_value ||
-      *quality_value > 255U) {
+      *quality_value > 255U || (has_end && (!bpm || !end_row))) {
     return 1;
   }
 
@@ -90,8 +97,15 @@ int main(int argc, char* argv[]) {
   }
 
   const auto quality = static_cast<std::uint8_t>(*quality_value);
-  auto snapshot = otgy::core::create_audio_export_snapshot(
-      *pcm, 0U, *offset, quality, *source_info, "audio");
+  auto snapshot =
+      has_end
+          ? otgy::core::create_audio_export_snapshot_with_end(
+                *pcm, 0U, *offset, *bpm,
+                otgy::core::AudioEndSpec{otgy::core::AudioEndMode::Beat,
+                                         *end_row},
+                quality, *source_info, "audio")
+          : otgy::core::create_audio_export_snapshot(
+                *pcm, 0U, *offset, quality, *source_info, "audio");
   if (!snapshot) {
     return 1;
   }

@@ -117,6 +117,9 @@ Future<AudioExportResult> _runAudioExportInIsolate({
   required Uint8List source,
   required String extension,
   required double offset,
+  required double bpm,
+  required AudioEndMode endMode,
+  required int endRow,
   required int quality,
   required String baseName,
   required int cancelAddress,
@@ -134,6 +137,9 @@ Future<AudioExportResult> _runAudioExportInIsolate({
     try {
       return audio.exportOgg(
         offset: offset,
+        bpm: bpm,
+        endMode: endMode,
+        endRow: endRow,
         quality: quality,
         baseName: baseName,
         cancellation: borrowedCancellation,
@@ -228,6 +234,8 @@ class EditorController extends ChangeNotifier {
   double _offset = 0;
   double _offsetBeatBaseline = 0;
   double _offsetBeatAdjustment = 0;
+  AudioEndMode _audioEndMode = AudioEndMode.sourceEnd;
+  int _audioEndRow = 0;
   double _zoom = 10;
   double _scale = 4;
   double _currentRow = 0;
@@ -254,6 +262,8 @@ class EditorController extends ChangeNotifier {
         'hasAudio': hasAudio,
         'bpm': _bpm,
         'offset': _offset,
+        'audioEndMode': _audioEndMode.name,
+        'audioEndRow': _audioEndRow,
         'currentRow': _currentRow,
         'markerCount': _markers.length,
         'showtimeMoveCount': _showtimeMoves.length,
@@ -497,6 +507,89 @@ class EditorController extends ChangeNotifier {
   );
   int get pixelsPerSecond => _pixelsPerSecond;
   double? get audioDurationSeconds => _audio?.durationSeconds;
+  AudioEndMode get audioEndMode => _audioEndMode;
+  bool get audioEndCustom => _audioEndMode == AudioEndMode.beat;
+  int get audioEndRow => _audioEndRow;
+
+  /// Row used to draw the music end line. The source end is a continuous row,
+  /// so it is not necessarily on a beat.
+  double? get audioEndDisplayRow {
+    if (!hasAudio) {
+      return null;
+    }
+    if (_audioEndMode == AudioEndMode.beat) {
+      return _audioEndRow.toDouble();
+    }
+    return audioEndSourceDisplayRow;
+  }
+
+  /// Continuous row of the decoded source end, independent of the current
+  /// end-line mode. It is one of the drag snap candidates.
+  double? get audioEndSourceDisplayRow {
+    final audio = _audio;
+    if (audio == null) {
+      return null;
+    }
+    final row = OtgyNative.secondsToSixteenthRow(
+      bpm: projectedBpm,
+      offset: _offset,
+      seconds: audio.durationSeconds,
+    );
+    return row.isFinite ? math.max(0, row).toDouble() : null;
+  }
+
+  /// Audio-time position of the end line, used by playback and the readout.
+  double? get audioEndSongSeconds {
+    final audio = _audio;
+    if (audio == null) {
+      return null;
+    }
+    if (_audioEndMode == AudioEndMode.beat && _bpm > 0) {
+      return OtgyNative.sixteenthRowToSeconds(
+        bpm: _bpm,
+        offset: _offset,
+        row: _audioEndRow.toDouble(),
+      );
+    }
+    return audio.durationSeconds;
+  }
+
+  /// Export length in seconds, for the export dialog summary.
+  double? get audioEndExportSeconds {
+    final audio = _audio;
+    if (audio == null) {
+      return null;
+    }
+    try {
+      return OtgyNative.audioEndExportSeconds(
+        mode: _audioEndMode == AudioEndMode.beat && _bpm > 0
+            ? AudioEndMode.beat
+            : AudioEndMode.sourceEnd,
+        endRow: _audioEndRow,
+        bpm: _bpm,
+        offset: _offset,
+        audioDurationSeconds: audio.durationSeconds,
+      );
+    } on OtgyException {
+      return null;
+    }
+  }
+
+  bool get audioEndAdjustable =>
+      hasAudio && _bpm > 0 && !_isBusy && generalActionsEnabled;
+
+  /// Playback starts only when the cursor is before the effective song end.
+  bool get playbackStartEnabled {
+    final audio = _audio;
+    final end = audioEndSongSeconds;
+    if (audio == null || end == null) {
+      return false;
+    }
+    final effective = end.clamp(0.0, audio.durationSeconds).toDouble();
+    return currentSongSeconds < effective;
+  }
+
+  bool get rhythmTestStartEnabled => playbackStartEnabled && _bpm != 0;
   double get playbackVisualPixelsPerSecond => math
       .min(
         _pixelsPerSecond.toDouble(),
@@ -527,6 +620,9 @@ class EditorController extends ChangeNotifier {
     bpm: _bpm,
     offset: _offset,
     audioEndSeconds: _audio?.durationSeconds,
+    audioEndRow: _audioEndMode == AudioEndMode.beat && _bpm > 0
+        ? _audioEndRow
+        : null,
   );
 
   TimelineNavigation navigation(double visibleBeats) {
@@ -599,6 +695,7 @@ class EditorController extends ChangeNotifier {
       _editZoomAutomatic = true;
       _bpm = 100;
       _offset = 0;
+      _resetAudioEnd();
       _resetOffsetBeatAdjustment();
       _currentRow = 0;
       _invalidatePlaybackSoundSession();
@@ -634,6 +731,7 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _bpm = value;
+    _resetAudioEnd();
     _resetOffsetBeatAdjustment();
     _synchronizeAutomaticEditZoom();
     notifyListeners();
@@ -676,6 +774,32 @@ class EditorController extends ChangeNotifier {
       _offsetBeatAdjustment = cumulativeBeats;
     }
     notifyListeners();
+  }
+
+  void setAudioEndRow(int row) {
+    if (!audioEndAdjustable || row < 0 || row % 4 != 0) {
+      return;
+    }
+    if (_audioEndMode == AudioEndMode.beat && _audioEndRow == row) {
+      return;
+    }
+    _audioEndMode = AudioEndMode.beat;
+    _audioEndRow = row;
+    notifyListeners();
+  }
+
+  void clearAudioEnd() {
+    if (!audioEndAdjustable || _audioEndMode == AudioEndMode.sourceEnd) {
+      return;
+    }
+    _audioEndMode = AudioEndMode.sourceEnd;
+    _audioEndRow = 0;
+    notifyListeners();
+  }
+
+  void _resetAudioEnd() {
+    _audioEndMode = AudioEndMode.sourceEnd;
+    _audioEndRow = 0;
   }
 
   void clickCell(int column, int row) {
@@ -985,7 +1109,11 @@ class EditorController extends ChangeNotifier {
         !candidate.appOffsetSeconds.isFinite) {
       return;
     }
+    final bpmChanged = candidate.bpm != _bpm;
     _bpm = candidate.bpm;
+    if (bpmChanged) {
+      _resetAudioEnd();
+    }
     final canNormalize =
         candidate.bpm > 0 &&
         candidate.bpm <= 100000 &&
@@ -1026,6 +1154,11 @@ class EditorController extends ChangeNotifier {
     }
     final source = Uint8List.fromList(bytes);
     final offset = _offset;
+    final bpm = _bpm;
+    final endMode = _audioEndMode == AudioEndMode.beat && _bpm > 0
+        ? AudioEndMode.beat
+        : AudioEndMode.sourceEnd;
+    final endRow = _audioEndRow;
     final cancellation = AudioExportCancellation.create();
     final progressPort = ReceivePort();
     StreamSubscription<Object?>? progressSubscription;
@@ -1065,6 +1198,9 @@ class EditorController extends ChangeNotifier {
         source: source,
         extension: extension,
         offset: offset,
+        bpm: bpm,
+        endMode: endMode,
+        endRow: endRow,
         quality: quality,
         baseName: baseName,
         cancelAddress: cancelAddress,
@@ -1305,6 +1441,16 @@ class EditorController extends ChangeNotifier {
         offset: _offset,
         row: _currentRow,
       );
+      final endSeconds = audioEndSongSeconds;
+      if (endSeconds == null) {
+        return;
+      }
+      final effectiveEnd = endSeconds
+          .clamp(0.0, audio.durationSeconds)
+          .toDouble();
+      if (cursorSeconds >= effectiveEnd) {
+        return;
+      }
       final start = OtgyNative.startPlayback(
         audioDurationSeconds: audio.durationSeconds,
         cursorTimelineSeconds: cursorSeconds,
@@ -1340,11 +1486,35 @@ class EditorController extends ChangeNotifier {
       } else {
         playback = audio.renderPlayback(start.timelineSeconds);
       }
+      if (effectiveEnd < audio.durationSeconds) {
+        final keepSeconds = effectiveEnd - start.timelineSeconds;
+        if (keepSeconds <= 0) {
+          return;
+        }
+        final limit = OtgyNative.playbackFrameLimit(
+          sampleRate: playback.sampleRate,
+          keepSeconds: keepSeconds,
+        );
+        final frames = math.min(limit, playback.frameCount);
+        if (frames < playback.frameCount) {
+          playback = PlaybackPcm(
+            sampleRate: playback.sampleRate,
+            frameCount: frames,
+            interleavedPcm16le: frames == 0
+                ? Uint8List(0)
+                : Uint8List.sublistView(
+                    playback.interleavedPcm16le,
+                    0,
+                    frames * 4,
+                  ),
+          );
+        }
+      }
       if (playback.frameCount == 0) {
         _applyPlaybackPosition(
           PlaybackPosition(
             isPlaying: false,
-            timelineSeconds: audio.durationSeconds,
+            timelineSeconds: effectiveEnd,
             audioDurationSeconds: audio.durationSeconds,
           ),
         );
@@ -1420,7 +1590,11 @@ class EditorController extends ChangeNotifier {
       if (generation != _playbackGeneration) {
         return;
       }
-      _finishPlaybackAt(state.playedFrames, forcePause: !state.playing);
+      _finishPlaybackAt(
+        state.playedFrames,
+        forcePause: !state.playing,
+        naturalEnd: !state.playing && state.playedFrames >= _playbackFrameCount,
+      );
     } catch (error, stack) {
       recordDiagnosticException('playback.query', error, stack);
       if (generation != _playbackGeneration) {
@@ -1433,7 +1607,11 @@ class EditorController extends ChangeNotifier {
     }
   }
 
-  void _finishPlaybackAt(int frames, {required bool forcePause}) {
+  void _finishPlaybackAt(
+    int frames, {
+    required bool forcePause,
+    bool naturalEnd = false,
+  }) {
     final start = _playbackStart;
     if (start == null) {
       return;
@@ -1458,7 +1636,7 @@ class EditorController extends ChangeNotifier {
       _playbackGeneration++;
       if (completedMode == EditorPlaybackMode.chartPreview &&
           _playbackSoundSeed != null &&
-          position.timelineSeconds < position.audioDurationSeconds) {
+          !naturalEnd) {
         _playbackSoundResumeRow = _currentRow;
       } else {
         _invalidatePlaybackSoundSession();

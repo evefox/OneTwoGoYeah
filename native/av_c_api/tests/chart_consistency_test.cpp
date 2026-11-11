@@ -1037,6 +1037,26 @@ void test_timing_and_coordination() {
                      direct_range.range()->uses_zero_bpm_projection()),
          "timeline range differs");
 
+  const auto direct_end_range =
+      otgy::core::calculate_chart_timeline_range_with_end(
+          empty_chart(), direct_timing, 7.25, 96U);
+  otgy_timeline_range abi_end_range{};
+  expect(otgy_chart_calculate_timeline_range_with_end(
+             range_chart.get(), abi_timing, 1U, 7.25, 1U, 96U,
+             &abi_end_range, &raw_error) == OTGY_STATUS_OK,
+         "C ABI custom-end timeline range failed");
+  expect(same_double(abi_end_range.begin_seconds,
+                     direct_end_range.range()->begin_seconds()) &&
+             same_double(abi_end_range.end_seconds,
+                         direct_end_range.range()->end_seconds()) &&
+             same_double(abi_end_range.end_sixteenth_row,
+                         direct_end_range.range()->end_sixteenth_row()) &&
+             abi_end_range.uses_zero_bpm_projection ==
+                 static_cast<std::uint8_t>(
+                     direct_end_range.range()->uses_zero_bpm_projection()) &&
+             same_double(abi_end_range.end_sixteenth_row, 96.0),
+         "custom-end timeline range differs");
+
   const auto direct_navigation = otgy::core::calculate_timeline_navigation(
       *direct_range.range(), 15.25, 6.5);
   otgy_timeline_navigation abi_navigation{};

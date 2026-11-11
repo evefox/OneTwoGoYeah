@@ -9,9 +9,16 @@ endforeach()
 
 file(REMOVE "${DIRECT_OUTPUT}" "${CLI_OUTPUT}")
 
+set(probe_end_arguments)
+set(cli_end_arguments)
+if(DEFINED BPM AND DEFINED END_ROW)
+  set(probe_end_arguments "${BPM}" "${END_ROW}")
+  set(cli_end_arguments --bpm "${BPM}" --end-row "${END_ROW}")
+endif()
+
 execute_process(
   COMMAND "${DIRECT_PROBE}" "${AUDIO}" "${CODEC}" "${OFFSET}" "${QUALITY}"
-          "${DIRECT_OUTPUT}"
+          "${DIRECT_OUTPUT}" ${probe_end_arguments}
   RESULT_VARIABLE direct_result
   OUTPUT_VARIABLE direct_output
   ERROR_VARIABLE direct_error
@@ -28,6 +35,7 @@ endif()
 execute_process(
   COMMAND "${AVTOOL}" export-audio "${AUDIO}"
           --offset "${OFFSET}" --quality "${QUALITY}" --output "${CLI_OUTPUT}"
+          ${cli_end_arguments}
   RESULT_VARIABLE cli_result
   OUTPUT_VARIABLE cli_output
   ERROR_VARIABLE cli_error

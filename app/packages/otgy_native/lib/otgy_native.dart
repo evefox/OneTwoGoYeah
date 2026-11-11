@@ -347,6 +347,12 @@ enum AudioExportStage {
   };
 }
 
+/// Selects the exported audio end.
+///
+/// [sourceEnd] keeps the decoded source length after the Offset head shift.
+/// [beat] ends at a chart beat row (a multiple of four 1/16 rows).
+enum AudioEndMode { sourceEnd, beat }
+
 final class AudioExportProgress {
   const AudioExportProgress({
     required this.stage,
@@ -768,6 +774,9 @@ final class NativeAudio {
     required double offset,
     required int quality,
     required String baseName,
+    double bpm = 100,
+    AudioEndMode endMode = AudioEndMode.sourceEnd,
+    int endRow = 0,
     String title = '',
     String artist = '',
     String album = '',
@@ -813,20 +822,40 @@ final class NativeAudio {
           ..ref.album = _copyString(album, arena);
         final info = _nativeSourceInfo(sourceInfo, arena);
         try {
-          _checkStatus(
-            native.otgy_audio_export_snapshot_create(
-              _requireHandle(),
-              1,
-              offset,
-              quality,
-              info.ref,
-              requestedName,
-              metadata.ref,
-              snapshot,
+          if (endMode == AudioEndMode.beat) {
+            _checkStatus(
+              native.otgy_audio_export_snapshot_create_with_end(
+                _requireHandle(),
+                1,
+                offset,
+                bpm,
+                native.OTGY_AUDIO_END_MODE_BEAT,
+                endRow,
+                quality,
+                info.ref,
+                requestedName,
+                metadata.ref,
+                snapshot,
+                error,
+              ),
               error,
-            ),
-            error,
-          );
+            );
+          } else {
+            _checkStatus(
+              native.otgy_audio_export_snapshot_create(
+                _requireHandle(),
+                1,
+                offset,
+                quality,
+                info.ref,
+                requestedName,
+                metadata.ref,
+                snapshot,
+                error,
+              ),
+              error,
+            );
+          }
           _checkStatus(
             native.otgy_audio_export_snapshot_encode(
               snapshot.value,
@@ -1521,6 +1550,7 @@ final class NativeChartEditor {
     required double bpm,
     required double offset,
     double? audioEndSeconds,
+    int? audioEndRow,
   }) {
     return using((arena) {
       final range = arena<native.otgy_timeline_range>();
@@ -1531,17 +1561,33 @@ final class NativeChartEditor {
       Pointer<native.otgy_chart> chart = nullptr;
       try {
         chart = _copyChart(error);
-        _checkStatus(
-          native.otgy_chart_calculate_timeline_range(
-            chart,
-            timing.ref,
-            audioEndSeconds == null ? 0 : 1,
-            audioEndSeconds ?? 0,
-            range,
+        if (audioEndRow == null) {
+          _checkStatus(
+            native.otgy_chart_calculate_timeline_range(
+              chart,
+              timing.ref,
+              audioEndSeconds == null ? 0 : 1,
+              audioEndSeconds ?? 0,
+              range,
+              error,
+            ),
             error,
-          ),
-          error,
-        );
+          );
+        } else {
+          _checkStatus(
+            native.otgy_chart_calculate_timeline_range_with_end(
+              chart,
+              timing.ref,
+              audioEndSeconds == null ? 0 : 1,
+              audioEndSeconds ?? 0,
+              1,
+              audioEndRow,
+              range,
+              error,
+            ),
+            error,
+          );
+        }
         return TimelineRange(
           beginSeconds: range.ref.begin_seconds,
           endSeconds: range.ref.end_seconds,
@@ -1868,6 +1914,62 @@ abstract final class OtgyNative {
           native.otgy_seconds_to_sixteenth_row(
             timing.ref,
             seconds,
+            result,
+            error,
+          ),
+          error,
+        );
+        return result.value;
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
+  static double audioEndExportSeconds({
+    required AudioEndMode mode,
+    required int endRow,
+    required double bpm,
+    required double offset,
+    required double audioDurationSeconds,
+  }) {
+    return using((arena) {
+      final result = arena<Double>();
+      final error = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(
+          native.otgy_calculate_audio_end_export_seconds(
+            mode == AudioEndMode.beat
+                ? native.OTGY_AUDIO_END_MODE_BEAT
+                : native.OTGY_AUDIO_END_MODE_SOURCE_END,
+            endRow,
+            bpm,
+            offset,
+            audioDurationSeconds,
+            result,
+            error,
+          ),
+          error,
+        );
+        return result.value;
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
+  static int playbackFrameLimit({
+    required int sampleRate,
+    required double keepSeconds,
+  }) {
+    return using((arena) {
+      final result = arena<Uint64>();
+      final error = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(
+          native.otgy_calculate_playback_frame_limit(
+            sampleRate,
+            keepSeconds,
             result,
             error,
           ),

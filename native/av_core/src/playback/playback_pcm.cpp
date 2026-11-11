@@ -120,4 +120,43 @@ PlaybackPcmResult render_playback_pcm(
       std::move(bytes)}};
 }
 
+PlaybackFrameLimitResult::PlaybackFrameLimitResult(
+    std::uint64_t frame_count) noexcept
+    : storage_(frame_count) {}
+
+PlaybackFrameLimitResult::PlaybackFrameLimitResult(
+    PlaybackPcmError error) noexcept
+    : storage_(error) {}
+
+PlaybackFrameLimitResult::operator bool() const noexcept {
+  return std::holds_alternative<std::uint64_t>(storage_);
+}
+
+const std::uint64_t* PlaybackFrameLimitResult::frame_count() const noexcept {
+  return std::get_if<std::uint64_t>(&storage_);
+}
+
+PlaybackPcmError PlaybackFrameLimitResult::error() const noexcept {
+  const auto* error = std::get_if<PlaybackPcmError>(&storage_);
+  return error == nullptr ? PlaybackPcmError::None : *error;
+}
+
+PlaybackFrameLimitResult calculate_playback_frame_limit(
+    std::uint32_t sample_rate, double keep_seconds) noexcept {
+  if (sample_rate == 0U || !std::isfinite(keep_seconds) ||
+      keep_seconds < 0.0) {
+    return PlaybackFrameLimitResult{PlaybackPcmError::InvalidKeepDuration};
+  }
+  const double rounded =
+      std::round(keep_seconds * static_cast<double>(sample_rate));
+  if (!std::isfinite(rounded) || rounded < 0.0) {
+    return PlaybackFrameLimitResult{PlaybackPcmError::SizeOverflow};
+  }
+  if (rounded >=
+      static_cast<double>(std::numeric_limits<std::uint64_t>::max())) {
+    return PlaybackFrameLimitResult{PlaybackPcmError::SizeOverflow};
+  }
+  return PlaybackFrameLimitResult{static_cast<std::uint64_t>(rounded)};
+}
+
 }  // namespace otgy::core

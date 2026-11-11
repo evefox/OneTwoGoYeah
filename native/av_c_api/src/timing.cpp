@@ -206,19 +206,36 @@ otgy_status otgy_chart_calculate_timeline_range(
     const otgy_chart* chart, otgy_timing_parameters timing,
     std::uint8_t has_audio_end, double audio_end_seconds,
     otgy_timeline_range* out_range, otgy_error** out_error) {
+  return otgy_chart_calculate_timeline_range_with_end(
+      chart, timing, has_audio_end, audio_end_seconds, 0U, 0U, out_range,
+      out_error);
+}
+
+otgy_status otgy_chart_calculate_timeline_range_with_end(
+    const otgy_chart* chart, otgy_timing_parameters timing,
+    std::uint8_t has_audio_end, double audio_end_seconds,
+    std::uint8_t has_custom_end, std::uint64_t custom_end_sixteenth_row,
+    otgy_timeline_range* out_range, otgy_error** out_error) {
   return boundary(out_error, [&]() -> otgy_status {
-    if (chart == nullptr || out_range == nullptr || has_audio_end > 1U) {
+    if (chart == nullptr || out_range == nullptr || has_audio_end > 1U ||
+        has_custom_end > 1U) {
       return invalid_argument(
           out_error,
-          has_audio_end > 1U ? OTGY_ABI_ERROR_INVALID_BOOLEAN
-                             : OTGY_ABI_ERROR_NULL_ARGUMENT,
-          has_audio_end > 1U ? kInvalidBoolean : kNullArgument);
+          has_audio_end > 1U || has_custom_end > 1U
+              ? OTGY_ABI_ERROR_INVALID_BOOLEAN
+              : OTGY_ABI_ERROR_NULL_ARGUMENT,
+          has_audio_end > 1U || has_custom_end > 1U ? kInvalidBoolean
+                                                    : kNullArgument);
     }
     const std::optional<double> audio_end =
         has_audio_end == 0U ? std::nullopt
                             : std::optional<double>(audio_end_seconds);
-    const auto result = otgy::core::calculate_chart_timeline_range(
-        chart->value, otgy::c_api::to_core(timing), audio_end);
+    const auto custom_end =
+        has_custom_end == 0U
+            ? std::nullopt
+            : std::optional<std::uint64_t>(custom_end_sixteenth_row);
+    const auto result = otgy::core::calculate_chart_timeline_range_with_end(
+        chart->value, otgy::c_api::to_core(timing), audio_end, custom_end);
     if (!result) {
       std::string_view message = "chart timeline range failed";
       switch (result.failure()->error) {
@@ -366,6 +383,29 @@ otgy_status otgy_render_playback_pcm(
     return make_handle<otgy_playback_pcm>(
         otgy_playback_pcm{std::move(result).take_pcm()}, out_playback_pcm,
         out_error);
+  });
+}
+
+otgy_status otgy_calculate_playback_frame_limit(
+    std::uint32_t sample_rate, double keep_seconds,
+    std::uint64_t* out_frame_count, otgy_error** out_error) {
+  if (out_frame_count != nullptr) {
+    *out_frame_count = 0U;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_frame_count == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto result =
+        otgy::core::calculate_playback_frame_limit(sample_rate, keep_seconds);
+    if (!result) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_PCM,
+          static_cast<std::uint32_t>(result.error()),
+          otgy::core::playback_pcm_error_message(result.error()));
+    }
+    *out_frame_count = *result.frame_count();
+    return OTGY_STATUS_OK;
   });
 }
 

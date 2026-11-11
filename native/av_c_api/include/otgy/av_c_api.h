@@ -60,6 +60,7 @@ typedef uint32_t otgy_error_domain;
 #define OTGY_ERROR_DOMAIN_CHART_TIMELINE_RANGE UINT32_C(29)
 #define OTGY_ERROR_DOMAIN_PLAYBACK_PCM UINT32_C(30)
 #define OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK UINT32_C(31)
+#define OTGY_ERROR_DOMAIN_AUDIO_END UINT32_C(32)
 
 #define OTGY_ABI_ERROR_NULL_ARGUMENT UINT32_C(1)
 #define OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE UINT32_C(2)
@@ -242,11 +243,24 @@ OTGY_C_API void otgy_audio_export_cancel_flag_request(
 OTGY_C_API uint8_t otgy_audio_export_cancel_flag_is_requested(
     const otgy_audio_export_cancel_flag* flag);
 
+#define OTGY_AUDIO_END_MODE_SOURCE_END UINT8_C(0)
+#define OTGY_AUDIO_END_MODE_BEAT UINT8_C(1)
+
 OTGY_C_API otgy_status otgy_audio_export_snapshot_create(
     const otgy_pcm* pcm, uint64_t pcm_identity, double offset_seconds,
     uint8_t quality, otgy_audio_source_info source_info,
     otgy_string_view requested_base_name, otgy_audio_export_metadata metadata,
     otgy_audio_export_snapshot** out_snapshot, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_audio_export_snapshot_create_with_end(
+    const otgy_pcm* pcm, uint64_t pcm_identity, double offset_seconds,
+    double bpm, uint8_t end_mode, uint64_t end_sixteenth_row,
+    uint8_t quality, otgy_audio_source_info source_info,
+    otgy_string_view requested_base_name, otgy_audio_export_metadata metadata,
+    otgy_audio_export_snapshot** out_snapshot, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_calculate_audio_end_export_seconds(
+    uint8_t end_mode, uint64_t end_sixteenth_row, double bpm,
+    double offset_seconds, double audio_duration_seconds,
+    double* out_seconds, otgy_error** out_error);
 OTGY_C_API void otgy_audio_export_snapshot_destroy(
     otgy_audio_export_snapshot* snapshot);
 OTGY_C_API otgy_status otgy_audio_export_snapshot_encode(
@@ -428,6 +442,11 @@ OTGY_C_API otgy_status otgy_chart_calculate_timeline_range(
     const otgy_chart* chart, otgy_timing_parameters timing,
     uint8_t has_audio_end, double audio_end_seconds,
     otgy_timeline_range* out_range, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_chart_calculate_timeline_range_with_end(
+    const otgy_chart* chart, otgy_timing_parameters timing,
+    uint8_t has_audio_end, double audio_end_seconds, uint8_t has_custom_end,
+    uint64_t custom_end_sixteenth_row, otgy_timeline_range* out_range,
+    otgy_error** out_error);
 
 typedef struct otgy_timeline_navigation {
   double to_begin_row;
@@ -472,6 +491,9 @@ OTGY_C_API otgy_status otgy_pause_playback(
 OTGY_C_API otgy_status otgy_render_playback_pcm(
     const otgy_pcm* pcm, double timeline_start_seconds,
     otgy_playback_pcm** out_playback_pcm, otgy_error** out_error);
+OTGY_C_API otgy_status otgy_calculate_playback_frame_limit(
+    uint32_t sample_rate, double keep_seconds, uint64_t* out_frame_count,
+    otgy_error** out_error);
 OTGY_C_API void otgy_playback_pcm_destroy(otgy_playback_pcm* pcm);
 OTGY_C_API uint32_t otgy_playback_pcm_get_sample_rate(
     const otgy_playback_pcm* pcm);

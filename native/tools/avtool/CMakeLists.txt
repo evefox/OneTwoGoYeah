@@ -154,6 +154,36 @@ if(BUILD_TESTING)
     5
   )
 
+  add_test(NAME avtool.export_audio_custom_end
+    COMMAND "${CMAKE_COMMAND}"
+      "-DAVTOOL=$<TARGET_FILE:avtool>"
+      "-DDIRECT_PROBE=$<TARGET_FILE:avtool_direct_export_probe>"
+      "-DAUDIO=${PROJECT_SOURCE_DIR}/av_core/tests/fixtures/ogg_vorbis/generated_stereo_11025.ogg"
+      "-DCODEC=ogg-vorbis"
+      "-DOFFSET=0"
+      "-DQUALITY=3"
+      "-DBPM=100"
+      "-DEND_ROW=4"
+      "-DDIRECT_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/custom_end.direct.ogg"
+      "-DCLI_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/custom_end.cli.ogg"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_export.cmake"
+  )
+
+  add_test(NAME avtool.export_audio_custom_end_pad
+    COMMAND "${CMAKE_COMMAND}"
+      "-DAVTOOL=$<TARGET_FILE:avtool>"
+      "-DDIRECT_PROBE=$<TARGET_FILE:avtool_direct_export_probe>"
+      "-DAUDIO=${PROJECT_SOURCE_DIR}/av_core/tests/fixtures/ogg_vorbis/generated_stereo_11025.ogg"
+      "-DCODEC=ogg-vorbis"
+      "-DOFFSET=0"
+      "-DQUALITY=3"
+      "-DBPM=100"
+      "-DEND_ROW=8"
+      "-DDIRECT_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/custom_end_pad.direct.ogg"
+      "-DCLI_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/custom_end_pad.cli.ogg"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_export.cmake"
+  )
+
   set(export_invalid_ogg
     "${CMAKE_CURRENT_BINARY_DIR}/export_invalid_audio.ogg"
   )

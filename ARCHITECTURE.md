@@ -375,7 +375,7 @@ App 私有存储中最多存在一个恢复快照。每次已提交的谱面修�
 
 `LocalDiagnostics` 的生产上限是 `4` 个轮换文件，每文件 `262144` 字节，等待写入队列 `128` 条，单条 JSONL UTF-8 记录含换行最多 `16384` 字节。写入顺序按会话和序号保持，先检查字节上限再轮换，不拆出半条 JSON 记录。超长记录通过缩减字段并标记 `truncated`/`originalBytes` 保持合法 JSON；无法容纳或队列满时增加 `droppedRecords`。写入与导出读取串行化；读取损坏行时跳过并增加 `corruptLines`，存储错误以 `storageFailed` 和脱敏 `failure` 保留。日志队列、轮换与错误统计不得依赖 `LocalProjectStore`。
 
-`main` 捕获 Flutter 框架错误和平台异步错误时先记录脱敏异常，再链接原处理器；已有处理器的返回语义与默认错误报告必须保留，诊断自身失败不得导致递归报告。应用控制器通过白名单记录命令 `code`、`changed`、明确允许的参数和记录时的单份 `state`；正常编辑在更新投影和修订号后记录操作后状态，阻止或异常路径记录当时状态，保存与恢复路径也记录结果。状态包含谱面计数、修订号、dirty、来源类型、BPM/Offset 数值、当前行、undo/redo、交互模式、选择与快照数量、待剪切意图、是否有音频和剪贴板，但不得转储任意控制器对象、选择成员、对象标识、来源名称、草稿 ID、文件名、完整路径/URI、音频或任何剪贴板负载。粘贴命令与预览事件只记录数值锚点和稳定结果码，不记录幽灵标记或批量快照。新异常记录只保留类型、原生 domain/code/status、OS 数值代码、白名单平台代码与脱敏堆栈，不读取异常 message、details 或调用 error.toString()；非白名单平台代码写为 `[redacted code]`。历史 `exception` 仅允许 `operation`、`type`、`domain`、`code`、`status`、`osCode`、脱敏 `stack` 与严格白名单 `state`；`state` 只保留整数 `revision/markerCount/showtimeMoveCount/selectionCount/clipboardCount/pastePreviewAnchorRow/pastePreviewCode`、有限数值 `bpm/offset/currentRow`、布尔 `dirty/hasAudio/canUndo/canRedo/hasSelection/hasClipboard/cutPending`、已知枚举名 `sourceKind` 和 `interactionMode`（`normal/selection/pastePending`）。未知键和类型不匹配字段丢弃，不允许任意嵌套文本。安全代码仍须遵守相应类型和平台代码白名单，未知异常原文丢弃。通用脱敏递归清理敏感键 `message`、`details`、`error`、`exception`，未知对象与非字符串 key 不调用 `toString()`。
+`main` 捕获 Flutter 框架错误和平台异步错误时先记录脱敏异常，再链接原处理器；已有处理器的返回语义与默认错误报告必须保留，诊断自身失败不得导致递归报告。应用控制器通过白名单记录命令 `code`、`changed`、明确允许的参数和记录时的单份 `state`；正常编辑在更新投影和修订号后记录操作后状态，阻止或异常路径记录当时状态，保存与恢复路径也记录结果。状态包含谱面计数、修订号、dirty、来源类型、BPM/Offset 数值、音乐结束模式与行、当前行、undo/redo、交互模式、选择与快照数量、待剪切意图、是否有音频和剪贴板，但不得转储任意控制器对象、选择成员、对象标识、来源名称、草稿 ID、文件名、完整路径/URI、音频或任何剪贴板负载。粘贴命令与预览事件只记录数值锚点和稳定结果码，不记录幽灵标记或批量快照。新异常记录只保留类型、原生 domain/code/status、OS 数值代码、白名单平台代码与脱敏堆栈，不读取异常 message、details 或调用 error.toString()；非白名单平台代码写为 `[redacted code]`。历史 `exception` 仅允许 `operation`、`type`、`domain`、`code`、`status`、`osCode`、脱敏 `stack` 与严格白名单 `state`；`state` 只保留整数 `revision/markerCount/showtimeMoveCount/selectionCount/clipboardCount/pastePreviewAnchorRow/pastePreviewCode/audioEndRow`、有限数值 `bpm/offset/currentRow`、布尔 `dirty/hasAudio/canUndo/canRedo/hasSelection/hasClipboard/cutPending`、已知枚举名 `sourceKind`、`interactionMode`（`normal/selection/pastePending`）和 `audioEndMode`（`sourceEnd/beat`）。未知键和类型不匹配字段丢弃，不允许任意嵌套文本。安全代码仍须遵守相应类型和平台代码白名单，未知异常原文丢弃。通用脱敏递归清理敏感键 `message`、`details`、`error`、`exception`，未知对象与非字符串 key 不调用 `toString()`。
 
 主动导出的版本 1 单 JSON 包使用以下字段契约：
 
@@ -502,13 +502,38 @@ Left 全部帧后接 Right 全部帧的顺序，把每个有符号样本投影�
 
 替换音频必须是事务性的，并且只能在非播放状态开始。播放中到达应用操作协调层的替换请求返回稳定的 `PlaybackActive` 拒绝结果，不打开选择器、不启动解码，也不修改状态。所选文件先解码到临时、未发布状态，再从临时规范 PCM 生成完整的编辑密度波形和播放密度波形；这些步骤都不得修改当前音频、文件名、缓存、波形、BPM、Offset 或其他编辑器状态。取消平台文件选择、解码失败或任一波形生成失败时，丢弃全部临时工作并保持当前状态不变。
 
-只有解码和两种密度的波形全部成功后，才取消并等待上一音频版本的分析任务结束或以安全方式解除关联，然后原子发布新音频、规范 PCM 和波形缓存。提交事务必须清除上一音频版本的分析任务与候选、来源码率、品质上限、元数据以及其他派生缓存，再仅从新来源建立新音频对应的信息；同时把权威 BPM 重置为精确 `100`，把权威 Offset、当前时间光标和播放位置重置为精确的零，并保持暂停。默认 BPM 和 Offset 立即重建时序网格。每个异步结果都携带音频版本；即使协作取消较晚才完成，也必须丢弃过期结果。提交后绝不能复用上一音频的缓存。
+只有解码和两种密度的波形全部成功后，才取消并等待上一音频版本的分析任务结束或以安全方式解除关联，然后原子发布新音频、规范 PCM 和波形缓存。提交事务必须清除上一音频版本的分析任务与候选、来源码率、品质上限、元数据以及其他派生缓存，再仅从新来源建立新音频对应的信息；同时把权威 BPM 重置为精确 `100`，把权威 Offset、当前时间光标和播放位置重置为精确的零，把音乐结束线重置为默认，并保持暂停。默认 BPM 和 Offset 立即重建时序网格。每个异步结果都携带音频版本；即使协作取消较晚才完成，也必须丢弃过期结果。提交后绝不能复用上一音频的缓存。
 
 音频替换不修改 `ChartDraft`、谱面撤销/重做历史、Scale、波形可见性或其他纯视图偏好。成功替换时根据默认 BPM `100` 和 `46` 逻辑像素目标 1/16 行距重新选择自动编辑 Zoom，并用该 Zoom 生成待提交波形；取消、解码失败或波形失败不得修改当前 Zoom。BPM/Offset 重置和自动 Zoom 都不进入谱面撤销历史；BPM/Offset 属于音频会话，重置不参与草稿未保存判定。
 
+## 音乐结束线与音频导出长度
+
+音乐结束线是当前音频会话的编辑边界，不属于 `ChartDraft`、正式草稿、恢复快照或 SLK。App 只在会话内保存 `{mode: sourceEnd | beat, row}`；`row` 为 1/16 行且必须能被 `4` 整除。BPM 改变、音频替换成功或应用重启时回到 `sourceEnd`；Offset 改变不重置。BPM 为零时只允许 `sourceEnd`。
+
+导出时间轴以拍零对齐导出时间零。`av_core` 的 `calculate_audio_end_export_seconds` 计算自定义结束秒数，`calculate_audio_end_plan` 计算最终帧数：
+
+```text
+R  = sampleRate
+N  = source frame count
+s  = roundHalfAwayFromZero(offsetSeconds * R)
+N0 = N + s
+
+sourceEnd: M = N0
+beat(row): T = (row / 4) * (60 / bpm)
+           M = roundHalfAwayFromZero(T * R)
+```
+
+`M < N0` 裁掉尾部；`M > N0` 追加双声道零帧。`T` 不减 Offset；Offset 只作用于头部。`M <= 0`、`M <= max(0, s)`、BPM 非正、行不是 `4` 的倍数、尺寸溢出或分配失败都必须返回稳定错误。默认路径必须与未引入结束线时逐字节一致。
+
+导出确认时把权威 BPM、结束模式和行解析进不可变快照。`AudioExportSnapshot` 保存最终帧数；`encode_audio_export_snapshot` 对自定义结束用一次分配完成头部移位、尾部裁切和零填充，默认结束仍使用原有 `apply_pcm_offset` 路径。导出任务开始后不得读取可变的实时结束线。
+
+播放有效终点为 `clamp(endSeconds, 0, audioDurationSeconds)`；渲染后的播放 PCM 按共享核心计算的帧数截断。到达截断终点视为自然结束，不保留音效续播状态。当前光标在有效终点或之后时不得开始播放或节奏测试。
+
+`calculate_timeline_range` 的可选自定义结束行参与与音频结束、事件行相同的一次最大比较；Flutter 不得自行取最大。BPM 为零时使用与时间线范围相同的内部 `100 BPM` 投影，只用于显示。
+
 ## Ogg 音频导出契约
 
-叠加 Offset 的音频编码只在 `av_core` 中实现一次。输入为当前规范平面双声道 PCM16、原始采样率、权威 Offset 和所选品质。MP3 与 Ogg 来源只要得到相同规范 PCM，在相同品质下就必须经过同一转换和编码路径。原始来源元数据只影响 UI 和公开导出流程允许选择的品质；一旦品质有效，就不能影响编码器输出。
+叠加 Offset 的音频编码只在 `av_core` 中实现一次。输入为当前规范平面双声道 PCM16、原始采样率、权威 Offset、权威 BPM、结束规格和所选品质。MP3 与 Ogg 来源只要得到相同规范 PCM，在相同品质下就必须经过同一转换和编码路径。原始来源元数据只影响 UI 和公开导出流程允许选择的品质；一旦品质有效，就不能影响编码器输出。
 
 导出时转换 PCM，使结果音频可以配合 Offset 为零的谱面使用：
 
@@ -537,7 +562,7 @@ Offset 到帧的量化只是导出投影，绝不能覆盖权威 binary64 Offset
 
 核心导出器接收显式品质和输出接收器，或返回拥有所有权的字节；它不打开文件选择器，也不选择平台路径。平台适配层获取授权目标，并保存核心生成的字节。导出不得修改已加载音频、项目时序、波形缓存或分析缓存。
 
-导出任务在确认时捕获不可变 PCM 所有权或稳定 PCM 快照、采样率、Offset、品质、文件名和元数据。任务开始后绝不能读取可变的实时项目值。核心编码器接受协作取消信号，并报告阶段与进度。路径型平台保存过程先写入临时目标，只在成功时原子发布最终文件；iOS/Android 文档目标由系统先预留空文档，成功编码后由平台文件层分块覆盖，受控取消或失败时删除该文档。任何平台都不能保留已知失败的临时或最终输出。如果负 Offset 会删除全部输入帧，必须在编码前拒绝。
+导出任务在确认时捕获不可变 PCM 所有权或稳定 PCM 快照、采样率、Offset、BPM、结束模式/行、品质、文件名和元数据。任务开始后绝不能读取可变的实时项目值。核心编码器接受协作取消信号，并报告阶段与进度。路径型平台保存过程先写入临时目标，只在成功时原子发布最终文件；iOS/Android 文档目标由系统先预留空文档，成功编码后由平台文件层分块覆盖，受控取消或失败时删除该文档。任何平台都不能保留已知失败的临时或最终输出。如果负 Offset 会删除全部输入帧，必须在编码前拒绝。
 
 可移植文件基础名规范化由共享核心纯函数实现。默认输入为来源音频去除扩展名后的名称，缺失时为 `audio`。合法 Unicode 保留；Unicode 控制字符以及 Windows、macOS 和常用文档提供器不接受的 `<>:"/\\|?*` 替换为 `_`；去除首尾空白和末尾句点；大小写不敏感匹配 `CON`、`PRN`、`AUX`、`NUL`、`COM1..COM9` 或 `LPT1..LPT9` 时在前方添加 `_`；结果为空时回退为 `audio`。平台层传入设备本地时间，生成 `<base>_<yyyyMMdd_HHmmss>.ogg`。路径型目标已存在时不得覆盖，依次尝试在扩展名前追加 `_2`、`_3` 等最小可用序号；iOS/Android 目标冲突由系统文档提供器以不覆盖语义处理，并以系统界面最终确认的名称为准。
 

@@ -521,6 +521,15 @@ class _EditorScreenState extends State<EditorScreen>
                         }
                       : null,
                 ),
+                if (_controller.audioEndExportSeconds != null)
+                  Text(
+                    '导出长度 '
+                    '${_formatSongTime(_controller.audioEndExportSeconds!)}',
+                    style: const TextStyle(
+                      color: EditorColors.textMuted,
+                      fontSize: 12,
+                    ),
+                  ),
               ],
             ),
           ),

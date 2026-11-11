@@ -299,6 +299,15 @@ const ChartTimelineRangeFailure* ChartTimelineRangeResult::failure()
 ChartTimelineRangeResult calculate_chart_timeline_range(
     const ChartDraft& draft, TimingParameters timing,
     std::optional<double> audio_end_seconds) noexcept {
+  return calculate_chart_timeline_range_with_end(draft, timing,
+                                                  audio_end_seconds,
+                                                  std::nullopt);
+}
+
+ChartTimelineRangeResult calculate_chart_timeline_range_with_end(
+    const ChartDraft& draft, TimingParameters timing,
+    std::optional<double> audio_end_seconds,
+    std::optional<std::uint64_t> custom_end_sixteenth_row) noexcept {
   const auto marker_result = project_chart_markers(draft);
   if (!marker_result) {
     return ChartTimelineRangeResult{{
@@ -322,8 +331,9 @@ ChartTimelineRangeResult calculate_chart_timeline_range(
     for (const auto& move : *showtime_result.moves()) {
       show_range_end_rows.push_back(move.range_end);
     }
-    const auto range_result = calculate_timeline_range(
-        timing, audio_end_seconds, event_rows, show_range_end_rows);
+    const auto range_result = calculate_timeline_range_with_end(
+        timing, audio_end_seconds, custom_end_sixteenth_row, event_rows,
+        show_range_end_rows);
     if (!range_result) {
       return ChartTimelineRangeResult{{
           ChartTimelineRangeError::TimelineRangeFailed,

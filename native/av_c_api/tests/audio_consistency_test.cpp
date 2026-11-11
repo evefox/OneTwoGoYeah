@@ -433,6 +433,107 @@ void test_offset_names_quality_and_export(
   otgy_audio_export_cancel_flag_destroy(nullptr);
 }
 
+void test_audio_end(const otgy::core::Pcm16& direct_pcm,
+                    const otgy_pcm* abi_pcm,
+                    const otgy::core::AudioSourceInfo& source_info) {
+  otgy_error* raw_error = nullptr;
+  const otgy_audio_source_info abi_source{
+      static_cast<std::uint32_t>(source_info.codec),
+      source_info.measured_bitrate_bps, source_info.nominal_bitrate_bps};
+  const auto policy = otgy::core::calculate_audio_export_quality(
+      direct_pcm.sample_rate(), source_info);
+  expect(static_cast<bool>(policy), "end test quality failed");
+  const auto quality = policy.policy()->default_quality;
+
+  const auto direct_beat_seconds =
+      otgy::core::calculate_audio_end_export_seconds(4U, 100.0);
+  expect(static_cast<bool>(direct_beat_seconds),
+         "direct end seconds failed");
+  double abi_seconds = 0.0;
+  expect(otgy_calculate_audio_end_export_seconds(
+             OTGY_AUDIO_END_MODE_BEAT, 4U, 100.0, 0.0, 0.0, &abi_seconds,
+             &raw_error) == OTGY_STATUS_OK,
+         "C ABI end seconds failed");
+  expect(same_double(abi_seconds, *direct_beat_seconds.seconds()),
+         "end seconds differ");
+
+  const double audio_duration =
+      static_cast<double>(direct_pcm.frame_count()) /
+      static_cast<double>(direct_pcm.sample_rate());
+  expect(otgy_calculate_audio_end_export_seconds(
+             OTGY_AUDIO_END_MODE_SOURCE_END, 0U, 100.0, 0.25, audio_duration,
+             &abi_seconds, &raw_error) == OTGY_STATUS_OK,
+         "C ABI source end seconds failed");
+  expect(same_double(abi_seconds, audio_duration + 0.25),
+         "source end seconds differ");
+
+  auto direct_snapshot = otgy::core::create_audio_export_snapshot_with_end(
+      direct_pcm, 91U, 0.0, 100.0,
+      otgy::core::AudioEndSpec{otgy::core::AudioEndMode::Beat, 4U}, quality,
+      source_info, "end-test");
+  expect(static_cast<bool>(direct_snapshot),
+         "direct custom end snapshot failed");
+  auto direct_output = otgy::core::encode_audio_export_snapshot(
+      *direct_snapshot.snapshot());
+  expect(static_cast<bool>(direct_output), "direct custom end export failed");
+
+  otgy_audio_export_snapshot* raw_snapshot = nullptr;
+  expect(otgy_audio_export_snapshot_create_with_end(
+             abi_pcm, 91U, 0.0, 100.0, OTGY_AUDIO_END_MODE_BEAT, 4U, quality,
+             abi_source, view("end-test"), otgy_audio_export_metadata{},
+             &raw_snapshot, &raw_error) == OTGY_STATUS_OK,
+         "C ABI custom end snapshot failed");
+  auto abi_snapshot =
+      handle<otgy_audio_export_snapshot, otgy_audio_export_snapshot_destroy>(
+          raw_snapshot);
+  otgy_audio_export_output* raw_output = nullptr;
+  expect(otgy_audio_export_snapshot_encode(abi_snapshot.get(), nullptr,
+                                           nullptr, nullptr, &raw_output,
+                                           &raw_error) == OTGY_STATUS_OK,
+         "C ABI custom end export failed");
+  auto abi_output =
+      handle<otgy_audio_export_output, otgy_audio_export_output_destroy>(
+          raw_output);
+  const auto abi_bytes = otgy_audio_export_output_get_bytes(abi_output.get());
+  expect(abi_bytes.length == direct_output.output()->bytes.size() &&
+             std::memcmp(abi_bytes.data, direct_output.output()->bytes.data(),
+                         direct_output.output()->bytes.size()) == 0,
+         "custom end export bytes differ");
+  expect(otgy_audio_export_output_get_frame_count(abi_output.get()) ==
+                 direct_output.output()->output_frame_count &&
+             otgy_audio_export_output_get_signed_shift_frames(
+                 abi_output.get()) ==
+                 direct_output.output()->signed_shift_frames,
+         "custom end export metadata differs");
+
+  const auto direct_limit =
+      otgy::core::calculate_playback_frame_limit(11'025U, 0.6);
+  expect(static_cast<bool>(direct_limit), "direct playback limit failed");
+  std::uint64_t abi_limit = 0U;
+  expect(otgy_calculate_playback_frame_limit(11'025U, 0.6, &abi_limit,
+                                             &raw_error) == OTGY_STATUS_OK,
+         "C ABI playback limit failed");
+  expect(abi_limit == *direct_limit.frame_count(),
+         "playback frame limit differs");
+
+  otgy_audio_export_snapshot* failed_snapshot =
+      reinterpret_cast<otgy_audio_export_snapshot*>(1);
+  expect(otgy_audio_export_snapshot_create_with_end(
+             abi_pcm, 0U, 0.0, 100.0, OTGY_AUDIO_END_MODE_BEAT, 0U, quality,
+             abi_source, view("end-test"), otgy_audio_export_metadata{},
+             &failed_snapshot, &raw_error) == OTGY_STATUS_CORE_ERROR,
+         "C ABI empty end status differs");
+  auto end_error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect(failed_snapshot == nullptr,
+         "failed custom end exposed partial ownership");
+  expect_error(
+      end_error.get(), OTGY_ERROR_DOMAIN_AUDIO_EXPORT_SNAPSHOT,
+      static_cast<std::uint32_t>(
+          otgy::core::AudioExportSnapshotError::EmptyOutputAfterEnd),
+      otgy::core::audio_export_snapshot_error_message(
+          otgy::core::AudioExportSnapshotError::EmptyOutputAfterEnd));
+}
+
 void test_waveforms(const otgy::core::Pcm16& direct_pcm,
                     const otgy_pcm* abi_pcm) {
   const std::array<DirectWaveform, 16> direct_functions{
@@ -880,6 +981,7 @@ int main() {
                                     source_info);
     test_offset_names_quality_and_export(direct_pcm, abi_pcm.get(),
                                          source_info);
+    test_audio_end(direct_pcm, abi_pcm.get(), source_info);
     test_waveforms(direct_pcm, abi_pcm.get());
     test_analysis(direct_pcm, abi_pcm.get());
     test_playback(direct_pcm, abi_pcm.get());

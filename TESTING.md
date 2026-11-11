@@ -469,6 +469,16 @@ SLK 导出入口测试必须先快照当前内存数据并执行成品校验。�
 
 音频集成测试必须验证：空或无效 `ChartDraft` 不会禁用音频选择、解码、BPM/Offset 修改、分析、播放、波形交互或叠加 Offset 的 Ogg 导出。
 
+音乐结束线测试必须覆盖：
+
+- 共享核心的结束计划：`sourceEnd` 恒等；自定义按拍裁尾和补双声道零帧；精确半帧远离零舍入；正/负 Offset 组合；`M <= 0`、结束点早于正头部静音、BPM 非正、行不是 `4` 的倍数、尺寸溢出和分配失败均返回稳定错误。
+- `av_core` 的一次分配窗口：正移位前补零、负移位跳过头帧、尾部裁切和零填充的逐样本值。
+- 默认 `sourceEnd` 导出的 Ogg 字节与引入结束线前完全一致；自定义结束至少有一份裁尾和一份补静音的确定性字节比较。
+- C ABI 一致性：`otgy_audio_export_snapshot_create_with_end`、`otgy_calculate_audio_end_export_seconds`、`otgy_calculate_playback_frame_limit` 和 `otgy_chart_calculate_timeline_range_with_end` 与直接核心调用比较字节、帧数、错误域/码/消息和所有权；失败不得暴露部分句柄。
+- CLI 一致性：`--bpm` 与 `--end-row` 同时出现时与直接探针逐字节相同，不出现时保持原有形态；缺一、非法 BPM、非 4 倍数行和空结果分别返回稳定用法或错误码，且不留下输出或临时文件。
+- App：默认位置、实线/虚线、时间读数和弱化遮罩；手柄拖动吸附到拍和默认位置；BPM 改变、音频替换和重启复位；Offset 改变不复位；BPM 为零无手柄；播放与节奏测试在有效终点停止且不保留音效续播；终点后播放入口禁用；导出快照捕获后修改结束线不影响在途导出；不改变 `dirty`、撤销历史、草稿和 SLK。
+- 无障碍：手柄可聚焦并显示焦点轮廓，`↑`/`↓` 在吸附候选间移动，单选或读屏增/减操作可用，状态不只由颜色表达。
+
 ### 3. 命令行集成测试
 
 工作名称为 `avtool`。它直接链接 `av_core`，不得调用 Flutter 或 C ABI。
@@ -478,6 +488,7 @@ SLK 导出入口测试必须先快照当前内存数据并执行成品校验。�
 ```text
 avtool decode <audio> --pcm-hash
 avtool export-audio <audio> --offset <seconds> --quality <q> --output <file.ogg>
+                    [--bpm <bpm> --end-row <sixteenth-row>]
 ```
 
 波形、联合分析、项目和 SLK 目前通过直接 C++、C ABI 或 Flutter 工作流验证，不公开含义未完整固定的 CLI 占位命令。
@@ -524,7 +535,7 @@ CLI 失败测试必须覆盖严格参数形态、逗号小数、非法/越界品
 
 当前 `av_c_api.c_header` 使用 C 编译器包含唯一公共头并链接动态库，证明头文件不泄漏
 C++ 类型。`av_c_api.audio_consistency` 对同一输入逐项比较 MP3/Ogg 解码、PCM 与
-SHA-256、Offset、文件名、品质、不可变 Ogg 导出、十六种波形、起音、BPM、Offset
+SHA-256、Offset、文件名、品质、不可变 Ogg 导出、按拍结束、播放帧上限与带结束行的时间线范围、十六种波形、起音、BPM、Offset
 和联合分析；另验证音频导出取消句柄的创建、跨线程原子请求、查询和预取消编码。
 输入释放后拥有结果仍须有效，失败不得暴露部分句柄。
 

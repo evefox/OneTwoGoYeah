@@ -44,6 +44,21 @@ endif()
 
 add_test(NAME av_core.pcm_offset COMMAND av_core_pcm_offset_test)
 
+add_executable(av_core_audio_end_test
+  audio_end_test.cpp
+)
+target_link_libraries(av_core_audio_end_test PRIVATE OneTwoGoYeah::av_core)
+
+if(MSVC)
+  target_compile_options(av_core_audio_end_test PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(av_core_audio_end_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.audio_end COMMAND av_core_audio_end_test)
+
 add_executable(av_core_playback_pcm_test
   playback_pcm_test.cpp
 )

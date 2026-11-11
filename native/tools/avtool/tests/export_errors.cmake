@@ -84,6 +84,39 @@ assert_failure(
   export-audio "${AUDIO}" --offset -1 --quality 3 --output "${OUTPUT}"
 )
 assert_failure(
+  4
+  "{\"schemaVersion\":1,\"error\":\"invalid-bpm\"}\n"
+  "${OUTPUT}"
+  export-audio "${AUDIO}" --offset 0 --quality 3 --output "${OUTPUT}"
+  --bpm 0 --end-row 4
+)
+assert_failure(
+  4
+  "{\"schemaVersion\":1,\"error\":\"invalid-end-row\"}\n"
+  "${OUTPUT}"
+  export-audio "${AUDIO}" --offset 0 --quality 3 --output "${OUTPUT}"
+  --bpm 100 --end-row 5
+)
+assert_failure(
+  4
+  "{\"schemaVersion\":1,\"error\":\"audio-export-end-removes-all-frames\"}\n"
+  "${OUTPUT}"
+  export-audio "${AUDIO}" --offset 0 --quality 3 --output "${OUTPUT}"
+  --bpm 100 --end-row 0
+)
+file(REMOVE "${OUTPUT}")
+execute_process(
+  COMMAND "${AVTOOL}" export-audio "${AUDIO}" --offset 0 --quality 3
+          --output "${OUTPUT}" --bpm 100
+  RESULT_VARIABLE partial_end_result
+  OUTPUT_VARIABLE partial_end_output
+  ERROR_VARIABLE partial_end_error
+)
+if(NOT partial_end_result EQUAL 2 OR NOT partial_end_output STREQUAL "" OR
+   NOT partial_end_error MATCHES "^用法: avtool <命令> \\[选项\\]")
+  message(FATAL_ERROR "Partial end arguments did not return usage")
+endif()
+assert_failure(
   3
   "{\"schemaVersion\":1,\"error\":\"unsupported-audio-format\"}\n"
   "${OUTPUT}"

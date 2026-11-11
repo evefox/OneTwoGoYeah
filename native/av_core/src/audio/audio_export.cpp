@@ -5,6 +5,7 @@
 #include "av_core/audio/audio_export_name.hpp"
 
 #include <new>
+#include <optional>
 #include <utility>
 
 namespace otgy::core {
@@ -44,6 +45,25 @@ namespace {
       return AudioExportSnapshotError::None;
   }
   return AudioExportSnapshotError::InvalidOffset;
+}
+
+[[nodiscard]] AudioExportSnapshotError map_end_snapshot_error(
+    AudioEndError error) noexcept {
+  switch (error) {
+    case AudioEndError::InvalidBpm:
+    case AudioEndError::InvalidBeatRow:
+    case AudioEndError::InvalidSampleRate:
+      return AudioExportSnapshotError::InvalidEnd;
+    case AudioEndError::EmptyOutput:
+      return AudioExportSnapshotError::EmptyOutputAfterEnd;
+    case AudioEndError::SizeOverflow:
+      return AudioExportSnapshotError::SizeOverflow;
+    case AudioEndError::AllocationFailure:
+      return AudioExportSnapshotError::AllocationFailure;
+    case AudioEndError::None:
+      return AudioExportSnapshotError::None;
+  }
+  return AudioExportSnapshotError::InvalidEnd;
 }
 
 [[nodiscard]] bool cancelled(AudioExportCancelCallback callback,
@@ -92,6 +112,23 @@ bool bridge_cancel(void* context) noexcept {
                                error, OggVorbisEncodeError::None};
 }
 
+[[nodiscard]] AudioExportTaskResult task_failure_from_pcm(
+    PcmError error) noexcept {
+  if (error == PcmError::AllocationFailure) {
+    return AudioExportTaskResult{AudioExportTaskError::AllocationFailure,
+                                 PcmOffsetError::None,
+                                 OggVorbisEncodeError::None};
+  }
+  if (error == PcmError::SizeOverflow) {
+    return AudioExportTaskResult{AudioExportTaskError::SizeOverflow,
+                                 PcmOffsetError::None,
+                                 OggVorbisEncodeError::None};
+  }
+  return AudioExportTaskResult{AudioExportTaskError::OffsetTransformFailed,
+                               PcmOffsetError::None,
+                               OggVorbisEncodeError::None};
+}
+
 [[nodiscard]] AudioExportTaskResult task_failure_from_encode(
     OggVorbisEncodeError error) noexcept {
   if (error == OggVorbisEncodeError::Cancelled) {
@@ -115,7 +152,8 @@ bool bridge_cancel(void* context) noexcept {
 AudioExportSnapshot::AudioExportSnapshot(
     Pcm16 pcm, std::uint64_t pcm_identity, double offset_seconds,
     std::uint8_t quality, AudioSourceInfo source_info, std::string base_name,
-    OggVorbisMetadata metadata, PcmOffsetPlan offset_plan) noexcept
+    OggVorbisMetadata metadata, PcmOffsetPlan offset_plan,
+    AudioEndPlan end_plan, bool custom_end) noexcept
     : pcm_(std::move(pcm)),
       pcm_identity_(pcm_identity),
       offset_seconds_(offset_seconds),
@@ -123,7 +161,9 @@ AudioExportSnapshot::AudioExportSnapshot(
       source_info_(source_info),
       base_name_(std::move(base_name)),
       metadata_(std::move(metadata)),
-      offset_plan_(offset_plan) {}
+      offset_plan_(offset_plan),
+      end_plan_(end_plan),
+      custom_end_(custom_end) {}
 
 AudioExportSnapshotResult::AudioExportSnapshotResult(
     AudioExportSnapshot snapshot) noexcept
@@ -155,6 +195,17 @@ AudioExportSnapshotResult create_audio_export_snapshot(
     std::uint8_t quality, AudioSourceInfo source_info,
     std::string_view requested_base_name,
     const OggVorbisMetadata& metadata) noexcept {
+  return create_audio_export_snapshot_with_end(
+      pcm, pcm_identity, offset_seconds, 100.0, AudioEndSpec{
+                                                AudioEndMode::SourceEnd, 0U},
+      quality, source_info, requested_base_name, metadata);
+}
+
+AudioExportSnapshotResult create_audio_export_snapshot_with_end(
+    const Pcm16& pcm, std::uint64_t pcm_identity, double offset_seconds,
+    double bpm, AudioEndSpec end, std::uint8_t quality,
+    AudioSourceInfo source_info, std::string_view requested_base_name,
+    const OggVorbisMetadata& metadata) noexcept {
   const auto policy =
       calculate_audio_export_quality(pcm.sample_rate(), source_info);
   if (!policy) {
@@ -171,6 +222,13 @@ AudioExportSnapshotResult create_audio_export_snapshot(
     return AudioExportSnapshotResult{
         map_offset_snapshot_error(offset_plan.error())};
   }
+  const auto end_plan = calculate_audio_end_plan(
+      pcm.sample_rate(), pcm.frame_count(),
+      offset_plan.plan()->signed_shift_frames,
+      offset_plan.plan()->output_frame_count, bpm, end);
+  if (!end_plan) {
+    return AudioExportSnapshotResult{map_end_snapshot_error(end_plan.error())};
+  }
   auto base_name = normalize_audio_export_base_name(requested_base_name);
   if (!base_name) {
     return AudioExportSnapshotResult{
@@ -181,7 +239,8 @@ AudioExportSnapshotResult create_audio_export_snapshot(
     return AudioExportSnapshotResult{AudioExportSnapshot{
         Pcm16{pcm}, pcm_identity, offset_seconds, quality, source_info,
         std::move(base_name).take_name(), OggVorbisMetadata{metadata},
-        *offset_plan.plan()}};
+        *offset_plan.plan(), *end_plan.plan(),
+        end.mode == AudioEndMode::Beat}};
   } catch (const std::bad_alloc&) {
     return AudioExportSnapshotResult{
         AudioExportSnapshotError::AllocationFailure};
@@ -237,9 +296,21 @@ AudioExportTaskResult encode_audio_export_snapshot(
   }
   report(progress_callback, callback_context,
          AudioExportStage::PreparingAudio, 0U, snapshot.pcm().frame_count());
-  auto shifted = apply_pcm_offset(snapshot.pcm(), snapshot.offset_seconds());
-  if (!shifted) {
-    return task_failure_from_offset(shifted.error());
+  std::optional<Pcm16> transformed;
+  if (snapshot.has_custom_end()) {
+    auto windowed = apply_audio_end_window(
+        snapshot.pcm(), snapshot.offset_plan().signed_shift_frames,
+        snapshot.end_plan().output_frame_count);
+    if (!windowed) {
+      return task_failure_from_pcm(windowed.error());
+    }
+    transformed.emplace(std::move(windowed).take_pcm());
+  } else {
+    auto shifted = apply_pcm_offset(snapshot.pcm(), snapshot.offset_seconds());
+    if (!shifted) {
+      return task_failure_from_offset(shifted.error());
+    }
+    transformed.emplace(std::move(shifted).take_pcm());
   }
   report(progress_callback, callback_context,
          AudioExportStage::PreparingAudio, snapshot.pcm().frame_count(),
@@ -253,7 +324,7 @@ AudioExportTaskResult encode_audio_export_snapshot(
   EncodeCallbackBridge bridge{progress_callback, cancel_callback,
                               callback_context};
   auto encoded = encode_ogg_vorbis(
-      *shifted.pcm(), snapshot.quality(), snapshot.metadata(), bridge_progress,
+      *transformed, snapshot.quality(), snapshot.metadata(), bridge_progress,
       bridge_cancel, &bridge);
   if (!encoded) {
     return task_failure_from_encode(encoded.error());
@@ -261,7 +332,7 @@ AudioExportTaskResult encode_audio_export_snapshot(
   const auto plan = snapshot.offset_plan();
   return AudioExportTaskResult{AudioExportBytes{
       std::move(encoded).take_bytes(), plan.signed_shift_frames,
-      plan.output_frame_count}};
+      snapshot.end_plan().output_frame_count}};
 }
 
 }  // namespace otgy::core

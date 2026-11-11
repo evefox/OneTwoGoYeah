@@ -7,6 +7,7 @@
 #include "av_core/version.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdint>
@@ -50,8 +51,8 @@ void print_usage(std::ostream& output) {
             "  decode <audio> --pcm-hash\n"
             "               解码 MP3/Ogg 并输出规范 PCM 哈希 JSON\n"
             "  export-audio <audio> --offset <seconds> --quality <q>\n"
-            "               --output <file.ogg>\n"
-            "               叠加 Offset 并导出 Ogg Vorbis\n"
+            "               --output <file.ogg> [--bpm <bpm> --end-row <row>]\n"
+            "               叠加 Offset 并导出 Ogg Vorbis；可选按拍结束\n"
             "  --help       显示此帮助\n"
             "  --version    显示 av_core 版本\n";
 }
@@ -165,6 +166,18 @@ void print_machine_error(std::string_view code) {
   return static_cast<std::uint8_t>(value);
 }
 
+[[nodiscard]] std::optional<std::uint64_t> parse_u64(
+    std::string_view text) noexcept {
+  std::uint64_t value = 0U;
+  const auto parsed =
+      std::from_chars(text.data(), text.data() + text.size(), value, 10);
+  if (text.empty() || parsed.ec != std::errc{} ||
+      parsed.ptr != text.data() + text.size()) {
+    return std::nullopt;
+  }
+  return value;
+}
+
 enum class OutputWriteResult : std::uint8_t {
   Success,
   TargetExists,
@@ -246,6 +259,10 @@ enum class OutputWriteResult : std::uint8_t {
       return "invalid-offset";
     case otgy::core::AudioExportSnapshotError::RemovesAllFrames:
       return "audio-export-offset-removes-all-frames";
+    case otgy::core::AudioExportSnapshotError::InvalidEnd:
+      return "invalid-audio-end";
+    case otgy::core::AudioExportSnapshotError::EmptyOutputAfterEnd:
+      return "audio-export-end-removes-all-frames";
     case otgy::core::AudioExportSnapshotError::None:
     case otgy::core::AudioExportSnapshotError::InvalidSourceInfo:
     case otgy::core::AudioExportSnapshotError::UnsupportedSampleRate:
@@ -306,10 +323,11 @@ enum class OutputWriteResult : std::uint8_t {
   return 5;
 }
 
-[[nodiscard]] int run_export_audio(const char* input_path,
-                                   std::string_view offset_text,
-                                   std::string_view quality_text,
-                                   const char* output_path) {
+[[nodiscard]] int run_export_audio(
+    const char* input_path, std::string_view offset_text,
+    std::string_view quality_text, const char* output_path,
+    std::optional<std::string_view> bpm_text,
+    std::optional<std::string_view> end_row_text) {
   const auto format = audio_format_from_path(input_path);
   if (!format) {
     print_machine_error("unsupported-audio-format");
@@ -330,6 +348,20 @@ enum class OutputWriteResult : std::uint8_t {
   if (!quality) {
     print_machine_error("invalid-quality");
     return 4;
+  }
+  std::optional<double> bpm;
+  std::optional<std::uint64_t> end_row;
+  if (bpm_text.has_value()) {
+    bpm = parse_double(*bpm_text);
+    if (!bpm || !std::isfinite(*bpm) || *bpm <= 0.0 || *bpm > 100'000.0) {
+      print_machine_error("invalid-bpm");
+      return 4;
+    }
+    end_row = parse_u64(*end_row_text);
+    if (!end_row || *end_row % 4U != 0U) {
+      print_machine_error("invalid-end-row");
+      return 4;
+    }
   }
 
   const auto target = std::filesystem::u8path(output_path);
@@ -376,8 +408,15 @@ enum class OutputWriteResult : std::uint8_t {
     }
   }
 
-  auto snapshot = otgy::core::create_audio_export_snapshot(
-      *pcm, 0U, *offset, *quality, *source_info, "audio");
+  auto snapshot =
+      bpm.has_value()
+          ? otgy::core::create_audio_export_snapshot_with_end(
+                *pcm, 0U, *offset, *bpm,
+                otgy::core::AudioEndSpec{otgy::core::AudioEndMode::Beat,
+                                         *end_row},
+                *quality, *source_info, "audio")
+          : otgy::core::create_audio_export_snapshot(
+                *pcm, 0U, *offset, *quality, *source_info, "audio");
   if (!snapshot) {
     print_machine_error(snapshot_error_code(snapshot.error()));
     return 4;
@@ -448,13 +487,48 @@ int main(int argc, char* argv[]) {
     }
 
     if (command == "export-audio") {
-      if (argc != 9 || std::string_view{argv[3]} != "--offset" ||
-          std::string_view{argv[5]} != "--quality" ||
-          std::string_view{argv[7]} != "--output") {
+      if (argc < 9) {
         print_usage(std::cerr);
         return 2;
       }
-      return run_export_audio(argv[2], argv[4], argv[6], argv[8]);
+      std::optional<std::string_view> offset;
+      std::optional<std::string_view> quality;
+      std::optional<std::string_view> output;
+      std::optional<std::string_view> bpm;
+      std::optional<std::string_view> end_row;
+      for (int index = 3; index < argc; index += 2) {
+        if (index + 1 >= argc) {
+          print_usage(std::cerr);
+          return 2;
+        }
+        const std::string_view flag{argv[index]};
+        const std::string_view value{argv[index + 1]};
+        std::optional<std::string_view>* target = nullptr;
+        if (flag == "--offset") {
+          target = &offset;
+        } else if (flag == "--quality") {
+          target = &quality;
+        } else if (flag == "--output") {
+          target = &output;
+        } else if (flag == "--bpm") {
+          target = &bpm;
+        } else if (flag == "--end-row") {
+          target = &end_row;
+        }
+        if (target == nullptr || target->has_value()) {
+          print_usage(std::cerr);
+          return 2;
+        }
+        *target = value;
+      }
+      if (!offset.has_value() || !quality.has_value() ||
+          !output.has_value() ||
+          bpm.has_value() != end_row.has_value()) {
+        print_usage(std::cerr);
+        return 2;
+      }
+      return run_export_audio(argv[2], *offset, *quality, output->data(), bpm,
+                              end_row);
     }
 
     std::cerr << "未知命令: " << command << '\n';

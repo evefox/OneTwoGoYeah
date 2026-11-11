@@ -1839,6 +1839,8 @@ void main() {
       controller.toggleWaveform();
       await controller.setZoom(5);
       controller.moveToRow(0);
+      // Keep the audio-end line and its shading away from the sampled rows.
+      controller.setAudioEndRow(64);
       await tester.pump();
 
       Future<List<int>> sampleGrid() async {
@@ -1864,7 +1866,8 @@ void main() {
           final center = cursorY + (row - controller.currentRow) * spacing;
           var red = 0;
           for (var y = center.floor() - 2; y <= center.ceil() + 2; y++) {
-            final offset = (y * captured.width + 90) * 4;
+            // Sample away from the left-edge audio-end handle and its label.
+            final offset = (y * captured.width + 200) * 4;
             red = math.max(red, bytes!.getUint8(offset));
           }
           return red;
@@ -2899,6 +2902,91 @@ void main() {
       );
     },
   );
+  test('audio end line resets on BPM changes and audio replacement', () async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    expect(controller.audioEndMode, AudioEndMode.sourceEnd);
+    expect(controller.audioEndDisplayRow, closeTo(5.57, 0.01));
+
+    controller.setAudioEndRow(8);
+    expect(controller.audioEndMode, AudioEndMode.beat);
+    expect(controller.audioEndRow, 8);
+    expect(controller.audioEndCustom, isTrue);
+
+    controller.setAudioEndRow(9);
+    expect(controller.audioEndRow, 8);
+
+    controller.setOffset(-1);
+    expect(controller.audioEndMode, AudioEndMode.beat);
+
+    controller.setBpm(120);
+    expect(controller.audioEndMode, AudioEndMode.sourceEnd);
+    expect(controller.audioEndRow, 0);
+
+    controller.setAudioEndRow(12);
+    await controller.loadAudioBytes(audio, 'fixture-2.mp3');
+    expect(controller.audioEndMode, AudioEndMode.sourceEnd);
+    expect(controller.audioEndRow, 0);
+    expect(controller.audioEndDisplayRow, closeTo(5.57, 0.01));
+  });
+
+  testWidgets('playback stops at the music end line', (tester) async {
+    controller.dispose();
+    final output = _FakePlaybackOutput();
+    controller = EditorController(playbackOutput: output);
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    controller.setAudioEndRow(4);
+    expect(controller.audioEndCustom, isTrue);
+
+    await pumpEditor(tester);
+    await controller.togglePlayback();
+    await tester.pump();
+    expect(controller.isPlaying, isTrue);
+
+    final expectedFrames = (0.6 * output.sampleRate).round();
+    expect(output.bytes.length, expectedFrames * 4);
+
+    output.playedFrames = expectedFrames;
+    output.playing = false;
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pump();
+    expect(controller.isPlaying, isFalse);
+    expect(controller.currentSongSeconds, closeTo(0.6, 0.01));
+    expect(controller.playbackStartEnabled, isFalse);
+  });
+
+  testWidgets('audio end handle drags to a beat and can return to default', (
+    tester,
+  ) async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    await pumpEditor(tester);
+
+    final handle = find.byKey(const ValueKey('audio-end-handle'));
+    expect(handle, findsOneWidget);
+
+    await tester.drag(handle, const Offset(0, 140));
+    await tester.pump();
+    expect(controller.audioEndMode, AudioEndMode.beat);
+    expect(controller.audioEndRow % 4, 0);
+    expect(controller.audioEndRow, greaterThan(4));
+
+    final sourceRow = controller.audioEndSourceDisplayRow!;
+    final spacing = controller.rowSpacing;
+    final returnDelta =
+        -(controller.audioEndRow.toDouble() - sourceRow) * spacing;
+    await tester.drag(handle, Offset(0, returnDelta));
+    await tester.pump();
+    expect(controller.audioEndMode, AudioEndMode.sourceEnd);
+    expect(controller.audioEndRow, 0);
+  });
 }
 
 final class _FakePlaybackOutput implements PlaybackOutput {

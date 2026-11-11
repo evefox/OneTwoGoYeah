@@ -49,6 +49,7 @@ final _vorbisSources = <String>[
 ].map((name) => '$_root/third_party/libvorbis/src/$name').toList();
 
 final _coreSources = <String>[
+  'audio/audio_end.cpp',
   'audio/audio_export.cpp',
   'audio/audio_export_name.cpp',
   'audio/audio_export_quality.cpp',

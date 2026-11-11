@@ -172,4 +172,13 @@ class ChartTimelineRangeResult final {
     const ChartDraft& draft, TimingParameters timing,
     std::optional<double> audio_end_seconds) noexcept;
 
+/// Scans the draft and also lets a custom audio end row extend the timeline.
+///
+/// The custom row joins the same maximum used by the audio end and event rows,
+/// so the adapter never decides the extent.
+[[nodiscard]] ChartTimelineRangeResult calculate_chart_timeline_range_with_end(
+    const ChartDraft& draft, TimingParameters timing,
+    std::optional<double> audio_end_seconds,
+    std::optional<std::uint64_t> custom_end_sixteenth_row) noexcept;
+
 }  // namespace otgy::core

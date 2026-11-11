@@ -265,6 +265,58 @@ external int otgy_audio_export_snapshot_create(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_pcm>,
+    ffi.Uint64,
+    ffi.Double,
+    ffi.Double,
+    ffi.Uint8,
+    ffi.Uint64,
+    ffi.Uint8,
+    otgy_audio_source_info,
+    otgy_string_view,
+    otgy_audio_export_metadata,
+    ffi.Pointer<ffi.Pointer<otgy_audio_export_snapshot>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_audio_export_snapshot_create_with_end(
+  ffi.Pointer<otgy_pcm> pcm,
+  int pcm_identity,
+  double offset_seconds,
+  double bpm,
+  int end_mode,
+  int end_sixteenth_row,
+  int quality,
+  otgy_audio_source_info source_info,
+  otgy_string_view requested_base_name,
+  otgy_audio_export_metadata metadata,
+  ffi.Pointer<ffi.Pointer<otgy_audio_export_snapshot>> out_snapshot,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Uint8,
+    ffi.Uint64,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_calculate_audio_end_export_seconds(
+  int end_mode,
+  int end_sixteenth_row,
+  double bpm,
+  double offset_seconds,
+  double audio_duration_seconds,
+  ffi.Pointer<ffi.Double> out_seconds,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<ffi.Void Function(ffi.Pointer<otgy_audio_export_snapshot>)>()
 external void otgy_audio_export_snapshot_destroy(
   ffi.Pointer<otgy_audio_export_snapshot> snapshot,
@@ -971,6 +1023,29 @@ external int otgy_chart_calculate_timeline_range(
 
 @ffi.Native<
   otgy_status Function(
+    ffi.Pointer<otgy_chart>,
+    otgy_timing_parameters,
+    ffi.Uint8,
+    ffi.Double,
+    ffi.Uint8,
+    ffi.Uint64,
+    ffi.Pointer<otgy_timeline_range>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_calculate_timeline_range_with_end(
+  ffi.Pointer<otgy_chart> chart,
+  otgy_timing_parameters timing,
+  int has_audio_end,
+  double audio_end_seconds,
+  int has_custom_end,
+  int custom_end_sixteenth_row,
+  ffi.Pointer<otgy_timeline_range> out_range,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
     otgy_timeline_range,
     ffi.Double,
     ffi.Double,
@@ -1060,6 +1135,21 @@ external int otgy_render_playback_pcm(
   ffi.Pointer<otgy_pcm> pcm,
   double timeline_start_seconds,
   ffi.Pointer<ffi.Pointer<otgy_playback_pcm>> out_playback_pcm,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<
+  otgy_status Function(
+    ffi.Uint32,
+    ffi.Double,
+    ffi.Pointer<ffi.Uint64>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_calculate_playback_frame_limit(
+  int sample_rate,
+  double keep_seconds,
+  ffi.Pointer<ffi.Uint64> out_frame_count,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
@@ -2550,6 +2640,8 @@ const int OTGY_ERROR_DOMAIN_PLAYBACK_PCM = 30;
 
 const int OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK = 31;
 
+const int OTGY_ERROR_DOMAIN_AUDIO_END = 32;
+
 const int OTGY_ABI_ERROR_NULL_ARGUMENT = 1;
 
 const int OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE = 2;
@@ -2591,6 +2683,10 @@ const int OTGY_AUDIO_EXPORT_STAGE_PREPARING_AUDIO = 1;
 const int OTGY_AUDIO_EXPORT_STAGE_ENCODING = 2;
 
 const int OTGY_AUDIO_EXPORT_STAGE_SAVING = 3;
+
+const int OTGY_AUDIO_END_MODE_SOURCE_END = 0;
+
+const int OTGY_AUDIO_END_MODE_BEAT = 1;
 
 const int OTGY_SYNC_STAGE_DETECTING_ONSETS = 0;
 

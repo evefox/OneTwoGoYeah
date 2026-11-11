@@ -40,6 +40,18 @@ final BoxDecoration _canvasControlSurfaceDecoration = BoxDecoration(
 
 double editorCursorY(Size size) => size.height * editorCursorViewportFraction;
 
+String editorAudioEndTimeLabel(double seconds) {
+  final totalMilliseconds = (seconds.abs() * 1000).truncate();
+  final milliseconds = totalMilliseconds % 1000;
+  final totalSeconds = totalMilliseconds ~/ 1000;
+  final displaySeconds = totalSeconds % 60;
+  final minutes = totalSeconds ~/ 60;
+  final sign = seconds.isNegative && totalMilliseconds != 0 ? '-' : '';
+  return '$sign${minutes.toString().padLeft(2, '0')}:'
+      '${displaySeconds.toString().padLeft(2, '0')}.'
+      '${milliseconds.toString().padLeft(3, '0')}';
+}
+
 Rect? projectEditorSelectionBand({
   required ChartSelection selection,
   required Rect chart,
@@ -277,6 +289,147 @@ final class _MarkerLongPressIntent extends Intent {
   const _MarkerLongPressIntent();
 }
 
+final class _AudioEndStepIntent extends Intent {
+  const _AudioEndStepIntent(this.direction);
+
+  final int direction;
+}
+
+class _AudioEndHandle extends StatefulWidget {
+  const _AudioEndHandle({
+    required this.custom,
+    required this.enabled,
+    required this.label,
+    required this.onPanStart,
+    required this.onPanUpdate,
+    required this.onPanEnd,
+    required this.onPanCancel,
+    required this.onStep,
+  });
+
+  final bool custom;
+  final bool enabled;
+  final String label;
+  final GestureDragStartCallback onPanStart;
+  final GestureDragUpdateCallback onPanUpdate;
+  final GestureDragEndCallback onPanEnd;
+  final GestureDragCancelCallback onPanCancel;
+  final ValueChanged<int> onStep;
+
+  @override
+  State<_AudioEndHandle> createState() => _AudioEndHandleState();
+}
+
+class _AudioEndHandleState extends State<_AudioEndHandle> {
+  bool _focused = false;
+  int? _activePointer;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.custom ? EditorColors.accent : EditorColors.textMuted;
+    return FocusableActionDetector(
+      enabled: widget.enabled,
+      shortcuts: const {
+        SingleActivator(LogicalKeyboardKey.arrowUp): _AudioEndStepIntent(-1),
+        SingleActivator(LogicalKeyboardKey.arrowDown): _AudioEndStepIntent(1),
+      },
+      actions: {
+        _AudioEndStepIntent: CallbackAction<_AudioEndStepIntent>(
+          onInvoke: (intent) {
+            widget.onStep(intent.direction);
+            return null;
+          },
+        ),
+      },
+      onShowFocusHighlight: (value) {
+        if (_focused != value) {
+          setState(() => _focused = value);
+        }
+      },
+      child: MouseRegion(
+        cursor: widget.enabled
+            ? SystemMouseCursors.resizeUpDown
+            : SystemMouseCursors.basic,
+        child: Semantics(
+          button: true,
+          label: widget.label,
+          onIncrease: widget.enabled ? () => widget.onStep(1) : null,
+          onDecrease: widget.enabled ? () => widget.onStep(-1) : null,
+          child: Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: widget.enabled
+                ? (event) {
+                    _activePointer = event.pointer;
+                    widget.onPanStart(DragStartDetails());
+                  }
+                : null,
+            onPointerMove: widget.enabled
+                ? (event) {
+                    if (event.pointer != _activePointer) {
+                      return;
+                    }
+                    widget.onPanUpdate(
+                      DragUpdateDetails(
+                        globalPosition: event.position,
+                        localPosition: event.localPosition,
+                        delta: event.delta,
+                      ),
+                    );
+                  }
+                : null,
+            onPointerUp: widget.enabled
+                ? (event) {
+                    if (event.pointer != _activePointer) {
+                      return;
+                    }
+                    _activePointer = null;
+                    widget.onPanEnd(DragEndDetails());
+                  }
+                : null,
+            onPointerCancel: widget.enabled
+                ? (event) {
+                    if (event.pointer != _activePointer) {
+                      return;
+                    }
+                    _activePointer = null;
+                    widget.onPanCancel();
+                  }
+                : null,
+            child: Container(
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: widget.enabled ? 0.82 : 0.4),
+                borderRadius: BorderRadius.circular(6),
+                border: _focused
+                    ? Border.all(color: EditorColors.text, width: 2)
+                    : null,
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = math.max(8.0, constraints.maxWidth * 0.5);
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List<Widget>.generate(
+                        3,
+                        (index) => Container(
+                          width: width,
+                          height: 1.5,
+                          margin: const EdgeInsets.symmetric(vertical: 1),
+                          color: EditorColors.canvas,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EditorCanvasState extends State<EditorCanvas>
     with SingleTickerProviderStateMixin {
   final _focusNode = FocusNode(debugLabel: '谱面编辑画布');
@@ -297,6 +450,14 @@ class _EditorCanvasState extends State<EditorCanvas>
   bool _gestureEnabled = false;
   int? _focusHighlightedMarkerId;
   Size? _latestCanvasSize;
+  final ValueNotifier<double?> _audioEndPreviewRow = ValueNotifier<double?>(
+    null,
+  );
+  double _audioEndDragStartRow = 0;
+  double _audioEndDragPixels = 0;
+  double _audioEndDragRow = 0;
+  bool _audioEndDragIsSource = false;
+  bool _audioEndDragActive = false;
   Offset? _desktopHoverPosition;
   bool _pastePreviewSyncScheduled = false;
   int? _pastePreviewSyncedRevision;
@@ -344,6 +505,7 @@ class _EditorCanvasState extends State<EditorCanvas>
     widget.controller.removeListener(_handleControllerChanged);
     _playbackVisualTicker.dispose();
     _paintCurrentRow.dispose();
+    _audioEndPreviewRow.dispose();
     _focusNode.dispose();
     super.dispose();
   }
@@ -509,6 +671,38 @@ class _EditorCanvasState extends State<EditorCanvas>
 
   double _cursorY(Size size) => editorCursorY(size);
 
+  bool _isInAudioEndHandle(Offset position, Size size) {
+    final controller = widget.controller;
+    if (!controller.hasAudio || controller.bpm <= 0) {
+      return false;
+    }
+    final row = _audioEndPreviewRow.value ?? controller.audioEndDisplayRow;
+    if (row == null) {
+      return false;
+    }
+    final chart = _chartRect(size);
+    final spacing = math.max(0.001, controller.rowSpacing);
+    final y = _cursorY(size) + (row - _paintCurrentRow.value) * spacing;
+    final handleSize = _mobile ? 36.0 : 24.0;
+    final top = (y - handleSize / 2)
+        .clamp(chart.top, chart.bottom - handleSize)
+        .toDouble();
+    final handleRect = Rect.fromLTWH(
+      chart.left + 10,
+      top,
+      handleSize,
+      handleSize,
+    );
+    final labelRect = Rect.fromLTRB(
+      chart.left + 10,
+      y - 24,
+      chart.left + 120,
+      y + 10,
+    );
+    return handleRect.inflate(4).contains(position) ||
+        labelRect.contains(position);
+  }
+
   int? _columnAt(Offset point, Size size) {
     final rect = _chartRect(size);
     if (!rect.contains(point)) {
@@ -533,6 +727,9 @@ class _EditorCanvasState extends State<EditorCanvas>
 
   void _handleTap(TapUpDetails details, Size size) {
     _focusNode.requestFocus();
+    if (_isInAudioEndHandle(details.localPosition, size)) {
+      return;
+    }
     final column = _columnAt(details.localPosition, size);
     if (column == null) {
       return;
@@ -576,12 +773,101 @@ class _EditorCanvasState extends State<EditorCanvas>
   }
 
   void _handleLongPress(LongPressStartDetails details, Size size) {
+    if (_isInAudioEndHandle(details.localPosition, size)) {
+      return;
+    }
     final column = _columnAt(details.localPosition, size);
     if (column == null) {
       return;
     }
     _focusNode.requestFocus();
     _handleMarkerSelection(column, _rowAt(details.localPosition.dy, size));
+  }
+
+  ({double row, bool isSource}) _snapAudioEndRow(double rawRow) {
+    final clamped = math.max(0.0, rawRow);
+    final beatRow = ((clamped / 4) + 0.5).floorToDouble() * 4;
+    final sourceRow = widget.controller.audioEndSourceDisplayRow;
+    if (sourceRow != null &&
+        (clamped - sourceRow).abs() <= (clamped - beatRow).abs()) {
+      return (row: sourceRow, isSource: true);
+    }
+    return (row: beatRow, isSource: false);
+  }
+
+  void _handleAudioEndDragStart(DragStartDetails details) {
+    final controller = widget.controller;
+    final current = controller.audioEndDisplayRow;
+    if (!controller.audioEndAdjustable || current == null) {
+      return;
+    }
+    _audioEndDragActive = true;
+    _audioEndDragStartRow = current;
+    _audioEndDragPixels = 0;
+    _audioEndDragRow = current;
+    _audioEndDragIsSource = !controller.audioEndCustom;
+    _audioEndPreviewRow.value = current;
+  }
+
+  void _handleAudioEndDragUpdate(DragUpdateDetails details) {
+    if (!_audioEndDragActive) {
+      return;
+    }
+    final spacing = math.max(0.001, widget.controller.rowSpacing);
+    _audioEndDragPixels += details.delta.dy;
+    final raw = _audioEndDragStartRow + _audioEndDragPixels / spacing;
+    final snap = _snapAudioEndRow(raw);
+    _audioEndDragRow = snap.row;
+    _audioEndDragIsSource = snap.isSource;
+    _audioEndPreviewRow.value = snap.row;
+  }
+
+  void _handleAudioEndDragEnd(DragEndDetails details) {
+    if (!_audioEndDragActive) {
+      return;
+    }
+    _audioEndDragActive = false;
+    _audioEndPreviewRow.value = null;
+    if (_audioEndDragIsSource) {
+      widget.controller.clearAudioEnd();
+    } else {
+      widget.controller.setAudioEndRow(_audioEndDragRow.round());
+    }
+  }
+
+  void _handleAudioEndDragCancel() {
+    _audioEndDragActive = false;
+    _audioEndPreviewRow.value = null;
+  }
+
+  void _stepAudioEnd(int direction) {
+    final controller = widget.controller;
+    if (!controller.audioEndAdjustable) {
+      return;
+    }
+    final current = controller.audioEndDisplayRow;
+    final sourceRow = controller.audioEndSourceDisplayRow;
+    if (current == null) {
+      return;
+    }
+    if (direction < 0) {
+      var beatRow = (current / 4).floorToDouble() * 4;
+      if (beatRow >= current) {
+        beatRow -= 4;
+      }
+      if (sourceRow != null && sourceRow < current && sourceRow > beatRow) {
+        controller.clearAudioEnd();
+      } else if (beatRow >= 0) {
+        controller.setAudioEndRow(beatRow.toInt());
+      }
+      return;
+    }
+    final beatRow = (current / 4).floorToDouble() * 4 + 4;
+    if (sourceRow != null && sourceRow > current && sourceRow < beatRow) {
+      controller.clearAudioEnd();
+    } else {
+      controller.setAudioEndRow(beatRow.toInt());
+    }
   }
 
   void _updateDesktopPastePreview(Offset position, Size size) {
@@ -646,6 +932,9 @@ class _EditorCanvasState extends State<EditorCanvas>
   }
 
   void _handleScaleUpdate(ScaleUpdateDetails details) {
+    if (_audioEndDragActive) {
+      return;
+    }
     if (!_gestureEnabled) {
       return;
     }
@@ -934,10 +1223,109 @@ class _EditorCanvasState extends State<EditorCanvas>
                                   mobile: _mobile,
                                   rowSpacing: spacing,
                                   currentRow: _paintCurrentRow,
+                                  previewAudioEndRow: _audioEndPreviewRow,
                                 ),
                               ),
                             ),
                             ...markerSemantics,
+                            if (widget.controller.hasAudio &&
+                                widget.controller.bpm > 0)
+                              AnimatedBuilder(
+                                animation: Listenable.merge([
+                                  _paintCurrentRow,
+                                  _audioEndPreviewRow,
+                                ]),
+                                builder: (context, _) {
+                                  final endRow =
+                                      _audioEndPreviewRow.value ??
+                                      widget.controller.audioEndDisplayRow;
+                                  if (endRow == null) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  final y =
+                                      _cursorY(size) +
+                                      (endRow - _paintCurrentRow.value) *
+                                          spacing;
+                                  if (y < rect.top - 40 ||
+                                      y > rect.bottom + 40) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  final handleSize = _mobile ? 36.0 : 24.0;
+                                  final handleTop = (y - handleSize / 2)
+                                      .clamp(rect.top, rect.bottom - handleSize)
+                                      .toDouble();
+                                  final seconds =
+                                      OtgyNative.sixteenthRowToSeconds(
+                                        bpm: widget.controller.projectedBpm,
+                                        offset: widget.controller.offset,
+                                        row: endRow,
+                                      );
+                                  final timeLabel = editorAudioEndTimeLabel(
+                                    seconds,
+                                  );
+                                  return Stack(
+                                    fit: StackFit.expand,
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Positioned(
+                                        key: const ValueKey('audio-end-handle'),
+                                        left: rect.left + 10,
+                                        top: handleTop,
+                                        width: handleSize,
+                                        height: handleSize,
+                                        child: _AudioEndHandle(
+                                          custom:
+                                              widget.controller.audioEndCustom,
+                                          enabled: widget
+                                              .controller
+                                              .audioEndAdjustable,
+                                          label:
+                                              widget.controller.audioEndCustom
+                                              ? '音乐结束线，已调整，$timeLabel'
+                                              : '音乐结束线，默认，$timeLabel',
+                                          onPanStart: _handleAudioEndDragStart,
+                                          onPanUpdate:
+                                              _handleAudioEndDragUpdate,
+                                          onPanEnd: _handleAudioEndDragEnd,
+                                          onPanCancel:
+                                              _handleAudioEndDragCancel,
+                                          onStep: _stepAudioEnd,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        key: const ValueKey(
+                                          'audio-end-time-label',
+                                        ),
+                                        left: rect.left + 10 + handleSize + 8,
+                                        top: (y - 17)
+                                            .clamp(rect.top, rect.bottom - 20)
+                                            .toDouble(),
+                                        child: IgnorePointer(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: EditorColors.surface
+                                                  .withValues(alpha: 0.92),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              timeLabel,
+                                              style: const TextStyle(
+                                                color: EditorColors.text,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                             for (
                               var visualIndex = 0;
                               visualIndex < 3;
@@ -1703,7 +2091,8 @@ class _NavigationRailState extends State<_NavigationRail> {
                       !controller.isRhythmTesting &&
                       (controller.isChartPlaying ||
                           (controller.generalActionsEnabled &&
-                              !controller.isBusy))
+                              !controller.isBusy &&
+                              controller.playbackStartEnabled))
                   ? controller.togglePlayback
                   : null,
               tooltip: controller.isChartPlaying
@@ -1714,6 +2103,8 @@ class _NavigationRailState extends State<_NavigationRail> {
                   ? '请先加载音频'
                   : !controller.generalActionsEnabled
                   ? '请先退出选择或粘贴模式'
+                  : !controller.playbackStartEnabled
+                  ? '已到音乐结束位置'
                   : '播放',
               icon: Icon(
                 controller.isChartPlaying
@@ -1885,12 +2276,14 @@ class _EditorCanvasPainter extends CustomPainter {
     required this.mobile,
     required this.rowSpacing,
     required this.currentRow,
-  }) : super(repaint: currentRow);
+    required this.previewAudioEndRow,
+  }) : super(repaint: Listenable.merge([currentRow, previewAudioEndRow]));
 
   final EditorController controller;
   final bool mobile;
   final double rowSpacing;
   final ValueListenable<double> currentRow;
+  final ValueListenable<double?> previewAudioEndRow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1945,8 +2338,10 @@ class _EditorCanvasPainter extends CustomPainter {
         );
       }
     }
+    _drawAudioEndShade(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawShowtimeRanges(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawGrid(canvas, chart, cursorY, spacing, paintCurrentRow);
+    _drawAudioEndLine(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawSelections(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawPastePreview(
       canvas,
@@ -1967,6 +2362,82 @@ class _EditorCanvasPainter extends CustomPainter {
     _drawCursor(canvas, chart, cursorY);
     canvas.restore();
     _drawHeaders(canvas, chart, columnLayout);
+  }
+
+  double? _audioEndRowForPaint() =>
+      previewAudioEndRow.value ?? controller.audioEndDisplayRow;
+
+  void _drawAudioEndShade(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+    double paintCurrentRow,
+  ) {
+    final endRow = _audioEndRowForPaint();
+    if (endRow == null) {
+      return;
+    }
+    final y = cursorY + (endRow - paintCurrentRow) * spacing;
+    if (y >= chart.bottom) {
+      return;
+    }
+    canvas.drawRect(
+      Rect.fromLTRB(
+        chart.left,
+        math.max(chart.top, y),
+        chart.right,
+        chart.bottom,
+      ),
+      Paint()..color = EditorColors.canvas.withValues(alpha: 0.45),
+    );
+  }
+
+  void _drawAudioEndLine(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+    double paintCurrentRow,
+  ) {
+    final endRow = _audioEndRowForPaint();
+    if (endRow == null) {
+      return;
+    }
+    final y = cursorY + (endRow - paintCurrentRow) * spacing;
+    if (y < chart.top || y > chart.bottom) {
+      return;
+    }
+    final paint = Paint()
+      ..color = controller.audioEndCustom
+          ? EditorColors.accent
+          : EditorColors.textMuted
+      ..strokeWidth = 2;
+    if (controller.audioEndCustom) {
+      _drawDashedLine(canvas, chart.left, chart.right, y, paint);
+    } else {
+      canvas.drawLine(Offset(chart.left, y), Offset(chart.right, y), paint);
+    }
+  }
+
+  void _drawDashedLine(
+    Canvas canvas,
+    double left,
+    double right,
+    double y,
+    Paint paint,
+  ) {
+    const dash = 7.0;
+    const gap = 5.0;
+    var x = left;
+    while (x < right) {
+      canvas.drawLine(
+        Offset(x, y),
+        Offset(math.min(x + dash, right), y),
+        paint,
+      );
+      x += dash + gap;
+    }
   }
 
   void _drawSelections(

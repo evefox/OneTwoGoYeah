@@ -99,4 +99,13 @@ class TimelineRangeResult final {
     const std::vector<std::uint64_t>& event_sixteenth_rows,
     const std::vector<std::uint64_t>& show_range_end_rows) noexcept;
 
+/// Extends the timeline to a custom audio end row when it is later than every
+/// other contributor. The custom row participates in the same maximum as the
+/// audio end and event rows, so adapters never choose the extent themselves.
+[[nodiscard]] TimelineRangeResult calculate_timeline_range_with_end(
+    TimingParameters timing, std::optional<double> audio_end_seconds,
+    std::optional<std::uint64_t> custom_end_sixteenth_row,
+    const std::vector<std::uint64_t>& event_sixteenth_rows,
+    const std::vector<std::uint64_t>& show_range_end_rows) noexcept;
+
 }  // namespace otgy::core
