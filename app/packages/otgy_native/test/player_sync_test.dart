@@ -17,21 +17,14 @@ Iterable<int> playerRows(NativeChartEditor editor) => editor
     .map((marker) => marker.row);
 
 void expectProjectRoundTrip(NativeChartEditor editor) {
-  const bpm = 100.00000000000003;
-  const offset = -0.12345678901234566;
   final recovery = editor.encodeRecovery();
   final restored = NativeChartEditor.decodeRecovery(recovery);
-  final formal = editor.encodeFormal(bpm: bpm, offset: offset);
+  final formal = editor.encodeFormal();
   final decoded = NativeChartEditor.decodeFormal(formal);
   try {
     expect(restored.encodeRecovery(), orderedEquals(recovery));
-    expect(decoded.bpm, bpm);
-    expect(decoded.offset, offset);
     expect(decoded.editor.encodeRecovery(), orderedEquals(recovery));
-    expect(
-      decoded.editor.encodeFormal(bpm: decoded.bpm, offset: decoded.offset),
-      orderedEquals(formal),
-    );
+    expect(decoded.editor.encodeFormal(), orderedEquals(formal));
     for (final loaded in [restored, decoded.editor]) {
       expect(loaded.canUndo, isFalse);
       expect(loaded.canRedo, isFalse);

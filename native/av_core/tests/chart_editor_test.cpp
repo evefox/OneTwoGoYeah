@@ -256,16 +256,12 @@ void test_npc_sync_offsets_failures_and_blocks() {
         recovery.bytes()->data(), recovery.bytes()->size());
     assert(recovered);
     assert(otgy::core::chart_drafts_equal(*recovered.chart(), after));
-    constexpr double bpm = 100.00000000000003;
-    constexpr double offset = -0.12345678901234566;
-    const auto formal = otgy::core::encode_formal_draft(after, bpm, offset);
+    const auto formal = otgy::core::encode_formal_draft(after);
     assert(formal);
     const auto loaded = otgy::core::decode_formal_draft(
         formal.bytes()->data(), formal.bytes()->size());
     assert(loaded);
     assert(otgy::core::chart_drafts_equal(loaded.payload()->chart, after));
-    assert(loaded.payload()->bpm == bpm);
-    assert(loaded.payload()->offset_seconds == offset);
     assert(editor.undo_count() == 1U);
     assert(editor.undo());
     assert(otgy::core::chart_drafts_equal(editor.draft(), base));
@@ -657,22 +653,18 @@ void test_npc_sync_uses_current_occupancy_without_retry() {
 }
 
 void assert_sync_payload_round_trips(const ChartDraft& draft) {
-  constexpr double bpm = 100.00000000000003;
-  constexpr double offset = -0.12345678901234566;
   const auto recovery = otgy::core::encode_recovery_snapshot(draft);
   assert(recovery);
   const auto recovered = otgy::core::decode_recovery_snapshot(
       recovery.bytes()->data(), recovery.bytes()->size());
   assert(recovered);
   assert(otgy::core::chart_drafts_equal(*recovered.chart(), draft));
-  const auto formal = otgy::core::encode_formal_draft(draft, bpm, offset);
+  const auto formal = otgy::core::encode_formal_draft(draft);
   assert(formal);
   const auto loaded = otgy::core::decode_formal_draft(
       formal.bytes()->data(), formal.bytes()->size());
   assert(loaded);
   assert(otgy::core::chart_drafts_equal(loaded.payload()->chart, draft));
-  assert(loaded.payload()->bpm == bpm);
-  assert(loaded.payload()->offset_seconds == offset);
   ChartEditor restored{*recovered.chart()};
   assert(otgy::core::chart_drafts_equal(restored.draft(), draft));
   assert(restored.undo_count() == 0U && restored.redo_count() == 0U);
@@ -1408,15 +1400,14 @@ void test_paste_round_trip_through_formal_payload() {
   assert(editor.paste(200U));
   const auto pasted = editor.draft();
 
-  const auto encoded = otgy::core::encode_formal_draft(pasted, 100.0, 0.0);
+  const auto encoded = otgy::core::encode_formal_draft(pasted);
   assert(encoded);
   const auto decoded = otgy::core::decode_formal_draft(encoded.bytes()->data(),
                                                        encoded.bytes()->size());
   assert(decoded);
   assert(otgy::core::chart_drafts_equal(decoded.payload()->chart, pasted));
-  const auto again = otgy::core::encode_formal_draft(
-      decoded.payload()->chart, decoded.payload()->bpm,
-      decoded.payload()->offset_seconds);
+  const auto again =
+      otgy::core::encode_formal_draft(decoded.payload()->chart);
   assert(again);
   assert(*again.bytes() == *encoded.bytes());
 }
@@ -2769,16 +2760,12 @@ void test_split_dance_move_regenerates_showtime() {
   assert(recovered);
   assert(otgy::core::chart_drafts_equal(*recovered.chart(), merged));
 
-  constexpr double bpm = 100.00000000000003;
-  constexpr double offset = -0.12345678901234566;
-  const auto formal = otgy::core::encode_formal_draft(merged, bpm, offset);
+  const auto formal = otgy::core::encode_formal_draft(merged);
   assert(formal);
   const auto decoded = otgy::core::decode_formal_draft(
       formal.bytes()->data(), formal.bytes()->size());
   assert(decoded);
   assert(otgy::core::chart_drafts_equal(decoded.payload()->chart, merged));
-  assert(decoded.payload()->bpm == bpm);
-  assert(decoded.payload()->offset_seconds == offset);
 }
 
 /// Closing a group from the empty-click auto-end branch must use the same split

@@ -97,6 +97,7 @@ class _EditorScreenState extends State<EditorScreen>
   Timer? _recoveryTimer;
   int _observedProjectRevision = 0;
   int _flushedProjectRevision = 0;
+  bool _lastDirty = false;
   EditorNotice? _shownNotice;
   bool _exitConfirmationOpen = false;
   bool _allowExit = false;
@@ -123,6 +124,7 @@ class _EditorScreenState extends State<EditorScreen>
     _controller = widget.controller ?? EditorController();
     _observedProjectRevision = _controller.projectRevision;
     _flushedProjectRevision = _controller.projectRevision;
+    _lastDirty = _controller.isDirty;
     _controller.addListener(_handleControllerChange);
     _lifecycleChannel.setMethodCallHandler(_handlePlatformLifecycleCall);
     unawaited(_initializeStore());
@@ -198,11 +200,21 @@ class _EditorScreenState extends State<EditorScreen>
 
   void _handleControllerChange() {
     final revision = _controller.projectRevision;
+    final dirty = _controller.isDirty;
+    final becameClean = _lastDirty && !dirty;
+    _lastDirty = dirty;
+    if (becameClean) {
+      // A clean workspace no longer needs a recovery snapshot. This covers
+      // undo back to the baseline and replacement by a clean SLK or draft.
+      _recoveryTimer?.cancel();
+      _recoveryTimer = null;
+      unawaited(_deleteCleanRecovery());
+    }
     if (revision == _observedProjectRevision) {
       return;
     }
     _observedProjectRevision = revision;
-    if (!_controller.isDirty) {
+    if (!dirty) {
       return;
     }
     _recoveryTimer?.cancel();
@@ -211,12 +223,27 @@ class _EditorScreenState extends State<EditorScreen>
     });
   }
 
+  Future<void> _deleteCleanRecovery() async {
+    final store = _store;
+    if (store == null) {
+      return;
+    }
+    try {
+      await store.deleteRecovery();
+      _record('recovery.delete.completed', {});
+    } on Object catch (error, stack) {
+      _recordException('recovery.delete', error, stack);
+    }
+  }
+
   Future<void> _flushRecovery() async {
     _recoveryTimer?.cancel();
     _recoveryTimer = null;
     final store = _store;
     final revision = _controller.projectRevision;
-    if (store == null || revision == _flushedProjectRevision) {
+    if (store == null ||
+        !_controller.isDirty ||
+        revision == _flushedProjectRevision) {
       return;
     }
     try {

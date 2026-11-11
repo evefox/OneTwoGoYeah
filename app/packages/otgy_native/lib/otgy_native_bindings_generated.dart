@@ -1868,16 +1868,12 @@ external int otgy_slk_document_project_chart(
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart>,
-    ffi.Double,
-    ffi.Double,
     ffi.Pointer<ffi.Pointer<otgy_bytes>>,
     ffi.Pointer<ffi.Pointer<otgy_error>>,
   )
 >()
 external int otgy_project_encode_formal_draft(
   ffi.Pointer<otgy_chart> chart,
-  double bpm,
-  double offset_seconds,
   ffi.Pointer<ffi.Pointer<otgy_bytes>> out_bytes,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
@@ -1886,16 +1882,12 @@ external int otgy_project_encode_formal_draft(
   otgy_status Function(
     otgy_byte_view,
     ffi.Pointer<ffi.Pointer<otgy_chart>>,
-    ffi.Pointer<ffi.Double>,
-    ffi.Pointer<ffi.Double>,
     ffi.Pointer<ffi.Pointer<otgy_error>>,
   )
 >()
 external int otgy_project_decode_formal_draft(
   otgy_byte_view bytes,
   ffi.Pointer<ffi.Pointer<otgy_chart>> out_chart,
-  ffi.Pointer<ffi.Double> out_bpm,
-  ffi.Pointer<ffi.Double> out_offset_seconds,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 

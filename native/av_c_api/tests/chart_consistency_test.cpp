@@ -1396,14 +1396,11 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
              abi_ordinal == direct_ordinal.ordinal,
          "note ordinal differs");
 
-  const double bpm = 100.00000000000003;
-  const double offset = -0.12345678901234566;
   const auto direct_formal =
-      otgy::core::encode_formal_draft(direct_editor.draft(), bpm, offset);
+      otgy::core::encode_formal_draft(direct_editor.draft());
   otgy_bytes* raw_formal = nullptr;
-  expect(otgy_project_encode_formal_draft(edited.get(), bpm, offset,
-                                          &raw_formal, &raw_error) ==
-             OTGY_STATUS_OK,
+  expect(otgy_project_encode_formal_draft(edited.get(), &raw_formal,
+                                          &raw_error) == OTGY_STATUS_OK,
          "C ABI formal encode failed");
   auto formal = handle<otgy_bytes, otgy_bytes_destroy>(raw_formal);
   const auto formal_view = otgy_bytes_get_view(formal.get());
@@ -1412,16 +1409,11 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
                          direct_formal.bytes()->size()) == 0,
          "formal project bytes differ");
   otgy_chart* raw_decoded = nullptr;
-  double decoded_bpm = 0.0;
-  double decoded_offset = 0.0;
-  expect(otgy_project_decode_formal_draft(
-             formal_view, &raw_decoded, &decoded_bpm, &decoded_offset,
-             &raw_error) == OTGY_STATUS_OK,
+  expect(otgy_project_decode_formal_draft(formal_view, &raw_decoded,
+                                          &raw_error) == OTGY_STATUS_OK,
          "C ABI formal decode failed");
   auto decoded = handle<otgy_chart, otgy_chart_destroy>(raw_decoded);
-  expect(otgy_chart_equal(edited.get(), decoded.get()) == 1U &&
-             same_double(decoded_bpm, bpm) &&
-             same_double(decoded_offset, offset),
+  expect(otgy_chart_equal(edited.get(), decoded.get()) == 1U,
          "formal project round-trip differs");
 
   const auto direct_recovery =

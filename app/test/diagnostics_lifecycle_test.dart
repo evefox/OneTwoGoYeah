@@ -252,6 +252,23 @@ void main() {
     },
   );
 
+  lifecycleTest('undo back to a clean chart deletes the recovery snapshot', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 3);
+    expect(controller.isDirty, isTrue);
+
+    await tester.pump(const Duration(milliseconds: 500));
+    await waitUntil(tester, () async => await store.readRecovery() != null);
+
+    controller.undo();
+    expect(controller.isDirty, isFalse);
+    await tester.pump();
+
+    await waitUntil(tester, () async => await store.readRecovery() == null);
+  });
+
   lifecycleTest(
     'real save persists the draft and logs completion without its name',
     (tester) async {

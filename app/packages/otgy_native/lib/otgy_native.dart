@@ -414,16 +414,9 @@ final class AudioExportCancellation {
 }
 
 final class DecodedFormalDraft {
-  const DecodedFormalDraft({
-    required this.editor,
-    required this.bpm,
-    required this.offset,
-    this.repaired = false,
-  });
+  const DecodedFormalDraft({required this.editor, this.repaired = false});
 
   final NativeChartEditor editor;
-  final double bpm;
-  final double offset;
   final bool repaired;
 }
 
@@ -1062,20 +1055,12 @@ final class NativeChartEditor {
       final input = _copyBytes(bytes, arena);
       final outChart = arena<Pointer<native.otgy_chart>>();
       final outEditor = arena<Pointer<native.otgy_chart_editor>>();
-      final outBpm = arena<Double>();
-      final outOffset = arena<Double>();
       final outChanged = arena<Uint8>();
       final outError = arena<Pointer<native.otgy_error>>();
       var editorTransferred = false;
       try {
         _checkStatus(
-          native.otgy_project_decode_formal_draft(
-            input,
-            outChart,
-            outBpm,
-            outOffset,
-            outError,
-          ),
+          native.otgy_project_decode_formal_draft(input, outChart, outError),
           outError,
         );
         _checkStatus(
@@ -1096,12 +1081,7 @@ final class NativeChartEditor {
         }
         final editor = NativeChartEditor._(outEditor.value);
         editorTransferred = true;
-        return DecodedFormalDraft(
-          editor: editor,
-          bpm: outBpm.value,
-          offset: outOffset.value,
-          repaired: repaired,
-        );
+        return DecodedFormalDraft(editor: editor, repaired: repaired);
       } finally {
         if (!editorTransferred && outEditor.value != nullptr) {
           native.otgy_chart_editor_destroy(outEditor.value);
@@ -1577,7 +1557,7 @@ final class NativeChartEditor {
     });
   }
 
-  Uint8List encodeFormal({required double bpm, required double offset}) {
+  Uint8List encodeFormal() {
     return using((arena) {
       final outBytes = arena<Pointer<native.otgy_bytes>>();
       final error = arena<Pointer<native.otgy_error>>();
@@ -1585,13 +1565,7 @@ final class NativeChartEditor {
       try {
         chart = _copyChart(error);
         _checkStatus(
-          native.otgy_project_encode_formal_draft(
-            chart,
-            bpm,
-            offset,
-            outBytes,
-            error,
-          ),
+          native.otgy_project_encode_formal_draft(chart, outBytes, error),
           error,
         );
         return _copyOwnedBytes(outBytes.value);

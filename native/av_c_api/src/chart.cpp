@@ -827,8 +827,7 @@ otgy_status otgy_slk_document_project_chart(
 }
 
 otgy_status otgy_project_encode_formal_draft(
-    const otgy_chart* chart, double bpm, double offset_seconds,
-    otgy_bytes** out_bytes, otgy_error** out_error) {
+    const otgy_chart* chart, otgy_bytes** out_bytes, otgy_error** out_error) {
   if (out_bytes != nullptr) {
     *out_bytes = nullptr;
   }
@@ -836,8 +835,7 @@ otgy_status otgy_project_encode_formal_draft(
     if (chart == nullptr || out_bytes == nullptr) {
       return invalid_argument(out_error);
     }
-    auto result =
-        otgy::core::encode_formal_draft(chart->value, bpm, offset_seconds);
+    auto result = otgy::core::encode_formal_draft(chart->value);
     if (!result) {
       return core_error(
           out_error, OTGY_ERROR_DOMAIN_PROJECT_SERIALIZATION,
@@ -849,15 +847,14 @@ otgy_status otgy_project_encode_formal_draft(
 }
 
 otgy_status otgy_project_decode_formal_draft(
-    otgy_byte_view bytes, otgy_chart** out_chart, double* out_bpm,
-    double* out_offset_seconds, otgy_error** out_error) {
+    otgy_byte_view bytes, otgy_chart** out_chart,
+    otgy_error** out_error) {
   if (out_chart != nullptr) {
     *out_chart = nullptr;
   }
   return boundary(out_error, [&]() -> otgy_status {
     std::size_t size = 0U;
-    if (out_chart == nullptr || out_bpm == nullptr ||
-        out_offset_seconds == nullptr || !valid_bytes(bytes, size)) {
+    if (out_chart == nullptr || !valid_bytes(bytes, size)) {
       return invalid_argument(out_error);
     }
     auto result = otgy::core::decode_formal_draft(bytes.data, size);
@@ -872,8 +869,6 @@ otgy_status otgy_project_decode_formal_draft(
     if (chart == nullptr) {
       return out_of_memory(out_error);
     }
-    *out_bpm = payload.bpm;
-    *out_offset_seconds = payload.offset_seconds;
     *out_chart = chart;
     return OTGY_STATUS_OK;
   });

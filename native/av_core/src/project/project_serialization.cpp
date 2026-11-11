@@ -377,18 +377,9 @@ void write_double_bits(Writer& writer, double value) {
 }
 
 [[nodiscard]] ProjectBytesResult encode_payload(ProjectPayloadKind kind,
-                                                const ChartDraft& chart,
-                                                double bpm,
-                                                double offset) noexcept {
+                                                const ChartDraft& chart) noexcept {
   try {
     Writer payload;
-    if (kind == ProjectPayloadKind::FormalDraft) {
-      if (!valid_timing(bpm, offset)) {
-        return ProjectBytesResult{ProjectSerializationError::InvalidTiming};
-      }
-      write_double_bits(payload, bpm);
-      write_double_bits(payload, offset);
-    }
     if (!write_chart(payload, chart)) {
       return ProjectBytesResult{ProjectSerializationError::InvalidDraft};
     }
@@ -411,6 +402,7 @@ void write_double_bits(Writer& writer, double value) {
 struct DecodedEnvelope final {
   const std::uint8_t* payload;
   std::size_t payload_size;
+  std::uint16_t version;
 };
 
 [[nodiscard]] ProjectSerializationError decode_envelope(
@@ -441,7 +433,8 @@ struct DecodedEnvelope final {
       !reader.u64(payload_size) || !reader.u32(expected_crc)) {
     return ProjectSerializationError::LengthMismatch;
   }
-  if (version != kProjectPayloadVersion) {
+  if (version != kProjectPayloadVersion &&
+      version != kProjectPayloadVersionLegacyTiming) {
     return ProjectSerializationError::UnsupportedVersion;
   }
   if (kind != static_cast<std::uint8_t>(expected_kind)) {
@@ -456,7 +449,7 @@ struct DecodedEnvelope final {
   if (crc32(reader.current(), reader.remaining()) != expected_crc) {
     return ProjectSerializationError::IntegrityMismatch;
   }
-  envelope = {reader.current(), reader.remaining()};
+  envelope = {reader.current(), reader.remaining(), version};
   return ProjectSerializationError::None;
 }
 
@@ -536,10 +529,8 @@ ChartDraft RecoverySnapshotDecodeResult::take_chart() && {
   return std::move(std::get<ChartDraft>(storage_));
 }
 
-ProjectBytesResult encode_formal_draft(const ChartDraft& chart, double bpm,
-                                       double offset_seconds) noexcept {
-  return encode_payload(ProjectPayloadKind::FormalDraft, chart, bpm,
-                        offset_seconds);
+ProjectBytesResult encode_formal_draft(const ChartDraft& chart) noexcept {
+  return encode_payload(ProjectPayloadKind::FormalDraft, chart);
 }
 
 FormalDraftDecodeResult decode_formal_draft(const std::uint8_t* bytes,
@@ -552,22 +543,25 @@ FormalDraftDecodeResult decode_formal_draft(const std::uint8_t* bytes,
   }
   try {
     Reader reader{envelope.payload, envelope.payload_size};
-    double bpm = 0.0;
-    double offset = 0.0;
+    if (envelope.version == kProjectPayloadVersionLegacyTiming) {
+      double legacy_bpm = 0.0;
+      double legacy_offset = 0.0;
+      if (!read_double_bits(reader, legacy_bpm) ||
+          !read_double_bits(reader, legacy_offset)) {
+        return FormalDraftDecodeResult{
+            ProjectSerializationError::MalformedPayload};
+      }
+      if (!valid_timing(legacy_bpm, legacy_offset)) {
+        return FormalDraftDecodeResult{
+            ProjectSerializationError::InvalidTiming};
+      }
+    }
     ChartDraft chart{{}, {}, {}, {}, {}, {}};
-    if (!read_double_bits(reader, bpm) || !read_double_bits(reader, offset)) {
-      return FormalDraftDecodeResult{
-          ProjectSerializationError::MalformedPayload};
-    }
-    if (!valid_timing(bpm, offset)) {
-      return FormalDraftDecodeResult{ProjectSerializationError::InvalidTiming};
-    }
     if (!read_chart(reader, chart) || reader.remaining() != 0U) {
       return FormalDraftDecodeResult{
           ProjectSerializationError::MalformedPayload};
     }
-    return FormalDraftDecodeResult{
-        FormalDraftPayload{std::move(chart), bpm, offset}};
+    return FormalDraftDecodeResult{FormalDraftPayload{std::move(chart)}};
   } catch (const std::bad_alloc&) {
     return FormalDraftDecodeResult{
         ProjectSerializationError::AllocationFailure};
@@ -575,7 +569,7 @@ FormalDraftDecodeResult decode_formal_draft(const std::uint8_t* bytes,
 }
 
 ProjectBytesResult encode_recovery_snapshot(const ChartDraft& chart) noexcept {
-  return encode_payload(ProjectPayloadKind::RecoverySnapshot, chart, 0.0, 0.0);
+  return encode_payload(ProjectPayloadKind::RecoverySnapshot, chart);
 }
 
 RecoverySnapshotDecodeResult decode_recovery_snapshot(

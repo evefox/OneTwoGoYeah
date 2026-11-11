@@ -85,16 +85,41 @@ void refresh_integrity(std::vector<std::uint8_t>& bytes) {
   write_u32(bytes, 20U, crc32(bytes.data() + 24U, bytes.size() - 24U));
 }
 
+void append_double_bits(std::vector<std::uint8_t>& bytes, double value) {
+  const auto bits = double_bits(value);
+  for (unsigned int shift = 0U; shift < 64U; shift += 8U) {
+    bytes.push_back(static_cast<std::uint8_t>(bits >> shift));
+  }
+}
+
+[[nodiscard]] std::vector<std::uint8_t> legacy_formal_payload(
+    const ChartDraft& chart, double bpm, double offset) {
+  const auto current = otgy::core::encode_formal_draft(chart);
+  assert(current);
+  const auto& encoded = *current.bytes();
+  std::vector<std::uint8_t> payload;
+  payload.reserve(16U + encoded.size() - 24U);
+  append_double_bits(payload, bpm);
+  append_double_bits(payload, offset);
+  payload.insert(payload.end(), encoded.begin() + 24, encoded.end());
+  std::vector<std::uint8_t> result(encoded.begin(), encoded.begin() + 24);
+  result[8U] = 1U;
+  result[9U] = 0U;
+  write_u64(result, 12U, payload.size());
+  write_u32(result, 20U, crc32(payload.data(), payload.size()));
+  result.insert(result.end(), payload.begin(), payload.end());
+  return result;
+}
+
 void test_formal_and_recovery_round_trip() {
   const auto chart = canonical_draft();
-  const double bpm = 129.24970691676435;
-  const double offset = -0.090521541950113374;
-  const auto formal = otgy::core::encode_formal_draft(chart, bpm, offset);
-  const auto repeated = otgy::core::encode_formal_draft(chart, bpm, offset);
+  const auto formal = otgy::core::encode_formal_draft(chart);
+  const auto repeated = otgy::core::encode_formal_draft(chart);
   const auto recovery = otgy::core::encode_recovery_snapshot(chart);
   assert(formal && repeated && recovery);
   assert(*formal.bytes() == *repeated.bytes());
-  assert(formal.bytes()->size() == recovery.bytes()->size() + 16U);
+  assert(formal.bytes()->size() == recovery.bytes()->size());
+  assert(formal.bytes()->at(8U) == 2U);
   assert(formal.bytes()->at(10U) == 1U);
   assert(recovery.bytes()->at(10U) == 2U);
 
@@ -104,9 +129,6 @@ void test_formal_and_recovery_round_trip() {
   assert(decoded);
   formal_bytes.clear();
   assert(otgy::core::chart_drafts_equal(decoded.payload()->chart, chart));
-  assert(double_bits(decoded.payload()->bpm) == double_bits(bpm));
-  assert(double_bits(decoded.payload()->offset_seconds) ==
-         double_bits(offset));
 
   auto recovery_bytes = *recovery.bytes();
   auto recovered = otgy::core::decode_recovery_snapshot(
@@ -125,31 +147,36 @@ void test_formal_and_recovery_round_trip() {
 
 void test_empty_payload_canonical_bytes() {
   const ChartDraft empty{{}, {}, {}, {}, {}, {}};
-  const auto formal = otgy::core::encode_formal_draft(empty, 100.0, 0.0);
+  const auto formal = otgy::core::encode_formal_draft(empty);
   const auto recovery = otgy::core::encode_recovery_snapshot(empty);
   assert(formal && recovery);
-  assert(formal.bytes()->size() == 88U);
+  assert(formal.bytes()->size() == 72U);
   assert(recovery.bytes()->size() == 72U);
   const std::vector<std::uint8_t> prefix{'O', 'T', 'G', 'Y', 'P', 'R', 'J',
-                                         0U, 1U, 0U};
+                                         0U, 2U, 0U};
   for (std::size_t index = 0U; index < prefix.size(); ++index) {
     assert(formal.bytes()->at(index) == prefix[index]);
     assert(recovery.bytes()->at(index) == prefix[index]);
   }
   assert(formal.bytes()->at(10U) == 1U);
   assert(recovery.bytes()->at(10U) == 2U);
-  assert(formal.bytes()->at(12U) == 64U);
+  assert(formal.bytes()->at(12U) == 48U);
   assert(recovery.bytes()->at(12U) == 48U);
-  assert(formal.bytes()->at(20U) == 0x94U);
-  assert(formal.bytes()->at(21U) == 0xC4U);
-  assert(formal.bytes()->at(22U) == 0x9CU);
-  assert(formal.bytes()->at(23U) == 0xE9U);
+  assert(formal.bytes()->at(20U) == 0x95U);
+  assert(formal.bytes()->at(21U) == 0xB3U);
+  assert(formal.bytes()->at(22U) == 0x88U);
+  assert(formal.bytes()->at(23U) == 0xF2U);
   assert(recovery.bytes()->at(20U) == 0x95U);
   assert(recovery.bytes()->at(21U) == 0xB3U);
   assert(recovery.bytes()->at(22U) == 0x88U);
   assert(recovery.bytes()->at(23U) == 0xF2U);
-  assert(formal.bytes()->at(30U) == 0x59U);
-  assert(formal.bytes()->at(31U) == 0x40U);
+  for (std::size_t index = 0U; index < formal.bytes()->size(); ++index) {
+    if (index == 10U) {
+      assert(formal.bytes()->at(index) != recovery.bytes()->at(index));
+    } else {
+      assert(formal.bytes()->at(index) == recovery.bytes()->at(index));
+    }
+  }
 }
 
 void test_incomplete_draft_and_history_exclusion() {
@@ -161,8 +188,7 @@ void test_incomplete_draft_and_history_exclusion() {
   const auto validation = otgy::core::validate_finished_chart(editor.draft());
   assert(!validation.is_finished());
 
-  const auto formal =
-      otgy::core::encode_formal_draft(editor.draft(), -0.0, +0.0);
+  const auto formal = otgy::core::encode_formal_draft(editor.draft());
   const auto recovery =
       otgy::core::encode_recovery_snapshot(editor.draft());
   assert(formal && recovery);
@@ -174,37 +200,46 @@ void test_incomplete_draft_and_history_exclusion() {
   assert(otgy::core::chart_drafts_equal(decoded.payload()->chart,
                                         editor.draft()));
   assert(otgy::core::chart_drafts_equal(*recovered.chart(), editor.draft()));
-  assert(double_bits(decoded.payload()->bpm) == double_bits(-0.0));
-  assert(double_bits(decoded.payload()->offset_seconds) == double_bits(+0.0));
 
   ChartEditor restored{std::move(recovered).take_chart()};
   assert(!restored.can_undo());
   assert(!restored.can_redo());
 }
 
-void test_hidden_binary64_precision_is_authoritative() {
-  const ChartDraft empty{{}, {}, {}, {}, {}, {}};
-  const double bpm_a = 100.0;
-  const double bpm_b = std::nextafter(bpm_a, 101.0);
-  const double offset_a = 0.0;
-  const double offset_b = std::nextafter(offset_a, 1.0);
-  const auto first =
-      otgy::core::encode_formal_draft(empty, bpm_a, offset_a);
-  const auto second =
-      otgy::core::encode_formal_draft(empty, bpm_b, offset_b);
-  assert(first && second);
-  assert(*first.bytes() != *second.bytes());
-  const auto decoded = otgy::core::decode_formal_draft(
-      second.bytes()->data(), second.bytes()->size());
+void test_legacy_formal_timing_is_discarded() {
+  const ChartDraft chart = canonical_draft();
+  const double bpm = 129.24970691676435;
+  const double offset = -0.090521541950113374;
+  auto legacy = legacy_formal_payload(chart, bpm, offset);
+  assert(legacy.at(8U) == 1U);
+  auto decoded =
+      otgy::core::decode_formal_draft(legacy.data(), legacy.size());
   assert(decoded);
-  assert(double_bits(decoded.payload()->bpm) == double_bits(bpm_b));
-  assert(double_bits(decoded.payload()->offset_seconds) ==
-         double_bits(offset_b));
+  assert(otgy::core::chart_drafts_equal(decoded.payload()->chart, chart));
+
+  auto other =
+      legacy_formal_payload(chart, std::nextafter(bpm, 130.0),
+                            std::nextafter(offset, 0.0));
+  assert(legacy != other);
+  auto other_decoded =
+      otgy::core::decode_formal_draft(other.data(), other.size());
+  assert(other_decoded);
+  assert(otgy::core::chart_drafts_equal(other_decoded.payload()->chart,
+                                        decoded.payload()->chart));
+  const auto current = otgy::core::encode_formal_draft(
+      decoded.payload()->chart);
+  assert(current);
+  assert(otgy::core::chart_drafts_equal(
+      otgy::core::decode_formal_draft(current.bytes()->data(),
+                                      current.bytes()->size())
+          .payload()
+          ->chart,
+      chart));
 }
 
 void test_input_and_header_errors() {
   const ChartDraft empty{{}, {}, {}, {}, {}, {}};
-  const auto formal = otgy::core::encode_formal_draft(empty, 100.0, 0.0);
+  const auto formal = otgy::core::encode_formal_draft(empty);
   const auto recovery = otgy::core::encode_recovery_snapshot(empty);
   assert(formal && recovery);
 
@@ -226,7 +261,7 @@ void test_input_and_header_errors() {
   assert(otgy::core::decode_formal_draft(bytes.data(), bytes.size()).error() ==
          ProjectSerializationError::InvalidMagic);
   bytes = *formal.bytes();
-  bytes[8U] = 2U;
+  bytes[8U] = 3U;
   assert(otgy::core::decode_formal_draft(bytes.data(), bytes.size()).error() ==
          ProjectSerializationError::UnsupportedVersion);
   bytes = *formal.bytes();
@@ -283,24 +318,16 @@ void test_malformed_payload_and_invalid_values() {
          ProjectSerializationError::InvalidDraft);
 
   assert(otgy::core::encode_formal_draft(
-             chart, std::numeric_limits<double>::infinity(), 0.0)
-             .error() == ProjectSerializationError::InvalidTiming);
-  assert(otgy::core::encode_formal_draft(chart, -0.001, 0.0).error() ==
-         ProjectSerializationError::InvalidTiming);
-  assert(otgy::core::encode_formal_draft(chart, 100000.001, 0.0).error() ==
-         ProjectSerializationError::InvalidTiming);
-  assert(otgy::core::encode_formal_draft(chart, 100.0, -30.001).error() ==
-         ProjectSerializationError::InvalidTiming);
-  assert(otgy::core::encode_formal_draft(chart, 100.0, 30.001).error() ==
-         ProjectSerializationError::InvalidTiming);
+             invalid)
+             .error() == ProjectSerializationError::InvalidDraft);
 
-  auto formal = otgy::core::encode_formal_draft(chart, 100.0, 0.0);
-  assert(formal);
-  bytes = *formal.bytes();
-  write_u64(bytes, 24U, 0x7FF0000000000000ULL);
-  refresh_integrity(bytes);
-  assert(otgy::core::decode_formal_draft(bytes.data(), bytes.size()).error() ==
-         ProjectSerializationError::InvalidTiming);
+  auto legacy = legacy_formal_payload(
+      chart, std::numeric_limits<double>::infinity(), 0.0);
+  assert(otgy::core::decode_formal_draft(legacy.data(), legacy.size())
+             .error() == ProjectSerializationError::InvalidTiming);
+  legacy = legacy_formal_payload(chart, 100.0, 30.001);
+  assert(otgy::core::decode_formal_draft(legacy.data(), legacy.size())
+             .error() == ProjectSerializationError::InvalidTiming);
 }
 
 void test_error_messages() {
@@ -327,7 +354,7 @@ int main() {
   test_formal_and_recovery_round_trip();
   test_empty_payload_canonical_bytes();
   test_incomplete_draft_and_history_exclusion();
-  test_hidden_binary64_precision_is_authoritative();
+  test_legacy_formal_timing_is_discarded();
   test_input_and_header_errors();
   test_malformed_payload_and_invalid_values();
   test_error_messages();

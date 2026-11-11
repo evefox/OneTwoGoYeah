@@ -936,11 +936,9 @@ OTGY_C_API otgy_status otgy_slk_document_project_chart(
     otgy_error** out_error);
 
 OTGY_C_API otgy_status otgy_project_encode_formal_draft(
-    const otgy_chart* chart, double bpm, double offset_seconds,
-    otgy_bytes** out_bytes, otgy_error** out_error);
+    const otgy_chart* chart, otgy_bytes** out_bytes, otgy_error** out_error);
 OTGY_C_API otgy_status otgy_project_decode_formal_draft(
-    otgy_byte_view bytes, otgy_chart** out_chart, double* out_bpm,
-    double* out_offset_seconds, otgy_error** out_error);
+    otgy_byte_view bytes, otgy_chart** out_chart, otgy_error** out_error);
 OTGY_C_API otgy_status otgy_project_encode_recovery_snapshot(
     const otgy_chart* chart, otgy_bytes** out_bytes, otgy_error** out_error);
 OTGY_C_API otgy_status otgy_project_decode_recovery_snapshot(

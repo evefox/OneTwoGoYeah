@@ -12,7 +12,12 @@
 
 namespace otgy::core {
 
-inline constexpr std::uint16_t kProjectPayloadVersion = 1U;
+inline constexpr std::uint16_t kProjectPayloadVersion = 2U;
+
+// Version 1 formal drafts carried BPM and Offset before the draft was limited
+// to chart data. They remain readable; the timing prefix is validated and
+// discarded.
+inline constexpr std::uint16_t kProjectPayloadVersionLegacyTiming = 1U;
 
 enum class ProjectPayloadKind : std::uint8_t {
   FormalDraft = 1,
@@ -84,8 +89,6 @@ class ProjectBytesResult final {
 
 struct FormalDraftPayload final {
   ChartDraft chart;
-  double bpm;
-  double offset_seconds;
 };
 
 class FormalDraftDecodeResult final {
@@ -118,7 +121,7 @@ class RecoverySnapshotDecodeResult final {
 };
 
 [[nodiscard]] ProjectBytesResult encode_formal_draft(
-    const ChartDraft& chart, double bpm, double offset_seconds) noexcept;
+    const ChartDraft& chart) noexcept;
 [[nodiscard]] FormalDraftDecodeResult decode_formal_draft(
     const std::uint8_t* bytes, std::size_t byte_count) noexcept;
 

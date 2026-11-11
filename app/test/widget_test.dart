@@ -905,6 +905,74 @@ void main() {
     expect(controller.rowSpacing, closeTo(targetEditorRowSpacing, 2));
   });
 
+  test('audio-session timing changes do not mark the chart unsaved', () {
+    controller.setBpm(140);
+    controller.setOffset(0.5);
+
+    expect(controller.bpm, 140);
+    expect(controller.offset, 0.5);
+    expect(controller.isDirty, isFalse);
+  });
+
+  test('audio import alone does not mark an empty workspace unsaved', () async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+
+    expect(controller.isDirty, isFalse);
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+
+    expect(controller.hasAudio, isTrue);
+    expect(controller.isDirty, isFalse);
+  });
+
+  test('audio replacement keeps a clean saved draft clean', () async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    controller.setBpm(150);
+    controller.markSaved(
+      draftId: 'draft',
+      draftName: 'draft',
+      payload: controller.encodeFormalDraft(),
+    );
+    expect(controller.isDirty, isFalse);
+
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+
+    expect(controller.bpm, 100);
+    expect(controller.isDirty, isFalse);
+  });
+
+  test('audio replacement preserves pending chart edits as unsaved', () async {
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
+    expect(controller.isDirty, isTrue);
+
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+
+    expect(controller.isDirty, isTrue);
+  });
+
+  test('SLK import establishes a clean chart-only baseline', () {
+    final slk = File('../example/z3116_lv5.slk').readAsBytesSync();
+
+    controller.importSlkBytes(slk, 'z3116_lv5.slk');
+    expect(controller.sourceKind, WorkspaceSourceKind.importedSlk);
+    expect(controller.isDirty, isFalse);
+
+    controller.setBpm(120);
+    expect(controller.isDirty, isFalse);
+
+    controller.clearChart();
+    expect(controller.isDirty, isTrue);
+
+    controller.undo();
+    expect(controller.isDirty, isFalse);
+  });
+
   testWidgets('reports audio picker platform failures', (tester) async {
     const channel = MethodChannel('plugins.flutter.io/file_selector');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -2645,7 +2713,7 @@ void main() {
 
   testWidgets('back navigation protects unsaved work', (tester) async {
     await pumpEditor(tester);
-    controller.setBpm(101);
+    controller.clickCell(OTGY_CHART_COLUMN_NPC, 0);
     await tester.pump();
 
     await tester.binding.handlePopRoute();

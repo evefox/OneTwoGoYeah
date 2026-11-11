@@ -127,15 +127,11 @@ void main() {
     final editor = NativeChartEditor.createEmpty();
     addTearDown(editor.dispose);
     editor.click(OTGY_CHART_COLUMN_NPC, 3);
-    const bpm = 129.24970691676435;
-    const offset = -0.090521541950113374;
-
-    final formal = editor.encodeFormal(bpm: bpm, offset: offset);
+    final formal = editor.encodeFormal();
     final decoded = NativeChartEditor.decodeFormal(formal);
     addTearDown(decoded.editor.dispose);
-    expect(decoded.bpm, bpm);
-    expect(decoded.offset, offset);
     expect(decoded.editor.markers().single.row, 3);
+    expect(decoded.editor.encodeFormal(), orderedEquals(formal));
 
     final recovery = editor.encodeRecovery();
     final restored = NativeChartEditor.decodeRecovery(recovery);

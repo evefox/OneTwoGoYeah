@@ -176,7 +176,7 @@ class EditorController extends ChangeNotifier {
     _zoom = _automaticEditZoomForBpm(_bpm);
     _refreshProjection();
     _refreshViewMetrics();
-    _savedPayload = _editor.encodeFormal(bpm: _bpm, offset: _offset);
+    _savedPayload = _editor.encodeFormal();
   }
 
   NativeChartEditor _editor;
@@ -603,7 +603,9 @@ class EditorController extends ChangeNotifier {
       _currentRow = 0;
       _invalidatePlaybackSoundSession();
       _notice = const EditorNotice('音频已加载');
-      _updateDirty();
+      // BPM and Offset belong to the audio session, not the chart draft, so
+      // replacing audio never changes the chart's unsaved state.
+      notifyListeners();
       recordDiagnostic('audio.load', {
         'changed': true,
         'audioVersion': _audioVersion,
@@ -634,7 +636,7 @@ class EditorController extends ChangeNotifier {
     _bpm = value;
     _resetOffsetBeatAdjustment();
     _synchronizeAutomaticEditZoom();
-    _updateDirty();
+    notifyListeners();
   }
 
   void nudgeBpm(double delta) {
@@ -651,7 +653,7 @@ class EditorController extends ChangeNotifier {
     }
     _offset = value;
     _resetOffsetBeatAdjustment();
-    _updateDirty();
+    notifyListeners();
   }
 
   void nudgeOffsetByBeat(double beats) {
@@ -673,7 +675,7 @@ class EditorController extends ChangeNotifier {
     } else {
       _offsetBeatAdjustment = cumulativeBeats;
     }
-    _updateDirty();
+    notifyListeners();
   }
 
   void clickCell(int column, int row) {
@@ -1006,7 +1008,7 @@ class EditorController extends ChangeNotifier {
       _resetOffsetBeatAdjustment();
     }
     _synchronizeAutomaticEditZoom();
-    _updateDirty();
+    notifyListeners();
   }
 
   Future<void> exportAudio({
@@ -1150,8 +1152,10 @@ class EditorController extends ChangeNotifier {
     _sourceKind = WorkspaceSourceKind.importedSlk;
     _sourceName = fileName;
     _draftId = null;
-    _savedPayload = null;
-    _isDirty = true;
+    // The imported chart is the new clean baseline. Importing a file is not a
+    // user edit, so later edits alone should mark the workspace unsaved.
+    _savedPayload = Uint8List.fromList(encodeFormalDraft());
+    _isDirty = false;
     _projectRevision++;
     _currentRow = 0;
     notifyListeners();
@@ -1172,13 +1176,14 @@ class EditorController extends ChangeNotifier {
       () => NativeChartEditor.decodeFormalWithRepair(payload),
     );
     _replaceEditor(decoded.editor);
-    _bpm = decoded.bpm;
-    _offset = decoded.offset;
-    _resetOffsetBeatAdjustment();
     _sourceKind = WorkspaceSourceKind.savedDraft;
     _sourceName = draftName;
     _draftId = draftId;
-    _savedPayload = decoded.repaired ? null : Uint8List.fromList(payload);
+    // A draft payload is chart-only. The canonical encoding is used as the
+    // baseline so legacy v1 timing bytes never make a loaded draft dirty.
+    _savedPayload = decoded.repaired
+        ? null
+        : Uint8List.fromList(encodeFormalDraft());
     _isDirty = decoded.repaired;
     _projectRevision++;
     _currentRow = 0;
@@ -1216,8 +1221,7 @@ class EditorController extends ChangeNotifier {
     return pending.repaired;
   }
 
-  Uint8List encodeFormalDraft() =>
-      _editor.encodeFormal(bpm: _bpm, offset: _offset);
+  Uint8List encodeFormalDraft() => _editor.encodeFormal();
 
   Uint8List encodeRecoverySnapshot() => _editor.encodeRecovery();
 
@@ -1905,14 +1909,7 @@ class EditorController extends ChangeNotifier {
 
   void _updateDirty() {
     final saved = _savedPayload;
-    if (saved == null) {
-      _isDirty = _projectRevision > 0 || _bpm != 100 || _offset != 0;
-    } else {
-      _isDirty = !_bytesEqual(
-        saved,
-        _editor.encodeFormal(bpm: _bpm, offset: _offset),
-      );
-    }
+    _isDirty = saved == null || !_bytesEqual(saved, encodeFormalDraft());
     notifyListeners();
   }
 
