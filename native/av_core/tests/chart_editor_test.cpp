@@ -2780,6 +2780,69 @@ void test_split_dance_move_regenerates_showtime() {
 /// Closing a group from the empty-click auto-end branch must use the same split
 /// as converting an existing NPC-N to NPC-S. Otherwise later groups stay in the
 /// same drill and the drill exceeds moveNCount 11.
+/// A later moving end inside the same drill must not prevent an earlier C from
+/// extending that drill. This is the normal text-editing pattern of finishing an
+/// earlier group after later groups already exist.
+void test_later_move_end_does_not_split_earlier_group() {
+  std::vector<ChartRoleEvent> events;
+  std::uint64_t event_id = 1U;
+  ChartDrillGroup first{{10U}, {100U}, {}, {}};
+  ChartDrillGroup second{{20U}, {100U}, {}, {}};
+  const auto add_event = [&events, &event_id](
+                             std::uint64_t row, ChartRole role,
+                             ChartRoleEventType type,
+                             ChartDrillGroupId group_id,
+                             ChartDanceMoveDrillId drill_id) {
+    events.push_back(
+        {{event_id++}, row, role, type, group_id, drill_id});
+  };
+  add_event(0U, ChartRole::Npc, ChartRoleEventType::BlockStart, {10U},
+            {100U});
+  for (std::uint64_t row = 1U; row <= 6U; ++row) {
+    add_event(row, ChartRole::Npc, ChartRoleEventType::Note, {10U}, {100U});
+  }
+  add_event(10U, ChartRole::Player, ChartRoleEventType::BlockStart, {10U},
+            {100U});
+  for (std::uint64_t row = 11U; row <= 16U; ++row) {
+    add_event(row, ChartRole::Player, ChartRoleEventType::Note, {10U},
+              {100U});
+  }
+  add_event(100U, ChartRole::Npc, ChartRoleEventType::BlockStart, {20U},
+            {100U});
+  for (std::uint64_t row = 101U; row <= 106U; ++row) {
+    add_event(row, ChartRole::Npc, ChartRoleEventType::Note, {20U}, {100U});
+  }
+  add_event(107U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {20U}, {100U});
+  add_event(110U, ChartRole::Player, ChartRoleEventType::BlockStart, {20U},
+            {100U});
+  for (std::uint64_t row = 111U; row <= 116U; ++row) {
+    add_event(row, ChartRole::Player, ChartRoleEventType::Note, {20U}, {100U});
+  }
+  add_event(117U, ChartRole::Player, ChartRoleEventType::MoveEnd, {20U},
+            {100U});
+  for (const auto& event : events) {
+    auto& group = event.drill_group_id.value == 10U ? first : second;
+    if (event.role == ChartRole::Npc) {
+      group.npc_event_ids.push_back(event.id);
+    } else {
+      group.player_event_ids.push_back(event.id);
+    }
+  }
+  ChartEditor editor{ChartDraft{events, {}, {}, {first, second},
+                                {{{100U}, 12U, {{10U}, {20U}}}}, {}}};
+  assert(editor.click(ChartColumn::Npc, 20U));
+  assert(editor.draft().dance_move_drills().size() == 1U);
+  assert(editor.draft().dance_move_drills().front().id.value == 100U);
+  assert(editor.draft().dance_move_drills().front().drill_group_ids.size() ==
+         3U);
+  for (const auto& group : editor.draft().drill_groups()) {
+    if (group.id.value != 10U && group.id.value != 20U) {
+      assert(group.dance_move_drill_id.value == 100U);
+      assert(group.npc_event_ids.size() == 1U);
+    }
+  }
+}
+
 void test_empty_click_auto_end_splits_trailing_groups() {
   std::vector<ChartRoleEvent> events;
   std::uint64_t event_id = 1U;
@@ -3447,6 +3510,7 @@ int main() {
   test_earlier_showtime_is_inserted_in_row_order();
   test_stale_showtime_pruning();
   test_split_dance_move_regenerates_showtime();
+  test_later_move_end_does_not_split_earlier_group();
   test_empty_click_auto_end_splits_trailing_groups();
   test_nonterminal_npc_move_end_deletes_after_merge();
   test_showtime_boundary_prevents_dance_move_merge();

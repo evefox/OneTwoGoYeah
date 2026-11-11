@@ -679,12 +679,13 @@ void erase_role_events(MutableDraft& draft,
   return true;
 }
 
-[[nodiscard]] bool drill_has_npc_end(const MutableDraft& draft,
-                                     ChartDanceMoveDrillId drill_id) noexcept {
+[[nodiscard]] bool npc_move_end_between(const MutableDraft& draft,
+                                        std::uint64_t begin_row,
+                                        std::uint64_t end_row) noexcept {
   for (const auto& event : draft.role_events) {
     if (event.role == ChartRole::Npc &&
-        event.dance_move_drill_id.value == drill_id.value &&
-        event.type == ChartRoleEventType::MoveEnd) {
+        event.type == ChartRoleEventType::MoveEnd &&
+        event.row > begin_row && event.row < end_row) {
       return true;
     }
   }
@@ -726,8 +727,7 @@ void erase_role_events(MutableDraft& draft,
           nullptr &&
       !drill_is_owned_by_showtime(
           draft, previous_npc_start->dance_move_drill_id) &&
-      !drill_has_npc_end(draft,
-                         previous_npc_start->dance_move_drill_id)) {
+      !npc_move_end_between(draft, previous_npc_start->row, row)) {
     drill_id = previous_npc_start->dance_move_drill_id;
   } else {
     std::uint64_t value = 0U;
