@@ -539,10 +539,10 @@ class EditorController extends ChangeNotifier {
     );
   }
 
-  Future<void> loadAudioBytes(Uint8List bytes, String fileName) async {
+  Future<bool> loadAudioBytes(Uint8List bytes, String fileName) async {
     if (_isBusy || !generalActionsEnabled) {
       recordDiagnostic('audio.load', {'blocked': true});
-      return;
+      return false;
     }
     recordDiagnostic('audio.load.start');
     _setBusy(true);
@@ -608,6 +608,7 @@ class EditorController extends ChangeNotifier {
         'changed': true,
         'audioVersion': _audioVersion,
       });
+      return true;
     } catch (error, stack) {
       recordDiagnosticException('audio.load', error, stack);
       pending?.dispose();
@@ -616,6 +617,7 @@ class EditorController extends ChangeNotifier {
         kind: EditorNoticeKind.error,
       );
       notifyListeners();
+      return false;
     } finally {
       _setBusy(false);
     }

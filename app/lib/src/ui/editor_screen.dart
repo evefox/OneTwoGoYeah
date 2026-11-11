@@ -299,14 +299,21 @@ class _EditorScreenState extends State<EditorScreen>
       _controller.showNotice('音频加载失败：请选择 .mp3 或 .ogg 文件。', error: true);
       return;
     }
+    var loaded = false;
     try {
-      await _controller.loadAudioBytes(
+      loaded = await _controller.loadAudioBytes(
         await file.readAsBytes(),
         normalizedFileName,
       );
     } on Object catch (error, stack) {
       _recordException('audio.read', error, stack);
       _controller.showNotice('无法读取所选音频文件。', error: true);
+      return;
+    }
+    if (loaded && mounted) {
+      // Audio import starts the shared BPM/Offset analysis immediately so the
+      // candidate dialog is ready without a second toolbar action.
+      await _analyzeAudio();
     }
   }
 

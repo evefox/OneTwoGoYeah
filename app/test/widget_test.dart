@@ -926,6 +926,43 @@ void main() {
   });
 
   testWidgets(
+    'successful audio import automatically opens BPM analysis candidates',
+    (tester) async {
+      final audioPath = File(
+        '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+      ).absolute.path;
+      const channel = MethodChannel('plugins.flutter.io/file_selector');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            expect(call.method, 'openFile');
+            return [audioPath];
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      await pumpEditor(tester);
+
+      await tester.runAsync(() async {
+        await tester.tap(find.byKey(const ValueKey('audio-picker')));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pump();
+
+      expect(controller.hasAudio, isTrue);
+      expect(find.text('BPM 与 Offset 候选'), findsOneWidget);
+
+      final candidates = await controller.analyzeAudio();
+      expect(candidates.first.bpm, 120);
+      for (var index = 0; index < 10; index++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+
+      expect(find.text('120.000 BPM'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'iOS audio picker keeps Ogg selectable and validates extensions',
     (tester) async {
       final previousPlatform = debugDefaultTargetPlatformOverride;
