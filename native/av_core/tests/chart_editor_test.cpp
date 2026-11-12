@@ -2125,7 +2125,7 @@ void test_showtime_completion_layout_snapshot_and_deletion() {
 
 void test_showtime_conflicts_position_and_retained_start() {
   auto conflict = build_two_complete_moves();
-  assert(conflict.click(ChartColumn::Npc, 96U));
+  assert(conflict.click(ChartColumn::Npc, 64U));
   const auto history = conflict.undo_count();
   const auto blocked = conflict.click(ChartColumn::Showtime, 52U);
   assert(blocked.code == ChartEditCode::ShowtimeRangeOccupied);
@@ -2138,6 +2138,18 @@ void test_showtime_conflicts_position_and_retained_start() {
   assert(!invalid.changed);
   assert(conflict.undo());
   assert(conflict.draft().showtime_start_events().empty());
+
+  // Content after the first SHOW-D anchor only limits how many moves can be
+  // shown: the fitting prefix is generated and the rest stay unshown.
+  auto partial = build_two_complete_moves();
+  assert(partial.click(ChartColumn::Npc, 80U));
+  const auto partially_completed = partial.click(ChartColumn::Showtime, 52U);
+  assert(partially_completed.code == ChartEditCode::ShowtimePartiallyCompleted);
+  assert(partially_completed.changed);
+  assert(partial.draft().showtime_start_events().size() == 1U);
+  assert(partial.draft().showtime_move_events().size() == 1U);
+  assert(partial.draft().showtime_move_events().front().row == 64U);
+  assert(partial.draft().showtime_move_events().front().show_n_count == 2U);
 
   auto no_moves = build_player_source();
   assert(no_moves.click(ChartColumn::Player, 100U));
@@ -2401,27 +2413,40 @@ void test_stale_showtime_pruning() {
     assert(editor.draft().showtimes().empty());
   }
 
-  // (d) A Showtime whose candidate dance moves moved on is not stale: its own
-  // content is still consistent, so it stays and only continuing it is refused.
+  // (d) A new complete dance move inserted between two recorded moves breaks
+  // the positional SHOW-D association, so the Showtime is cleared by that edit.
   {
     auto editor = build_showtime_over_a_gap();
-    // A third complete dance move lands in front of the second one, which
-    // shifts the candidate sequence the Showtime was generated from.
     add_dance_move(editor, 16U);
+    assert(editor.draft().showtimes().empty());
+    assert(editor.draft().showtime_start_events().empty());
+    assert(editor.draft().showtime_move_events().empty());
+    assert(editor.undo());
     assert(editor.draft().showtimes().size() == 1U);
-    assert(editor.draft().showtime_start_events().size() == 1U);
+  }
+
+  // (e) A move inserted before the first recorded move only shifts the
+  // candidate list, so the Showtime stays and only continuing it is refused.
+  {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    add_dance_move(editor, 24U);
+    add_dance_move(editor, 64U);
+    assert(editor.click(ChartColumn::Showtime, 96U));
+    assert(editor.draft().showtime_move_events().size() == 2U);
+    add_dance_move(editor, 0U);
+    assert(editor.draft().showtimes().size() == 1U);
     assert(editor.draft().showtime_move_events().size() == 2U);
     const auto before = editor.draft();
     const auto history = editor.undo_count();
 
-    const auto refused = editor.click(ChartColumn::Showtime, 112U);
+    const auto refused = editor.click(ChartColumn::Showtime, 128U);
     assert(refused.code == ChartEditCode::ShowtimeContentStale);
     assert(!refused.changed);
     assert(editor.undo_count() == history);
     assert(otgy::core::chart_drafts_equal(editor.draft(), before));
   }
 
-  // (e) An imported Showtime may carry fewer move markers than dance moves.
+  // (f) An imported Showtime may carry fewer move markers than dance moves.
   // It is equally kept: only continuing it is refused.
   {
     auto source = build_two_complete_moves();
@@ -3293,10 +3318,10 @@ void test_repair_relations_rebuilds_showtime_after_regrouping() {
          otgy::core::ChartRepairStatus::Unchanged);
 }
 
-/// The same Showtime shape over an already-correct relation is not rebuilt: an
-/// edit that only inserted a complete move before a Showtime leaves its stored
-/// content alone, and repair must not rewrite it on load.
-void test_repair_relations_keeps_showtime_over_valid_grouping() {
+/// A stored Showtime that records a non-contiguous pair (a complete move was
+/// inserted between them) is stale on load, so repair rebuilds it at the same
+/// SHOW-C row and covers the whole stage again.
+void test_repair_relations_rebuilds_showtime_after_inserted_move() {
   BrokenShowtimeFixture fixture;
   add_showtime_fixture_move(fixture, 10U, 100U, 0U, 10U);
   add_showtime_fixture_move(fixture, 20U, 200U, 16U, 26U);
@@ -3313,6 +3338,43 @@ void test_repair_relations_keeps_showtime_over_valid_grouping() {
   fixture.moves.push_back({{503U}, 80U, {501U}, {400U}, 1U});
   fixture.showtimes.push_back(
       {{501U}, start_id, {{100U}, {400U}}, {{502U}, {503U}}});
+
+  ChartEditor editor{ChartDraft{
+      fixture.events, fixture.starts, fixture.moves,
+      fixture.groups, fixture.drills, fixture.showtimes}};
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Repaired);
+  assert(editor.draft().showtimes().size() == 1U);
+  assert(editor.draft().showtimes().front().start_event_id.value == 500U);
+  assert(editor.draft().showtimes().front().dance_move_drill_ids.size() == 4U);
+  assert(editor.draft().showtimes().front().show_move_event_ids.size() == 4U);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Unchanged);
+}
+
+/// A move inserted before the first recorded move only shifts the candidate
+/// list: the stored content is still a contiguous stage run, so repair keeps it.
+void test_repair_relations_keeps_showtime_when_move_inserted_before() {
+  BrokenShowtimeFixture fixture;
+  add_showtime_fixture_move(fixture, 10U, 100U, 0U, 10U);
+  add_showtime_fixture_move(fixture, 20U, 200U, 16U, 26U);
+  add_showtime_fixture_move(fixture, 30U, 300U, 32U, 42U);
+  add_showtime_fixture_move(fixture, 40U, 400U, 48U, 58U);
+  fixture.drills.push_back({{100U}, 1U, {{10U}}});
+  fixture.drills.push_back({{200U}, 1U, {{20U}}});
+  fixture.drills.push_back({{300U}, 1U, {{30U}}});
+  fixture.drills.push_back({{400U}, 1U, {{40U}}});
+
+  const ChartEventId start_id{500U};
+  fixture.starts.push_back({start_id, 64U, {501U}});
+  fixture.moves.push_back({{502U}, 65U, {501U}, {200U}, 1U});
+  fixture.moves.push_back({{503U}, 80U, {501U}, {300U}, 1U});
+  fixture.moves.push_back({{504U}, 96U, {501U}, {400U}, 1U});
+  fixture.showtimes.push_back({{501U},
+                               start_id,
+                               {{200U}, {300U}, {400U}},
+                               {{502U}, {503U}, {504U}}});
 
   ChartEditor editor{ChartDraft{
       fixture.events, fixture.starts, fixture.moves,
@@ -3972,7 +4034,8 @@ int main() {
   test_repair_relations_rebuilds_visible_moves();
   test_repair_relations_leaves_valid_draft_unchanged();
   test_repair_relations_rebuilds_showtime_after_regrouping();
-  test_repair_relations_keeps_showtime_over_valid_grouping();
+  test_repair_relations_rebuilds_showtime_after_inserted_move();
+  test_repair_relations_keeps_showtime_when_move_inserted_before();
   test_cancelled_mid_move_end_keeps_following_move_separate();
   test_nonterminal_npc_move_end_deletes_after_merge();
   test_showtime_boundary_prevents_dance_move_merge();

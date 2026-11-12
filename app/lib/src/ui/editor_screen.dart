@@ -1340,6 +1340,39 @@ class _EditorScreenState extends State<EditorScreen>
       ) ??
       false;
 
+  bool _showtimePartialPromptVisible = false;
+
+  void _publishShowtimePartialPromptIfNeeded() {
+    if (!_controller.showtimePartialPromptPending ||
+        _showtimePartialPromptVisible) {
+      return;
+    }
+    _showtimePartialPromptVisible = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _showtimePartialPromptVisible = false;
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Showtime 未完全生成'),
+          content: const Text('时间轴上已有内容，部分舞步未能生成 Show-D。'),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
+      );
+      _showtimePartialPromptVisible = false;
+      if (mounted) {
+        _controller.acknowledgeShowtimePartialPrompt();
+      }
+    });
+  }
+
   void _publishNoticeIfNeeded(EditorNotice? notice) {
     if (notice == null || identical(notice, _shownNotice)) {
       return;
@@ -1410,6 +1443,7 @@ class _EditorScreenState extends State<EditorScreen>
       animation: _controller,
       builder: (context, child) {
         _publishNoticeIfNeeded(_controller.notice);
+        _publishShowtimePartialPromptIfNeeded();
         return PopScope<Object?>(
           canPop: _allowExit || !_controller.isDirty,
           onPopInvokedWithResult: (didPop, result) {
@@ -1829,6 +1863,5 @@ String _diagnosticLabel(int code) => switch (code) {
   12 => '存在孤立事件',
   13 => '存在孤立演练组',
   14 => '舞步演练被多个 Showtime 引用',
-  15 => 'Showtime 之外的舞步演练必须排在最后',
   _ => '谱面结构不完整（代码 $code）',
 };

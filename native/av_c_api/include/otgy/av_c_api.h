@@ -804,6 +804,7 @@ typedef struct otgy_chart_edit_result {
 #define OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED UINT32_C(19)
 #define OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE UINT32_C(20)
 #define OTGY_CHART_EDIT_CUT_SOURCE_CHANGED UINT32_C(21)
+#define OTGY_CHART_EDIT_SHOWTIME_PARTIALLY_COMPLETED UINT32_C(22)
 
 OTGY_C_API otgy_status otgy_chart_editor_click(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
@@ -928,7 +929,6 @@ typedef struct otgy_chart_diagnostic {
 #define OTGY_CHART_DIAGNOSTIC_ORPHAN_EVENT UINT32_C(12)
 #define OTGY_CHART_DIAGNOSTIC_ORPHAN_DRILL_GROUP UINT32_C(13)
 #define OTGY_CHART_DIAGNOSTIC_ORPHAN_DANCE_MOVE_DRILL UINT32_C(14)
-#define OTGY_CHART_DIAGNOSTIC_DANCE_MOVE_DRILL_NOT_TRAILING UINT32_C(15)
 
 OTGY_C_API otgy_status otgy_chart_validate_finished(
     const otgy_chart* chart, otgy_chart_validation** out_validation,

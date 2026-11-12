@@ -278,12 +278,15 @@ void test_showtime_less_trailing_drills_are_finished() {
         earlier_move_events.end());
   }
   earlier_showtimes.erase(earlier_showtimes.begin());
-  const auto not_trailing =
+  // Deleting the first Showtime keeps its moves as free moves. They now lead
+  // the remaining Showtime's stage, but that Showtime still records the later
+  // moves, so its recorded list is no longer the stage prefix.
+  const auto orphaned_stage =
       rebuild(valid, valid.role_events(), std::move(earlier_start_events),
               std::move(earlier_move_events), valid.drill_groups(),
               valid.dance_move_drills(), std::move(earlier_showtimes));
-  assert(has_diagnostic(otgy::core::validate_finished_chart(not_trailing),
-                        ChartDiagnosticCode::DanceMoveDrillNotTrailing));
+  assert(has_diagnostic(otgy::core::validate_finished_chart(orphaned_stage),
+                        ChartDiagnosticCode::InvalidShowtime));
 
   auto double_owned = valid.showtimes();
   double_owned[1].dance_move_drill_ids.push_back(
@@ -297,10 +300,63 @@ void test_showtime_less_trailing_drills_are_finished() {
       ChartDiagnosticCode::OrphanDanceMoveDrill));
 }
 
+/// A Showtime may reference fewer moves than its stage holds: the user can
+/// delete trailing SHOW-D entries, leaving the earlier ones untouched. The
+/// unshown moves stay free but must not sit between the recorded moves.
+void test_reduced_showtime_allows_free_moves() {
+  const auto valid =
+      draft_from_file(std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  assert(valid.showtimes().front().dance_move_drill_ids.size() > 1U);
+
+  auto start_events = valid.showtime_start_events();
+  auto move_events = valid.showtime_move_events();
+  auto showtimes = valid.showtimes();
+  const auto dropped_move = showtimes.front().show_move_event_ids.back();
+  showtimes.front().show_move_event_ids.pop_back();
+  showtimes.front().dance_move_drill_ids.pop_back();
+  move_events.erase(
+      std::remove_if(move_events.begin(), move_events.end(),
+                     [&dropped_move](const auto& event) {
+                       return event.id.value == dropped_move.value;
+                     }),
+      move_events.end());
+  const auto reduced =
+      rebuild(valid, valid.role_events(), std::move(start_events),
+              std::move(move_events), valid.drill_groups(),
+              valid.dance_move_drills(), std::move(showtimes));
+  const auto reduced_result = otgy::core::validate_finished_chart(reduced);
+  assert(reduced_result.is_finished());
+  assert(reduced_result.finished_chart()->draft().dance_move_drills().size() ==
+         valid.dance_move_drills().size());
+
+  // Dropping the leading entry instead leaves a recorded move after a free
+  // move, so the recorded list is no longer the stage prefix.
+  auto middle_events = valid.showtime_move_events();
+  auto middle_showtimes = valid.showtimes();
+  const auto dropped_leading =
+      middle_showtimes.front().show_move_event_ids.front();
+  middle_showtimes.front().show_move_event_ids.erase(
+      middle_showtimes.front().show_move_event_ids.begin());
+  middle_showtimes.front().dance_move_drill_ids.erase(
+      middle_showtimes.front().dance_move_drill_ids.begin());
+  middle_events.erase(
+      std::remove_if(middle_events.begin(), middle_events.end(),
+                     [&dropped_leading](const auto& event) {
+                       return event.id.value == dropped_leading.value;
+                     }),
+      middle_events.end());
+  const auto broken_prefix =
+      rebuild(valid, valid.role_events(), valid.showtime_start_events(),
+              std::move(middle_events), valid.drill_groups(),
+              valid.dance_move_drills(), std::move(middle_showtimes));
+  assert(has_diagnostic(otgy::core::validate_finished_chart(broken_prefix),
+                        ChartDiagnosticCode::InvalidShowtime));
+}
+
 void test_diagnostic_messages() {
   for (unsigned int raw = 0U;
        raw <= static_cast<unsigned int>(
-                  ChartDiagnosticCode::DanceMoveDrillNotTrailing);
+                  ChartDiagnosticCode::OrphanDanceMoveDrill);
        ++raw) {
     assert(!otgy::core::chart_diagnostic_message(
                 static_cast<ChartDiagnosticCode>(raw))
@@ -319,6 +375,7 @@ int main() {
   test_block_dance_and_showtime_diagnostics_without_mutation();
   test_finished_snapshot_requires_owned_and_ordered_showtime_events();
   test_showtime_less_trailing_drills_are_finished();
+  test_reduced_showtime_allows_free_moves();
   test_diagnostic_messages();
   return 0;
 }

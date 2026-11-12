@@ -540,6 +540,52 @@ void test_showtime_less_drills_export_and_round_trip() {
          2'014U);
 }
 
+/// The user can delete trailing SHOW-D entries. The dropped moves stay in the
+/// same ordinary stage and are written before that stage's SHOW-C, so a strict
+/// import recovers the same shown count and the same move order.
+void test_reduced_showtime_keeps_stage_moves_and_round_trips() {
+  const auto canonical = read_file(std::string{OTGY_EXAMPLE_DIR} + "/z3116_lv5.slk");
+  const auto finished = finished_from_bytes(canonical);
+  const auto& draft = finished.draft();
+  assert(draft.showtimes().front().show_move_event_ids.size() > 1U);
+
+  auto showtimes = draft.showtimes();
+  auto move_events = draft.showtime_move_events();
+  const auto original_shown = showtimes.front().show_move_event_ids.size();
+  const auto original_recorded = showtimes.front().dance_move_drill_ids.size();
+  const auto dropped = showtimes.front().show_move_event_ids.back();
+  showtimes.front().show_move_event_ids.pop_back();
+  showtimes.front().dance_move_drill_ids.pop_back();
+  move_events.erase(
+      std::remove_if(move_events.begin(), move_events.end(),
+                     [&dropped](const auto& event) {
+                       return event.id.value == dropped.value;
+                     }),
+      move_events.end());
+  const otgy::core::ChartDraft reduced{
+      draft.role_events(), draft.showtime_start_events(), std::move(move_events),
+      draft.drill_groups(), draft.dance_move_drills(), std::move(showtimes)};
+  const auto validation = otgy::core::validate_finished_chart(reduced);
+  assert(validation.is_finished());
+
+  const auto exported = otgy::core::export_finished_chart_to_slk(
+      *validation.finished_chart());
+  assert(exported);
+  const auto reimport = otgy::core::import_finished_slk(
+      exported.bytes()->data(), exported.bytes()->size());
+  assert(reimport);
+  const auto& semantics = reimport.document()->semantics();
+  assert(semantics.showtimes().front().stage.drills().size() ==
+         original_recorded);
+  assert(semantics.showtimes().front().show_d_rows.size() ==
+         original_shown - 1U);
+
+  const auto reexport = otgy::core::export_finished_chart_to_slk(
+      finished_from_bytes(*exported.bytes()));
+  assert(reexport);
+  assert(*reexport.bytes() == *exported.bytes());
+}
+
 void test_export_error_messages() {
   for (unsigned int raw = 0U;
        raw <= static_cast<unsigned int>(
@@ -567,6 +613,7 @@ int main() {
   test_direct_split_values_and_boundary_extension_reimport();
   test_range_fields_and_format_anchor_boundaries();
   test_showtime_less_drills_export_and_round_trip();
+  test_reduced_showtime_keeps_stage_moves_and_round_trips();
   test_export_error_messages();
   return 0;
 }

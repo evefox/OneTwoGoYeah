@@ -237,25 +237,12 @@ struct EncodedRow final {
   expected_count += draft.showtime_move_events().size();
   rows.reserve(expected_count);
 
-  std::vector<const ChartDanceMoveDrill*> unowned;
+  std::vector<const ChartDanceMoveDrill*> drills;
+  drills.reserve(draft.dance_move_drills().size());
   for (const auto& drill : draft.dance_move_drills()) {
-    bool owned = false;
-    for (const auto& showtime : draft.showtimes()) {
-      for (const auto drill_id : showtime.dance_move_drill_ids) {
-        if (drill_id.value == drill.id.value) {
-          owned = true;
-          break;
-        }
-      }
-      if (owned) {
-        break;
-      }
-    }
-    if (!owned) {
-      unowned.push_back(&drill);
-    }
+    drills.push_back(&drill);
   }
-  std::sort(unowned.begin(), unowned.end(),
+  std::sort(drills.begin(), drills.end(),
             [&draft](const ChartDanceMoveDrill* left,
                      const ChartDanceMoveDrill* right) {
               const auto left_row = dance_move_drill_first_row(draft, left->id);
@@ -273,37 +260,89 @@ struct EncodedRow final {
                          ? left_value < right_value
                          : left->id.value < right->id.value;
             });
+  std::vector<bool> emitted(drills.size(), false);
+  const auto is_recorded = [](const ChartShowtime& showtime,
+                              ChartDanceMoveDrillId id) {
+    return std::any_of(showtime.dance_move_drill_ids.begin(),
+                       showtime.dance_move_drill_ids.end(),
+                       [id](ChartDanceMoveDrillId recorded) {
+                         return recorded.value == id.value;
+                       });
+  };
 
   const ChartShowtimeMoveEvent* last_show_move = nullptr;
+  bool last_is_show_move = false;
+  bool has_stage_begin = false;
+  std::uint64_t stage_begin = 0U;
   for (const auto& showtime : draft.showtimes()) {
+    const auto* start = find_start_event(draft, showtime.start_event_id.value);
+    if (start == nullptr) {
+      return SlkExportError::InvalidFinishedChart;
+    }
     for (const auto drill_id : showtime.dance_move_drill_ids) {
       const auto* drill = find_drill(draft, drill_id.value);
       if (drill == nullptr || !append_drill_blocks(draft, *drill, rows)) {
         return SlkExportError::InvalidFinishedChart;
       }
+      for (std::size_t index = 0U; index < drills.size(); ++index) {
+        if (!emitted[index] && drills[index]->id.value == drill_id.value) {
+          emitted[index] = true;
+          break;
+        }
+      }
+      last_is_show_move = false;
+    }
+    // A Showtime may reference fewer moves than its stage holds. The unshown
+    // moves stay in the same ordinary stage, so they are written between the
+    // recorded moves and this stage's SHOW-C.
+    for (std::size_t index = 0U; index < drills.size(); ++index) {
+      if (emitted[index]) {
+        continue;
+      }
+      const auto first_row = dance_move_drill_first_row(draft, drills[index]->id);
+      if (!first_row.has_value() || *first_row >= start->row ||
+          (has_stage_begin && *first_row <= stage_begin) ||
+          is_recorded(showtime, drills[index]->id)) {
+        continue;
+      }
+      if (!append_drill_blocks(draft, *drills[index], rows)) {
+        return SlkExportError::InvalidFinishedChart;
+      }
+      emitted[index] = true;
+      last_is_show_move = false;
     }
 
-    const auto* start = find_start_event(draft, showtime.start_event_id.value);
-    if (start == nullptr || !append_row(rows, {start->row, 'c', 0U})) {
+    if (!append_row(rows, {start->row, 'c', 0U})) {
       return SlkExportError::InvalidFinishedChart;
     }
+    last_is_show_move = false;
+    std::uint64_t last_row = start->row;
     for (const auto event_id : showtime.show_move_event_ids) {
       const auto* event = find_move_event(draft, event_id.value);
       if (event == nullptr ||
           !append_row(rows, {event->row, 'd', event->show_n_count})) {
         return SlkExportError::InvalidFinishedChart;
       }
+      if (event->row > last_row) {
+        last_row = event->row;
+      }
       last_show_move = event;
+      last_is_show_move = true;
     }
+    has_stage_begin = true;
+    stage_begin = last_row;
   }
 
-  const auto trailing_begin = rows.size();
-  for (const auto* drill : unowned) {
-    if (!append_drill_blocks(draft, *drill, rows)) {
+  for (std::size_t index = 0U; index < drills.size(); ++index) {
+    if (emitted[index]) {
+      continue;
+    }
+    if (!append_drill_blocks(draft, *drills[index], rows)) {
       return SlkExportError::InvalidFinishedChart;
     }
+    emitted[index] = true;
+    last_is_show_move = false;
   }
-  const bool has_trailing = rows.size() > trailing_begin;
 
   if (rows.size() != expected_count ||
       (!draft.showtimes().empty() && last_show_move == nullptr)) {
@@ -313,7 +352,7 @@ struct EncodedRow final {
   // The compatibility boundary only closes a final Showtime stage. When the
   // last stage is a Showtime-less ordinary stage, the file ends at its last
   // event and no boundary row is written.
-  if (has_trailing) {
+  if (!last_is_show_move) {
     return SlkExportError::None;
   }
   if (last_show_move == nullptr) {

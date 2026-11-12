@@ -309,19 +309,48 @@ void main() {
     expect(editor.encodeRecovery(), orderedEquals(remaining));
   });
 
-  test('stale Showtime continuation returns code 20 without an edit', () {
+  test('a move inserted between recorded moves clears the Showtime', () {
     final editor = NativeChartEditor.createEmpty();
     addTearDown(editor.dispose);
     addDanceMove(editor, 0);
     addDanceMove(editor, 40);
     expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 64).changed, isTrue);
+    expect(editor.showtimeMoves(), hasLength(2));
     addDanceMove(editor, 16);
+    expect(editor.showtimeMoves(), isEmpty);
+    expect(
+      editor.markers().where(
+        (m) => m.type == OTGY_CHART_MARKER_SHOWTIME_START,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('a move inserted before recorded moves keeps the Showtime', () {
+    final editor = NativeChartEditor.createEmpty();
+    addTearDown(editor.dispose);
+    addDanceMove(editor, 24);
+    addDanceMove(editor, 64);
+    expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 96).changed, isTrue);
+    addDanceMove(editor, 0);
+    expect(editor.showtimeMoves(), hasLength(2));
     final before = editor.encodeRecovery();
-    final refused = editor.click(OTGY_CHART_COLUMN_SHOWTIME, 112);
+    final refused = editor.click(OTGY_CHART_COLUMN_SHOWTIME, 128);
     expect(refused.code, 20);
     expect(refused.changed, isFalse);
     expect(editor.encodeRecovery(), before);
-    expect(editor.showtimeMoves(), hasLength(2));
+  });
+
+  test('partial Showtime completion reports its own code', () {
+    final editor = NativeChartEditor.createEmpty();
+    addTearDown(editor.dispose);
+    addDanceMove(editor, 0);
+    addDanceMove(editor, 40);
+    expect(editor.click(OTGY_CHART_COLUMN_NPC, 80).changed, isTrue);
+    final result = editor.click(OTGY_CHART_COLUMN_SHOWTIME, 56);
+    expect(result.code, 22);
+    expect(result.changed, isTrue);
+    expect(editor.showtimeMoves(), hasLength(1));
   });
 
   test('selection and clipboard calls reject a disposed editor', () {

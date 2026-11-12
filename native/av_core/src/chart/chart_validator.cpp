@@ -218,111 +218,15 @@ void diagnose_ordered_event(const Event* event, bool& has_previous,
   has_previous = true;
 }
 
-void diagnose_finished_event_order(
-    const ChartDraft& draft, std::vector<ChartDiagnostic>& diagnostics) {
-  bool has_previous = false;
-  EventKey previous{0U, 0U};
-  for (const auto& showtime : draft.showtimes()) {
-    for (const auto drill_id : showtime.dance_move_drill_ids) {
-      const auto* drill = find_drill(draft, drill_id.value);
-      if (drill == nullptr) {
-        continue;
-      }
-      for (const auto group_id : drill->drill_group_ids) {
-        const auto* group = find_group(draft, group_id.value);
-        if (group == nullptr) {
-          continue;
-        }
-        for (const auto event_id : group->npc_event_ids) {
-          diagnose_ordered_event(find_role_event(draft, event_id.value),
-                                 has_previous, previous, diagnostics);
-        }
-        for (const auto event_id : group->player_event_ids) {
-          diagnose_ordered_event(find_role_event(draft, event_id.value),
-                                 has_previous, previous, diagnostics);
-        }
-      }
-    }
-    diagnose_ordered_event(
-        find_start_event(draft, showtime.start_event_id.value), has_previous,
-        previous, diagnostics);
-    for (const auto event_id : showtime.show_move_event_ids) {
-      diagnose_ordered_event(find_move_event(draft, event_id.value),
-                             has_previous, previous, diagnostics);
-    }
-  }
-}
-
-[[nodiscard]] std::uint64_t last_showtime_event_row(
-    const ChartDraft& draft, bool& has_event) noexcept {
-  std::uint64_t last = 0U;
-  has_event = false;
-  const auto include = [&last, &has_event](std::uint64_t row) {
-    if (!has_event || row > last) {
-      last = row;
-    }
-    has_event = true;
-  };
-  for (const auto& showtime : draft.showtimes()) {
-    if (const auto* start =
-            find_start_event(draft, showtime.start_event_id.value)) {
-      include(start->row);
-    }
-    for (const auto event_id : showtime.show_move_event_ids) {
-      if (const auto* event = find_move_event(draft, event_id.value)) {
-        include(event->row);
-      }
-    }
-    for (const auto drill_id : showtime.dance_move_drill_ids) {
-      const auto* drill = find_drill(draft, drill_id.value);
-      if (drill == nullptr) {
-        continue;
-      }
-      for (const auto group_id : drill->drill_group_ids) {
-        const auto* group = find_group(draft, group_id.value);
-        if (group == nullptr) {
-          continue;
-        }
-        for (const auto event_id : group->npc_event_ids) {
-          if (const auto* event = find_role_event(draft, event_id.value)) {
-            include(event->row);
-          }
-        }
-        for (const auto event_id : group->player_event_ids) {
-          if (const auto* event = find_role_event(draft, event_id.value)) {
-            include(event->row);
-          }
-        }
-      }
-    }
-  }
-  return last;
-}
-
 struct UnownedDrill final {
   const ChartDanceMoveDrill* drill;
   std::uint64_t first_row;
 };
 
-[[nodiscard]] std::vector<UnownedDrill> unowned_drills_in_row_order(
+[[nodiscard]] std::vector<UnownedDrill> drills_in_row_order(
     const ChartDraft& draft) {
   std::vector<UnownedDrill> result;
   for (const auto& drill : draft.dance_move_drills()) {
-    bool owned = false;
-    for (const auto& showtime : draft.showtimes()) {
-      for (const auto drill_id : showtime.dance_move_drill_ids) {
-        if (drill_id.value == drill.id.value) {
-          owned = true;
-          break;
-        }
-      }
-      if (owned) {
-        break;
-      }
-    }
-    if (owned) {
-      continue;
-    }
     const auto first_row = dance_move_drill_first_row(draft, drill.id);
     if (!first_row.has_value()) {
       continue;
@@ -338,36 +242,127 @@ struct UnownedDrill final {
   return result;
 }
 
-/// Showtime-less drills are a trailing ordinary stage. They must follow every
-/// Showtime event, and their own event rows must keep the same strict order.
-void diagnose_unowned_drills(const ChartDraft& draft,
-                             std::vector<ChartDiagnostic>& diagnostics) {
-  bool has_showtime_event = false;
-  const auto last_showtime_row =
-      last_showtime_event_row(draft, has_showtime_event);
-  for (const auto& entry : unowned_drills_in_row_order(draft)) {
-    if (has_showtime_event && entry.first_row <= last_showtime_row) {
-      add_diagnostic(diagnostics,
-                     ChartDiagnosticCode::DanceMoveDrillNotTrailing,
-                     entry.drill->id.value, 0U, entry.first_row);
+void diagnose_drill_event_order(const ChartDraft& draft,
+                                const ChartDanceMoveDrill& drill,
+                                bool& has_previous, EventKey& previous,
+                                std::vector<ChartDiagnostic>& diagnostics) {
+  for (const auto group_id : drill.drill_group_ids) {
+    const auto* group = find_group(draft, group_id.value);
+    if (group == nullptr) {
       continue;
     }
-    bool has_previous = has_showtime_event;
-    EventKey previous{0U, last_showtime_row};
-    for (const auto group_id : entry.drill->drill_group_ids) {
-      const auto* group = find_group(draft, group_id.value);
-      if (group == nullptr) {
+    for (const auto event_id : group->npc_event_ids) {
+      diagnose_ordered_event(find_role_event(draft, event_id.value),
+                             has_previous, previous, diagnostics);
+    }
+    for (const auto event_id : group->player_event_ids) {
+      diagnose_ordered_event(find_role_event(draft, event_id.value),
+                             has_previous, previous, diagnostics);
+    }
+  }
+}
+
+/// Walks the exact row order the compatibility export writes: every Showtime
+/// stage emits its recorded dance moves first, then the stage's unowned dance
+/// moves, then SHOW-C and its SHOW-D rows; the remaining moves form the final
+/// ordinary stage. A Showtime may reference fewer moves than its stage holds,
+/// but its recorded moves must stay the stage's ordered prefix so D6 D7 D8
+/// survive deleting D9 and D10. Rows must increase across the whole file.
+void diagnose_finished_event_layout(const ChartDraft& draft,
+                                    std::vector<ChartDiagnostic>& diagnostics) {
+  struct OrderedShowtime final {
+    const ChartShowtime* showtime;
+    const ChartShowtimeStartEvent* start;
+    std::uint64_t start_row;
+  };
+  std::vector<OrderedShowtime> ordered_showtimes;
+  for (const auto& showtime : draft.showtimes()) {
+    const auto* start = find_start_event(draft, showtime.start_event_id.value);
+    if (start == nullptr) {
+      continue;
+    }
+    ordered_showtimes.push_back({&showtime, start, start->row});
+  }
+  auto drills = drills_in_row_order(draft);
+  std::vector<bool> emitted(drills.size(), false);
+  const auto is_recorded = [](const ChartShowtime& showtime,
+                              ChartDanceMoveDrillId id) {
+    return std::any_of(showtime.dance_move_drill_ids.begin(),
+                       showtime.dance_move_drill_ids.end(),
+                       [id](ChartDanceMoveDrillId recorded) {
+                         return recorded.value == id.value;
+                       });
+  };
+  bool has_previous = false;
+  EventKey previous{0U, 0U};
+  bool has_stage_begin = false;
+  std::uint64_t stage_begin = 0U;
+  for (const auto& entry : ordered_showtimes) {
+    std::vector<std::size_t> stage;
+    for (std::size_t index = 0U; index < drills.size(); ++index) {
+      if (emitted[index] || drills[index].first_row >= entry.start_row ||
+          (has_stage_begin && drills[index].first_row <= stage_begin)) {
         continue;
       }
-      for (const auto event_id : group->npc_event_ids) {
-        diagnose_ordered_event(find_role_event(draft, event_id.value),
-                               has_previous, previous, diagnostics);
-      }
-      for (const auto event_id : group->player_event_ids) {
-        diagnose_ordered_event(find_role_event(draft, event_id.value),
-                               has_previous, previous, diagnostics);
+      stage.push_back(index);
+    }
+
+    // The recorded moves must be the stage's ordered prefix; a shorter list is
+    // the user's manual reduction of the Showtime.
+    const auto& recorded = entry.showtime->dance_move_drill_ids;
+    bool prefix_ok = !recorded.empty() && recorded.size() <= stage.size();
+    for (std::size_t index = 0U; prefix_ok && index < recorded.size();
+         ++index) {
+      if (drills[stage[index]].drill->id.value != recorded[index].value) {
+        prefix_ok = false;
       }
     }
+    if (!prefix_ok) {
+      add_diagnostic(diagnostics, ChartDiagnosticCode::InvalidShowtime,
+                     entry.showtime->id.value);
+    }
+
+    for (const auto drill_id : recorded) {
+      const auto* drill = find_drill(draft, drill_id.value);
+      if (drill != nullptr) {
+        diagnose_drill_event_order(draft, *drill, has_previous, previous,
+                                   diagnostics);
+      }
+      for (std::size_t index = 0U; index < drills.size(); ++index) {
+        if (!emitted[index] && drills[index].drill->id.value == drill_id.value) {
+          emitted[index] = true;
+          break;
+        }
+      }
+    }
+    for (const auto index : stage) {
+      if (is_recorded(*entry.showtime, drills[index].drill->id)) {
+        continue;
+      }
+      diagnose_drill_event_order(draft, *drills[index].drill, has_previous,
+                                 previous, diagnostics);
+      emitted[index] = true;
+    }
+    diagnose_ordered_event(entry.start, has_previous, previous, diagnostics);
+    std::uint64_t last_row = entry.start_row;
+    for (const auto event_id : entry.showtime->show_move_event_ids) {
+      const auto* event = find_move_event(draft, event_id.value);
+      if (event != nullptr && event->row > last_row) {
+        last_row = event->row;
+      }
+      diagnose_ordered_event(event, has_previous, previous, diagnostics);
+    }
+    has_stage_begin = true;
+    stage_begin = last_row;
+  }
+
+  for (std::size_t index = 0U; index < drills.size(); ++index) {
+    if (emitted[index]) {
+      continue;
+    }
+    diagnose_drill_event_order(draft, *drills[index].drill, has_previous,
+                               previous, diagnostics);
+    emitted[index] = true;
   }
 }
 
@@ -602,8 +597,7 @@ ChartValidationResult validate_finished_chart(
       }
     }
 
-    diagnose_unowned_drills(draft, diagnostics);
-    diagnose_finished_event_order(draft, diagnostics);
+    diagnose_finished_event_layout(draft, diagnostics);
 
     if (!diagnostics.empty()) {
       return ChartValidationResult{std::move(diagnostics)};

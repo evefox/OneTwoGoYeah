@@ -34,6 +34,7 @@ enum class ChartEditCode : std::uint8_t {
   PasteRangeOccupied = 19,
   ShowtimeContentStale = 20,
   CutSourceChanged = 21,
+  ShowtimePartiallyCompleted = 22,
 };
 
 [[nodiscard]] constexpr std::string_view chart_edit_code_message(
@@ -83,6 +84,8 @@ enum class ChartEditCode : std::uint8_t {
       return "the Showtime content no longer matches its dance moves";
     case ChartEditCode::CutSourceChanged:
       return "the pending cut source has changed";
+    case ChartEditCode::ShowtimePartiallyCompleted:
+      return "Showtime completion stopped before later chart content";
   }
   return "unknown chart edit result";
 }

@@ -1640,10 +1640,31 @@ struct CompleteDrill final {
     std::uint64_t range_start;
     std::uint64_t range_end;
   };
+  // Any existing marker after the SHOW-C must be emitted after every new
+  // SHOW-D anchor, so it caps how many moves can still be shown. Markers that
+  // fall inside a display band but after the last anchor are allowed.
+  std::uint64_t next_content_row = std::numeric_limits<std::uint64_t>::max();
+  for (const auto& marker : markers) {
+    if (marker.row <= showtime_start_row) {
+      continue;
+    }
+    const auto own_move = std::any_of(
+        showtime->show_move_event_ids.begin(),
+        showtime->show_move_event_ids.end(),
+        [&marker](ChartEventId id) { return id.value == marker.id.value; });
+    if (own_move) {
+      continue;
+    }
+    next_content_row = std::min(next_content_row, marker.row);
+  }
+
   std::vector<PendingMove> pending;
   pending.reserve(drills.size() - begin);
   std::uint64_t row = first_row;
   for (std::size_t index = begin; index < drills.size(); ++index) {
+    if (row >= next_content_row) {
+      break;
+    }
     const auto range_start = row - row % 16U;
     const std::uint64_t duration = drills[index].move_n_count <= 6U ? 16U : 32U;
     if (range_start >
@@ -1656,21 +1677,7 @@ struct CompleteDrill final {
          range_end});
     row = range_end;
   }
-
-  const auto range_begin = pending.front().range_start;
-  const auto range_end = pending.back().range_end;
-  const auto open_begin = range_end - 8U;
-  for (const auto& marker : markers) {
-    if (marker.row < range_begin || marker.row >= range_end) {
-      continue;
-    }
-    if (marker.id.value == showtime_start_event_id.value) {
-      continue;
-    }
-    if (marker.type == ChartMarkerType::NpcBlockStart &&
-        marker.row >= open_begin) {
-      continue;
-    }
+  if (pending.empty()) {
     return {ChartEditCode::ShowtimeRangeOccupied, false, {0U}};
   }
 
@@ -1696,7 +1703,10 @@ struct CompleteDrill final {
               return left.row != right.row ? left.row < right.row
                                            : left.id.value < right.id.value;
             });
-  return {ChartEditCode::Success, true, first_event};
+  const bool partial = pending.size() < drills.size() - begin;
+  return {partial ? ChartEditCode::ShowtimePartiallyCompleted
+                  : ChartEditCode::Success,
+          true, first_event};
 }
 
 [[nodiscard]] const ChartShowtimeStartEvent* find_showtime_start_event(
@@ -1717,6 +1727,58 @@ struct CompleteDrill final {
     }
   }
   return nullptr;
+}
+
+/// The recorded moves must stay a contiguous run of the complete moves in their
+/// stage. A new complete move inserted between two recorded moves breaks the
+/// positional SHOW-D association, so the Showtime is cleared with that edit.
+/// Moves inserted before the first recorded move only shift the candidate list
+/// and keep the Showtime, as does any move left after the recorded run.
+[[nodiscard]] bool showtime_moves_remain_contiguous(
+    const MutableDraft& draft, const ChartShowtime& showtime,
+    std::uint64_t start_row) {
+  if (showtime.dance_move_drill_ids.empty()) {
+    return true;
+  }
+  struct StageDrill final {
+    const ChartDanceMoveDrill* drill;
+    std::uint64_t first_row;
+  };
+  std::vector<StageDrill> stage;
+  for (const auto& drill : draft.dance_move_drills) {
+    CompleteDrill complete{};
+    if (!complete_drill(draft, drill, complete) ||
+        complete.last_row >= start_row) {
+      continue;
+    }
+    stage.push_back({&drill, complete.first_row});
+  }
+  std::sort(stage.begin(), stage.end(),
+            [](const StageDrill& left, const StageDrill& right) {
+              return left.first_row != right.first_row
+                         ? left.first_row < right.first_row
+                         : left.drill->id.value < right.drill->id.value;
+            });
+  std::size_t position = stage.size();
+  for (std::size_t index = 0U; index < stage.size(); ++index) {
+    if (stage[index].drill->id.value ==
+        showtime.dance_move_drill_ids.front().value) {
+      position = index;
+      break;
+    }
+  }
+  if (position == stage.size() ||
+      position + showtime.dance_move_drill_ids.size() > stage.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < showtime.dance_move_drill_ids.size();
+       ++index) {
+    if (stage[position + index].drill->id.value !=
+        showtime.dance_move_drill_ids[index].value) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /// A Showtime whose stored dance moves no longer support it: a referenced drill
@@ -1763,6 +1825,11 @@ struct CompleteDrill final {
     if (move->show_n_count != referenced->move_n_count) {
       return true;
     }
+  }
+  const auto* start = find_showtime_start_event(draft, showtime.start_event_id);
+  if (start != nullptr &&
+      !showtime_moves_remain_contiguous(draft, showtime, start->row)) {
+    return true;
   }
   return false;
 }

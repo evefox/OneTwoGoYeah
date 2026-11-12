@@ -166,6 +166,8 @@ final class EditorNotice {
 }
 
 class EditorController extends ChangeNotifier {
+  bool _showtimePartialPromptPending = false;
+
   EditorController({
     NativeChartEditor? editor,
     PlaybackOutput? playbackOutput,
@@ -818,6 +820,9 @@ class EditorController extends ChangeNotifier {
     if (result.changed) {
       if (result.playerActionsCleared) {
         _notice = EditorNotice('演示已修改；对应练习无法自动修正，已清空练习 N/S，保留起始标记。');
+      }
+      if (result.code == OTGY_CHART_EDIT_SHOWTIME_PARTIALLY_COMPLETED) {
+        _showtimePartialPromptPending = true;
       }
       _refreshProjection();
       _commitChartChange();
@@ -1809,6 +1814,18 @@ class EditorController extends ChangeNotifier {
       _notice = null;
       notifyListeners();
     }
+  }
+
+  /// True when the last Showtime click generated only the moves that fit before
+  /// later chart content. The screen shows a keep/undo confirmation for it.
+  bool get showtimePartialPromptPending => _showtimePartialPromptPending;
+
+  void acknowledgeShowtimePartialPrompt() {
+    if (!_showtimePartialPromptPending) {
+      return;
+    }
+    _showtimePartialPromptPending = false;
+    notifyListeners();
   }
 
   void showNotice(String message, {bool error = false}) {
