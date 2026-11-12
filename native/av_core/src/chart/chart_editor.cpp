@@ -692,6 +692,23 @@ void erase_role_events(MutableDraft& draft,
   return false;
 }
 
+/// Whether the group already ends its move. A group may carry an NPC-S later
+/// than the row a new NPC-C is placed at, because a segment can be created
+/// inside an already finished group's span. Appending a further group to the
+/// same drill would leave that end in a non-final group, so the new C must
+/// start its own drill instead.
+[[nodiscard]] bool group_has_npc_end(const MutableDraft& draft,
+                                     ChartDrillGroupId group_id) noexcept {
+  for (const auto& event : draft.role_events) {
+    if (event.role == ChartRole::Npc &&
+        event.type == ChartRoleEventType::MoveEnd &&
+        event.drill_group_id.value == group_id.value) {
+      return true;
+    }
+  }
+  return false;
+}
+
 [[nodiscard]] bool drill_is_owned_by_showtime(
     const MutableDraft& draft, ChartDanceMoveDrillId drill_id) noexcept {
   for (const auto& showtime : draft.showtimes) {
@@ -722,11 +739,17 @@ void erase_role_events(MutableDraft& draft,
     previous_npc_start = find_role_event(draft, marker->id.value);
     break;
   }
-  if (previous_npc_start != nullptr &&
+  const auto* previous_group =
+      previous_npc_start == nullptr
+          ? nullptr
+          : find_group_const(draft,
+                             previous_npc_start->drill_group_id.value);
+  if (previous_npc_start != nullptr && previous_group != nullptr &&
       find_drill(draft, previous_npc_start->dance_move_drill_id.value) !=
           nullptr &&
       !drill_is_owned_by_showtime(
           draft, previous_npc_start->dance_move_drill_id) &&
+      !group_has_npc_end(draft, previous_group->id) &&
       !npc_move_end_between(draft, previous_npc_start->row, row)) {
     drill_id = previous_npc_start->dance_move_drill_id;
   } else {
@@ -966,7 +989,35 @@ void erase_role_events(MutableDraft& draft,
                              event->drill_group_id.value !=
                                  current_group_id.value;
                     });
+    // Deleting an end only concatenates the following move when it really opens
+    // this move. Converting a note inside a move and converting it back is the
+    // common cancel path: while the end existed the group kept the notes after
+    // it, and when another end already exists the group still ends there.
+    // Merging in either state would swallow the next dance move and make the
+    // combined move impossible for Showtime completion.
+    const bool destination_still_ends = std::any_of(
+        destination->drill_group_ids.begin(),
+        destination->drill_group_ids.end(),
+        [&draft, current](ChartDrillGroupId group_id) {
+          return std::any_of(
+              draft.role_events.begin(), draft.role_events.end(),
+              [current, group_id](const ChartRoleEvent& event) {
+                return event.id.value != current.id.value &&
+                       event.role == ChartRole::Npc &&
+                       event.type == ChartRoleEventType::MoveEnd &&
+                       event.drill_group_id.value == group_id.value;
+              });
+        });
+    const bool group_has_later_note = std::any_of(
+        draft.role_events.begin(), draft.role_events.end(),
+        [current, current_group_id](const ChartRoleEvent& event) {
+          return event.role == ChartRole::Npc &&
+                 event.type == ChartRoleEventType::Note &&
+                 event.drill_group_id.value == current_group_id.value &&
+                 event.row > current.row;
+        });
     if (is_last_group && next_group != nullptr && !has_sequence_barrier &&
+        !destination_still_ends && !group_has_later_note &&
         next_group->dance_move_drill_id.value != destination_id.value) {
       const auto source_id = next_group->dance_move_drill_id;
       auto* source = find_drill(draft, source_id.value);
@@ -1716,6 +1767,25 @@ struct CompleteDrill final {
   return false;
 }
 
+/// Every dance move the Showtime records is still the leading prefix of the
+/// moves its current content would offer. A shorter prefix is legal: an
+/// imported Showtime may carry fewer move markers than dance moves.
+[[nodiscard]] bool showtime_matches_candidate_prefix(
+    const MutableDraft& draft, const std::vector<ChartMarker>& markers,
+    const ChartShowtime& showtime, std::uint64_t start_row) {
+  const auto drills = collect_complete_drills(draft, markers, start_row);
+  if (showtime.dance_move_drill_ids.size() > drills.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < showtime.dance_move_drill_ids.size();
+       ++index) {
+    if (showtime.dance_move_drill_ids[index].value != drills[index].id.value) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Drops every stale Showtime together with its start marker and all of its
 /// move markers, so that one edit never leaves Showtime markers behind.
 void prune_stale_showtimes(MutableDraft& draft) {
@@ -2344,20 +2414,56 @@ ChartRepairStatus ChartEditor::repair_relations() noexcept {
     }
     candidate.dance_move_drills = std::move(new_drills);
 
-    // A Showtime built on the old relation is stale after regrouping. Rebuild
-    // it in place from the repaired complete moves so a loaded draft keeps its
-    // visible Showtime marker instead of silently losing it.
+    // A Showtime laid out against the old relation keeps the moves it was
+    // given, but regrouping can reveal complete dance moves that the broken
+    // relation had merged into an incomplete drill. Its recorded moves are then
+    // no longer the current candidate prefix, so it is rebuilt in place from
+    // the repaired complete moves; a Showtime that still matches the prefix is
+    // left untouched, as an edit that only inserted a move must be.
+    bool drills_rebuilt = false;
+    for (const auto& group : candidate.drill_groups) {
+      const auto original = std::find_if(
+          draft_.drill_groups().begin(), draft_.drill_groups().end(),
+          [&group](const ChartDrillGroup& existing) {
+            return existing.id.value == group.id.value;
+          });
+      if (original == draft_.drill_groups().end() ||
+          original->dance_move_drill_id.value !=
+              group.dance_move_drill_id.value) {
+        drills_rebuilt = true;
+        break;
+      }
+    }
+
     std::size_t showtime_index = 0U;
     while (showtime_index < candidate.showtimes.size()) {
-      auto& showtime = candidate.showtimes[showtime_index];
-      if (!showtime_is_stale(candidate, showtime)) {
+      const auto showtime_id =
+          candidate.showtimes[showtime_index].id.value;
+      const auto start_event_id =
+          candidate.showtimes[showtime_index].start_event_id;
+      const bool stale = showtime_is_stale(
+          candidate, candidate.showtimes[showtime_index]);
+      const auto* start =
+          find_showtime_start_event(candidate, start_event_id);
+      bool rebuild = stale;
+      if (!stale && drills_rebuilt && start != nullptr) {
+        auto markers = project_chart_markers(ChartDraft{
+            candidate.role_events, candidate.showtime_start_events,
+            candidate.showtime_move_events, candidate.drill_groups,
+            candidate.dance_move_drills, candidate.showtimes});
+        if (!markers) {
+          return markers.error() == ChartProjectionError::AllocationFailure
+                     ? ChartRepairStatus::AllocationFailure
+                     : ChartRepairStatus::InvalidDraft;
+        }
+        rebuild = !showtime_matches_candidate_prefix(
+            candidate, *markers.markers(),
+            candidate.showtimes[showtime_index], start->row);
+      }
+      if (!rebuild) {
         ++showtime_index;
         continue;
       }
-      const auto showtime_id = showtime.id.value;
-      const auto start_event_id = showtime.start_event_id;
-      const auto* start =
-          find_showtime_start_event(candidate, start_event_id);
       if (start == nullptr) {
         candidate.showtimes.erase(candidate.showtimes.begin() +
                                   static_cast<std::ptrdiff_t>(showtime_index));
@@ -2378,16 +2484,6 @@ ChartRepairStatus ChartEditor::repair_relations() noexcept {
         continue;
       }
       const auto start_row = start->row;
-      candidate.showtime_move_events.erase(
-          std::remove_if(candidate.showtime_move_events.begin(),
-                         candidate.showtime_move_events.end(),
-                         [showtime_id](const ChartShowtimeMoveEvent& event) {
-                           return event.showtime_id.value == showtime_id;
-                         }),
-          candidate.showtime_move_events.end());
-      showtime.show_move_event_ids.clear();
-      showtime.dance_move_drill_ids.clear();
-
       std::uint64_t first_row = start_row;
       bool position_ok = true;
       if (start_row % 16U == 0U) {
@@ -2404,20 +2500,38 @@ ChartRepairStatus ChartEditor::repair_relations() noexcept {
           first_row = (measure + 1U) * 16U;
         }
       }
+      // Rebuild on a copy so a Showtime that no longer fits keeps its stored
+      // content instead of losing it to a failed attempt.
+      MutableDraft attempt{candidate};
+      auto attempt_ids = ids;
+      auto* attempt_showtime = find_showtime(attempt, showtime_id);
+      if (attempt_showtime == nullptr) {
+        ++showtime_index;
+        continue;
+      }
+      attempt.showtime_move_events.erase(
+          std::remove_if(attempt.showtime_move_events.begin(),
+                         attempt.showtime_move_events.end(),
+                         [showtime_id](const ChartShowtimeMoveEvent& event) {
+                           return event.showtime_id.value == showtime_id;
+                         }),
+          attempt.showtime_move_events.end());
+      attempt_showtime->show_move_event_ids.clear();
+      attempt_showtime->dance_move_drill_ids.clear();
       auto rebuilt = false;
       if (position_ok) {
         auto markers = project_chart_markers(ChartDraft{
-            candidate.role_events, candidate.showtime_start_events,
-            candidate.showtime_move_events, candidate.drill_groups,
-            candidate.dance_move_drills, candidate.showtimes});
+            attempt.role_events, attempt.showtime_start_events,
+            attempt.showtime_move_events, attempt.drill_groups,
+            attempt.dance_move_drills, attempt.showtimes});
         if (!markers) {
           return markers.error() == ChartProjectionError::AllocationFailure
                      ? ChartRepairStatus::AllocationFailure
                      : ChartRepairStatus::InvalidDraft;
         }
         const auto completion = complete_showtime(
-            candidate, *markers.markers(), {showtime_id}, start_row,
-            start_event_id, first_row, ids);
+            attempt, *markers.markers(), {showtime_id}, start_row,
+            start_event_id, first_row, attempt_ids);
         if (!completion &&
             (completion.code == ChartEditCode::AllocationFailure ||
              completion.code == ChartEditCode::IdExhausted)) {
@@ -2425,26 +2539,32 @@ ChartRepairStatus ChartEditor::repair_relations() noexcept {
         }
         rebuilt = static_cast<bool>(completion);
       }
-      if (!rebuilt) {
-        candidate.showtime_start_events.erase(
-            std::remove_if(candidate.showtime_start_events.begin(),
-                           candidate.showtime_start_events.end(),
-                           [showtime_id](const ChartShowtimeStartEvent& event) {
-                             return event.showtime_id.value == showtime_id;
-                           }),
-            candidate.showtime_start_events.end());
-        candidate.showtime_move_events.erase(
-            std::remove_if(candidate.showtime_move_events.begin(),
-                           candidate.showtime_move_events.end(),
-                           [showtime_id](const ChartShowtimeMoveEvent& event) {
-                             return event.showtime_id.value == showtime_id;
-                           }),
-            candidate.showtime_move_events.end());
-        candidate.showtimes.erase(candidate.showtimes.begin() +
-                                  static_cast<std::ptrdiff_t>(showtime_index));
+      if (rebuilt) {
+        candidate = std::move(attempt);
+        ids = attempt_ids;
+        ++showtime_index;
         continue;
       }
-      ++showtime_index;
+      if (!stale) {
+        ++showtime_index;
+        continue;
+      }
+      candidate.showtime_start_events.erase(
+          std::remove_if(candidate.showtime_start_events.begin(),
+                         candidate.showtime_start_events.end(),
+                         [showtime_id](const ChartShowtimeStartEvent& event) {
+                           return event.showtime_id.value == showtime_id;
+                         }),
+          candidate.showtime_start_events.end());
+      candidate.showtime_move_events.erase(
+          std::remove_if(candidate.showtime_move_events.begin(),
+                         candidate.showtime_move_events.end(),
+                         [showtime_id](const ChartShowtimeMoveEvent& event) {
+                           return event.showtime_id.value == showtime_id;
+                         }),
+          candidate.showtime_move_events.end());
+      candidate.showtimes.erase(candidate.showtimes.begin() +
+                                static_cast<std::ptrdiff_t>(showtime_index));
     }
 
     auto finished = std::move(candidate).finish();

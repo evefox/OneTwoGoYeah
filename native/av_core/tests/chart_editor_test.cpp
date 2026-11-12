@@ -3198,6 +3198,170 @@ void test_repair_relations_leaves_valid_draft_unchanged() {
   assert(otgy::core::chart_drafts_equal(editor.draft(), before));
 }
 
+namespace {
+
+struct BrokenShowtimeFixture final {
+  std::vector<ChartRoleEvent> events;
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDanceMoveDrill> drills;
+  std::vector<ChartShowtimeStartEvent> starts;
+  std::vector<ChartShowtimeMoveEvent> moves;
+  std::vector<ChartShowtime> showtimes;
+};
+
+void add_showtime_fixture_move(BrokenShowtimeFixture& fixture,
+                               std::uint64_t group_id, std::uint64_t drill_id,
+                               std::uint64_t npc_row,
+                               std::uint64_t player_row) {
+  ChartDrillGroup group{{group_id}, {drill_id}, {}, {}};
+  std::uint64_t event_id = 1000U + group_id * 10U;
+  const auto add_block = [&fixture, &event_id](
+                             ChartRole role, std::uint64_t first_row,
+                             ChartDrillGroupId group,
+                             ChartDanceMoveDrillId drill,
+                             std::vector<ChartEventId>& relation) {
+    const auto add = [&](ChartRoleEventType type, std::uint64_t row) {
+      relation.push_back({event_id});
+      fixture.events.push_back(
+          {{event_id}, row, role, type, group, drill});
+      ++event_id;
+    };
+    add(ChartRoleEventType::BlockStart, first_row);
+    add(ChartRoleEventType::Note, first_row + 2U);
+    add(ChartRoleEventType::MoveEnd, first_row + 4U);
+  };
+  add_block(ChartRole::Npc, npc_row, {group_id}, {drill_id},
+            group.npc_event_ids);
+  add_block(ChartRole::Player, player_row, {group_id}, {drill_id},
+            group.player_event_ids);
+  fixture.groups.push_back(std::move(group));
+}
+
+}  // namespace
+
+/// Repair splits a draft whose drill relation merged two ended NPC blocks into
+/// one dance move. The Showtime that was completed against that broken relation
+/// lists only the then-complete moves; once the regrouped moves exist, those
+/// recorded moves are no longer the candidate prefix, so repair rebuilds the
+/// Showtime at its original SHOW-C row and covers every visible move.
+void test_repair_relations_rebuilds_showtime_after_regrouping() {
+  BrokenShowtimeFixture fixture;
+  add_showtime_fixture_move(fixture, 10U, 100U, 0U, 10U);
+  add_showtime_fixture_move(fixture, 20U, 200U, 16U, 26U);
+  add_showtime_fixture_move(fixture, 30U, 200U, 32U, 42U);
+  add_showtime_fixture_move(fixture, 40U, 300U, 48U, 58U);
+  fixture.drills.push_back({{100U}, 1U, {{10U}}});
+  fixture.drills.push_back({{200U}, 2U, {{20U}, {30U}}});
+  fixture.drills.push_back({{300U}, 1U, {{40U}}});
+
+  const ChartEventId start_id{500U};
+  fixture.starts.push_back({start_id, 64U, {501U}});
+  fixture.moves.push_back({{502U}, 65U, {501U}, {100U}, 1U});
+  fixture.moves.push_back({{503U}, 80U, {501U}, {300U}, 1U});
+  fixture.showtimes.push_back(
+      {{501U}, start_id, {{100U}, {300U}}, {{502U}, {503U}}});
+
+  ChartEditor editor{ChartDraft{
+      fixture.events, fixture.starts, fixture.moves,
+      fixture.groups, fixture.drills, fixture.showtimes}};
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Repaired);
+  assert(editor.draft().dance_move_drills().size() == 4U);
+  assert(editor.draft().showtimes().size() == 1U);
+  const auto& showtime = editor.draft().showtimes().front();
+  assert(showtime.start_event_id.value == 500U);
+  assert(showtime.dance_move_drill_ids.size() == 4U);
+  assert(showtime.show_move_event_ids.size() == 4U);
+  const std::uint64_t expected_rows[] = {65U, 80U, 96U, 112U};
+  for (std::size_t index = 0U; index < showtime.show_move_event_ids.size();
+       ++index) {
+    const auto event_id = showtime.show_move_event_ids[index];
+    const auto move = std::find_if(
+        editor.draft().showtime_move_events().begin(),
+        editor.draft().showtime_move_events().end(),
+        [event_id](const otgy::core::ChartShowtimeMoveEvent& event) {
+          return event.id.value == event_id.value;
+        });
+    assert(move != editor.draft().showtime_move_events().end());
+    assert(move->row == expected_rows[index]);
+    assert(move->show_n_count == 1U);
+  }
+  assert(editor.draft().showtime_move_events().size() == 4U);
+  assert(editor.undo_count() == 0U);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Unchanged);
+}
+
+/// The same Showtime shape over an already-correct relation is not rebuilt: an
+/// edit that only inserted a complete move before a Showtime leaves its stored
+/// content alone, and repair must not rewrite it on load.
+void test_repair_relations_keeps_showtime_over_valid_grouping() {
+  BrokenShowtimeFixture fixture;
+  add_showtime_fixture_move(fixture, 10U, 100U, 0U, 10U);
+  add_showtime_fixture_move(fixture, 20U, 200U, 16U, 26U);
+  add_showtime_fixture_move(fixture, 30U, 300U, 32U, 42U);
+  add_showtime_fixture_move(fixture, 40U, 400U, 48U, 58U);
+  fixture.drills.push_back({{100U}, 1U, {{10U}}});
+  fixture.drills.push_back({{200U}, 1U, {{20U}}});
+  fixture.drills.push_back({{300U}, 1U, {{30U}}});
+  fixture.drills.push_back({{400U}, 1U, {{40U}}});
+
+  const ChartEventId start_id{500U};
+  fixture.starts.push_back({start_id, 64U, {501U}});
+  fixture.moves.push_back({{502U}, 65U, {501U}, {100U}, 1U});
+  fixture.moves.push_back({{503U}, 80U, {501U}, {400U}, 1U});
+  fixture.showtimes.push_back(
+      {{501U}, start_id, {{100U}, {400U}}, {{502U}, {503U}}});
+
+  ChartEditor editor{ChartDraft{
+      fixture.events, fixture.starts, fixture.moves,
+      fixture.groups, fixture.drills, fixture.showtimes}};
+  const auto before = editor.draft();
+  assert(editor.repair_relations() ==
+         otgy::core::ChartRepairStatus::Unchanged);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+}
+
+/// Converting a middle note of a finished move to an end and then deleting that
+/// end is the normal cancel path. It must restore the move instead of merging
+/// the following dance move into it; otherwise the combined drill is incomplete
+/// and rebuilding the Showtime silently loses a dance move.
+void test_cancelled_mid_move_end_keeps_following_move_separate() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  // First move: five notes and its own end.
+  for (const auto row : {0U, 2U, 4U, 6U, 8U, 10U, 10U}) {
+    assert(editor.click(ChartColumn::Npc, row));
+  }
+  for (const auto row : {12U, 14U}) {
+    assert(editor.click(ChartColumn::Player, row));
+  }
+  // Second move after the first player block.
+  for (const auto row : {30U, 32U, 34U, 34U}) {
+    assert(editor.click(ChartColumn::Npc, row));
+  }
+  for (const auto row : {36U, 38U}) {
+    assert(editor.click(ChartColumn::Player, row));
+  }
+  assert(editor.draft().dance_move_drills().size() == 2U);
+  const auto following_drill =
+      editor.draft().dance_move_drills()[1].id.value;
+
+  // Convert a middle note to an end, then delete that end again.
+  assert(editor.click(ChartColumn::Npc, 4U));
+  assert(editor.click(ChartColumn::Npc, 4U));
+  assert(editor.draft().dance_move_drills().size() == 2U);
+  assert(editor.draft().dance_move_drills()[1].id.value == following_drill);
+  assert(editor.draft().dance_move_drills()[0].move_n_count == 3U);
+  assert(editor.draft().dance_move_drills()[1].move_n_count == 1U);
+
+  // Rebuilding the Showtime covers both moves instead of losing the merged one.
+  assert(editor.click(ChartColumn::Showtime, 44U));
+  assert(editor.draft().showtime_move_events().size() == 2U);
+  assert(editor.draft().showtimes().front().dance_move_drill_ids.size() == 2U);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+}
+
 void test_nonterminal_npc_move_end_deletes_after_merge() {
   ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
   for (const auto row : {2U, 3U, 4U, 5U}) {
@@ -3226,8 +3390,11 @@ void test_nonterminal_npc_move_end_deletes_after_merge() {
   assert(editor.click(ChartColumn::Npc, 5U));
   assert(editor.draft().dance_move_drills().size() == 2U);
   const auto split_with_later_end = editor.draft();
+  // Deleting one of two ends in the same group leaves the group closed at the
+  // later end, so the following drill must stay separate instead of merging a
+  // second closed move into it.
   assert(editor.click(ChartColumn::Npc, 4U));
-  assert(editor.draft().dance_move_drills().size() == 1U);
+  assert(editor.draft().dance_move_drills().size() == 2U);
   assert(editor.undo());
   assert(otgy::core::chart_drafts_equal(editor.draft(), split_with_later_end));
   assert(editor.redo());
@@ -3804,6 +3971,9 @@ int main() {
   test_deleting_end_does_not_merge_across_another_npc_end();
   test_repair_relations_rebuilds_visible_moves();
   test_repair_relations_leaves_valid_draft_unchanged();
+  test_repair_relations_rebuilds_showtime_after_regrouping();
+  test_repair_relations_keeps_showtime_over_valid_grouping();
+  test_cancelled_mid_move_end_keeps_following_move_separate();
   test_nonterminal_npc_move_end_deletes_after_merge();
   test_showtime_boundary_prevents_dance_move_merge();
   test_interleaved_drill_move_end_delete_merges_all_groups();

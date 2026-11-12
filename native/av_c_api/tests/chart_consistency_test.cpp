@@ -1795,9 +1795,11 @@ void test_split_merge_consistency() {
   expect(static_cast<bool>(click(0U, 5U)),
          "later boundary conversion failed");
   expect(static_cast<bool>(click(0U, 4U)),
-         "first boundary deletion and merge failed");
-  expect(direct.draft().dance_move_drills().size() == 1U,
-         "multi-boundary merge did not retain one dance move");
+         "first boundary deletion failed");
+  // The group still ends at row 5, so deleting row 4 must not merge the
+  // following dance move into it.
+  expect(direct.draft().dance_move_drills().size() == 2U,
+         "deleting a non-terminal end merged the following dance move");
   compare_chart();
   const auto before_nonterminal_delete = direct.draft();
   const auto nonterminal_delete = click(0U, 5U);
