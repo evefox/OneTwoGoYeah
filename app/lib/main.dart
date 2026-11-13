@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'src/application/editor_controller.dart';
 import 'src/infrastructure/local_diagnostics.dart';
@@ -10,6 +11,9 @@ import 'src/ui/editor_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
   await initializeAppDiagnostics();
   final preferences = await LocalUiPreferences.load();
   runApp(OneTwoGoYeahApp(preferences: preferences));
