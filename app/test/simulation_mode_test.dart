@@ -99,9 +99,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: ScreenKeypadOverlay(controller: controller),
-        ),
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
       ),
     );
 
@@ -114,7 +112,34 @@ void main() {
     expect(find.byIcon(Icons.close), findsOneWidget);
   });
 
+  testWidgets('numeric overlay uses real-keyboard sized keys', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    controller.setSimulationEnabled(true);
+    controller.openScreenKeypad();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
+      ),
+    );
+
+    // 18 mm keycap with a 1 mm gap: about 108 dp at normal phone density.
+    expect(
+      tester.getSize(find.byKey(const ValueKey('screen-keypad-key-7'))),
+      const Size(108, 108),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('screen-keypad-key-0'))),
+      const Size(338, 108),
+    );
+  });
+
   testWidgets('arrow overlay renders Ctrl, arrows and 0', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final controller = EditorController();
     addTearDown(controller.dispose);
     controller.setSimulationEnabled(true);
@@ -123,9 +148,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(
-          body: ScreenKeypadOverlay(controller: controller),
-        ),
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
       ),
     );
 
@@ -135,5 +158,9 @@ void main() {
     expect(find.text('←'), findsOneWidget);
     expect(find.text('→'), findsOneWidget);
     expect(find.text('0'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('screen-keypad-key-↑'))),
+      const Size(108, 108),
+    );
   });
 }

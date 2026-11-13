@@ -74,15 +74,20 @@ class _NumericLayout extends StatelessWidget {
             top: height * 0.25 - 34,
             left: 0,
             right: 0,
-            child: IgnorePointer(
-              child: _JudgementText(judgement: judgement),
-            ),
+            child: IgnorePointer(child: _JudgementText(judgement: judgement)),
           ),
         Positioned(
-          left: 0,
-          right: 0,
+          left: 12,
+          right: 12,
+          top: viewPadding.top + 96,
           bottom: bottomMargin,
-          child: Center(child: _NumericKeypad(controller: controller)),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: _NumericKeypad(controller: controller),
+            ),
+          ),
         ),
       ],
     );
@@ -100,34 +105,37 @@ class _ArrowLayout extends StatelessWidget {
         ? controller.latestJudgement
         : null;
     return Center(
-      child: RotatedBox(
-        quarterTurns: 1,
-        child: SizedBox(
-          width: 720,
-          height: 320,
-          child: Stack(
-            children: [
-              Positioned(
-                top: 12,
-                left: 14,
-                child: _PlayButton(controller: controller),
-              ),
-              Positioned(
-                top: 14,
-                right: 14,
-                child: _CloseButton(controller: controller),
-              ),
-              if (judgement != null)
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: RotatedBox(
+          quarterTurns: 1,
+          child: SizedBox(
+            width: 720,
+            height: 320,
+            child: Stack(
+              children: [
                 Positioned(
                   top: 12,
-                  left: 70,
-                  right: 70,
-                  child: IgnorePointer(
-                    child: _JudgementText(judgement: judgement),
-                  ),
+                  left: 14,
+                  child: _PlayButton(controller: controller),
                 ),
-              Center(child: _ArrowKeys(controller: controller)),
-            ],
+                Positioned(
+                  top: 14,
+                  right: 14,
+                  child: _CloseButton(controller: controller),
+                ),
+                if (judgement != null)
+                  Positioned(
+                    top: 12,
+                    left: 70,
+                    right: 70,
+                    child: IgnorePointer(
+                      child: _JudgementText(judgement: judgement),
+                    ),
+                  ),
+                Center(child: _ArrowKeys(controller: controller)),
+              ],
+            ),
           ),
         ),
       ),
@@ -228,9 +236,14 @@ class _JudgementText extends StatelessWidget {
 class _NumericKeypad extends StatelessWidget {
   const _NumericKeypad({required this.controller});
 
-  static const _keyWidth = 66.0;
-  static const _keyHeight = 58.0;
-  static const _gap = 10.0;
+  /// A standard keyboard key is a 19.05 mm pitch with an 18 mm cap and about
+  /// 1 mm between caps. In Flutter's density-independent units that is
+  /// roughly 108 dp per cap with a 7 dp gap, so the keypad matches a real
+  /// keyboard instead of scaling with the device. `FittedBox.scaleDown` only
+  /// shrinks it on screens that are physically too narrow to hold it.
+  static const _keyWidth = 108.0;
+  static const _keyHeight = 108.0;
+  static const _gap = 7.0;
 
   final EditorController controller;
 
@@ -253,10 +266,8 @@ class _NumericKeypad extends StatelessWidget {
       width: wide ? _keyWidth * 3 + _gap * 2 : _keyWidth,
       height: _keyHeight,
       enabled: enabled,
-      fontSize: 22,
-      onTap: enabled
-          ? () => controller.pushSimulationTrigger(sound)
-          : null,
+      fontSize: 34,
+      onTap: enabled ? () => controller.pushSimulationTrigger(sound) : null,
     );
   }
 
@@ -307,87 +318,85 @@ class _NumericKeypad extends StatelessWidget {
 class _ArrowKeys extends StatelessWidget {
   const _ArrowKeys({required this.controller});
 
+  static const _key = 108.0;
+  static const _wideKey = 140.0;
+  static const _gap = 7.0;
+
   final EditorController controller;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 462,
-      height: 138,
+      width: 632,
+      height: 223,
       child: Stack(
         children: [
           Positioned(
-            left: 198,
+            left: 262,
             top: 0,
             child: _KeySurface(
               label: '↑',
-              width: 66,
-              height: 64,
+              width: _key,
+              height: _key,
               enabled: true,
-              fontSize: 26,
-              onTap: () => controller.pushSimulationTrigger(
-                PlaybackSoundId.f1_8,
-              ),
+              fontSize: 40,
+              onTap: () =>
+                  controller.pushSimulationTrigger(PlaybackSoundId.f1_8),
             ),
           ),
           Positioned(
             left: 0,
-            top: 74,
+            top: _key + _gap,
             child: Row(
               children: [
                 _KeySurface(
                   label: 'Ctrl',
-                  width: 112,
-                  height: 64,
+                  width: _wideKey,
+                  height: _key,
                   enabled: true,
-                  fontSize: 15,
-                  onTap: () => controller.pushSimulationTrigger(
-                    PlaybackSoundId.f1Go,
-                  ),
+                  fontSize: 20,
+                  onTap: () =>
+                      controller.pushSimulationTrigger(PlaybackSoundId.f1Go),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: _gap),
                 _KeySurface(
                   label: '←',
-                  width: 66,
-                  height: 64,
+                  width: _key,
+                  height: _key,
                   enabled: true,
-                  fontSize: 26,
-                  onTap: () => controller.pushSimulationTrigger(
-                    PlaybackSoundId.f1_4,
-                  ),
+                  fontSize: 40,
+                  onTap: () =>
+                      controller.pushSimulationTrigger(PlaybackSoundId.f1_4),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: _gap),
                 _KeySurface(
                   label: '↓',
-                  width: 66,
-                  height: 64,
+                  width: _key,
+                  height: _key,
                   enabled: true,
-                  fontSize: 26,
-                  onTap: () => controller.pushSimulationTrigger(
-                    PlaybackSoundId.f1_2,
-                  ),
+                  fontSize: 40,
+                  onTap: () =>
+                      controller.pushSimulationTrigger(PlaybackSoundId.f1_2),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: _gap),
                 _KeySurface(
                   label: '→',
-                  width: 66,
-                  height: 64,
+                  width: _key,
+                  height: _key,
                   enabled: true,
-                  fontSize: 26,
-                  onTap: () => controller.pushSimulationTrigger(
-                    PlaybackSoundId.f1_6,
-                  ),
+                  fontSize: 40,
+                  onTap: () =>
+                      controller.pushSimulationTrigger(PlaybackSoundId.f1_6),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: _gap),
                 _KeySurface(
                   label: '0',
-                  width: 112,
-                  height: 64,
+                  width: _wideKey,
+                  height: _key,
                   enabled: true,
-                  fontSize: 24,
-                  onTap: () => controller.pushSimulationTrigger(
-                    PlaybackSoundId.f1Yeah,
-                  ),
+                  fontSize: 36,
+                  onTap: () =>
+                      controller.pushSimulationTrigger(PlaybackSoundId.f1Yeah),
                 ),
               ],
             ),
@@ -422,6 +431,7 @@ class _KeySurface extends StatelessWidget {
       enabled: enabled,
       label: label,
       child: SizedBox(
+        key: ValueKey<String>('screen-keypad-key-$label'),
         width: width,
         height: height,
         child: Material(
