@@ -517,7 +517,7 @@ private final class SimulationPlaybackOutput: NSObject {
       let renderedFramesFn = renderedFramesFn,
       let isFinishedFn = isFinishedFn
     else {
-      return ["playedFrames": 0, "playing": false, "finished": true]
+      return ["playedFrames": 0, "playing": false, "finished": true, "latencyMs": 0]
     }
     let rendered = renderedFramesFn(handle)
     let played = rendered > outputLatencyFrames
@@ -528,6 +528,9 @@ private final class SimulationPlaybackOutput: NSObject {
       "playedFrames": Int(played),
       "playing": playing && !paused && !finished,
       "finished": finished,
+      "latencyMs": Int(
+        (max(0.0, engine.outputNode.presentationLatency) * 1000).rounded()
+      ),
     ]
   }
 

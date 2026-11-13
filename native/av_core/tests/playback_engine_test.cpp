@@ -51,6 +51,8 @@ Pcm16 make_song(std::size_t frames) {
   return pcm;
 }
 
+constexpr std::int16_t kMissSample = 77;
+
 PlaybackSoundClip make_clip(PlaybackSoundId id, std::int16_t value,
                             std::size_t frames = 4U) {
   auto result = Pcm16::allocate(kRate, frames);
@@ -84,6 +86,7 @@ PlaybackSoundBank all_note_bank(std::int16_t value) {
   for (const auto id : f1) {
     clips.push_back(make_clip(id, value));
   }
+  clips.push_back(make_clip(PlaybackSoundId::Miss, kMissSample));
   return PlaybackSoundBank(std::move(clips));
 }
 
@@ -245,7 +248,7 @@ void test_key_trigger_judges_and_plays() {
   assert(results[0].pressed_sound == expected);
 }
 
-void test_wrong_key_is_miss_but_still_sounds() {
+void test_wrong_key_plays_the_miss_sound() {
   const auto song = make_song(8000U);
   const auto bank = all_note_bank(100);
   const auto bpm = 160.0;
@@ -268,7 +271,9 @@ void test_wrong_key_is_miss_but_still_sounds() {
          PlaybackEngineError::None);
   engine.push_trigger(wrong);
   const auto bytes = render(engine, 100U);
-  assert(sample(bytes, 0U, 0U) == 200);
+  // The NPC note still sounds (100); the wrong key is replaced by the miss
+  // sound (kMissSample).
+  assert(sample(bytes, 0U, 0U) == 100 + kMissSample);
   JudgementResult results[4]{};
   assert(engine.drain_judgements(results, 4U) == 1U);
   assert(results[0].grade == JudgementGrade::Miss);
@@ -382,7 +387,7 @@ int main() {
   test_song_only_matches_offline();
   test_scheduled_npc_clip_and_voice_tail();
   test_key_trigger_judges_and_plays();
-  test_wrong_key_is_miss_but_still_sounds();
+  test_wrong_key_plays_the_miss_sound();
   test_no_pending_note_is_silent();
   test_miss_is_emitted_after_deadline();
   test_end_truncates_and_finishes();

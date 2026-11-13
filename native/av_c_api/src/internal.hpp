@@ -10,6 +10,7 @@
 #include "av_core/audio/mp3_decoder.hpp"
 #include "av_core/audio/ogg_vorbis_decoder.hpp"
 #include "av_core/audio/pcm16_hash.hpp"
+#include "av_core/audio/pcm_resample.hpp"
 #include "av_core/chart/chart_editor.hpp"
 #include "av_core/chart/chart_validator.hpp"
 #include "av_core/coordination/operation_gate.hpp"

@@ -73,6 +73,7 @@ const _playbackSoundFiles = <(PlaybackSoundId, String)>[
   (PlaybackSoundId.spaceBar, 'space_bar'),
   (PlaybackSoundId.turn1, 'turn_1'),
   (PlaybackSoundId.turn2, 'turn_2'),
+  (PlaybackSoundId.miss, 'miss'),
 ];
 
 /// Chinese clips whose shipped WAV starts with more than 1 ms of digital
@@ -91,7 +92,12 @@ const _trimmedPlaybackSoundFiles = <String>{
 
 /// Clips that are byte-identical in both languages and ship once from
 /// `assets/sounds/common`.
-const _sharedPlaybackSoundFiles = <String>{'space_bar', 'turn_1', 'turn_2'};
+const _sharedPlaybackSoundFiles = <String>{
+  'space_bar',
+  'turn_1',
+  'turn_2',
+  'miss',
+};
 
 final class _BackgroundAudioAnalysis {
   const _BackgroundAudioAnalysis({
@@ -233,8 +239,13 @@ class EditorController extends ChangeNotifier {
   ScreenKeypadLayout _screenKeypadLayout = ScreenKeypadLayout.numeric;
   bool _screenKeypadOpen = false;
   NativePlaybackEngine? _simulationEngine;
+  NativeAudio? _simulationResampledAudio;
   PlaybackJudgement? _latestJudgement;
   PlaybackJudgement? _lastJudgement;
+  int _simulationLatencyMs = 0;
+  int _simulationBufferFrames = 0;
+  static const int _judgementLogLimit = 200;
+  final List<PlaybackJudgement> _judgementLog = <PlaybackJudgement>[];
   Timer? _judgementTimer;
   String? _audioFileName;
   Uint8List? _audioSourceBytes;
@@ -514,6 +525,14 @@ class EditorController extends ChangeNotifier {
   /// The most recent judgement, kept after the overlay fades for the tuning
   /// menu's delta readout. It survives the 判定 display switch on purpose.
   PlaybackJudgement? get lastJudgement => _lastJudgement;
+
+  /// Bounded per-session judgement history for the test menu diagnostics.
+  List<PlaybackJudgement> get judgementLog =>
+      List<PlaybackJudgement>.unmodifiable(_judgementLog);
+
+  /// Platform-reported output latency for the current simulation session.
+  int get simulationLatencyMs => _simulationLatencyMs;
+  int get simulationBufferFrames => _simulationBufferFrames;
   bool get isSimulationPlaying =>
       _playbackMode == EditorPlaybackMode.simulation;
   bool get hasAudio => _audio != null;
@@ -1533,6 +1552,10 @@ class EditorController extends ChangeNotifier {
 
   void _applyJudgement(PlaybackJudgement judgement) {
     _lastJudgement = judgement;
+    _judgementLog.add(judgement);
+    if (_judgementLog.length > _judgementLogLimit) {
+      _judgementLog.removeRange(0, _judgementLog.length - _judgementLogLimit);
+    }
     if (!_judgementEnabled) {
       notifyListeners();
       return;
@@ -1557,9 +1580,12 @@ class EditorController extends ChangeNotifier {
 
   Future<void> _stopSimulationEngine() async {
     final engine = _simulationEngine;
+    final resampled = _simulationResampledAudio;
     _simulationEngine = null;
+    _simulationResampledAudio = null;
     await _simulationOutput.stop();
     engine?.dispose();
+    resampled?.dispose();
   }
 
   Future<void> toggleRhythmTest() async {
@@ -1617,7 +1643,20 @@ class EditorController extends ChangeNotifier {
       if (mode == EditorPlaybackMode.simulation) {
         final soundBank = await _ensurePlaybackSoundBank();
         final seed = _soundSeedForPlayback();
-        final engine = audio.createPlaybackEngine(
+        // Render at the device output rate so AudioTrack can take the
+        // low-latency fast path instead of the OS resampler.
+        final preferredRate = await _simulationOutput.preferredSampleRate();
+        NativeAudio? resampledAudio;
+        var engineAudio = audio;
+        if (preferredRate > 0 && preferredRate != audio.sampleRate) {
+          resampledAudio = audio.resampleTo(preferredRate);
+          if (resampledAudio != null) {
+            engineAudio = resampledAudio;
+          }
+        }
+        final preferredFrames = await _simulationOutput
+            .preferredFramesPerBuffer();
+        final engine = engineAudio.createPlaybackEngine(
           editor: _editor,
           soundBank: soundBank,
           language: _playbackSoundLanguage,
@@ -1634,10 +1673,15 @@ class EditorController extends ChangeNotifier {
           sampleRate: engine.sampleRate,
           keepSeconds: effectiveEnd - start.timelineSeconds,
         );
+        final blockFrames = preferredFrames >= 64 && preferredFrames <= 1024
+            ? preferredFrames
+            : 128;
         await _simulationOutput.start(
           engineHandle: engine.nativeHandle,
           sampleRate: engine.sampleRate,
+          blockFrames: blockFrames,
         );
+        _simulationResampledAudio = resampledAudio;
         _simulationEngine = engine;
         _playbackStart = start;
         _playbackSampleRate = engine.sampleRate;
@@ -1646,6 +1690,9 @@ class EditorController extends ChangeNotifier {
         _playbackMode = mode;
         _latestJudgement = null;
         _lastJudgement = null;
+        _judgementLog.clear();
+        _simulationLatencyMs = 0;
+        _simulationBufferFrames = 0;
         _syncKeepScreenOn();
         final generation = ++_playbackGeneration;
         _playbackTimer?.cancel();
@@ -1743,8 +1790,11 @@ class EditorController extends ChangeNotifier {
       _syncKeepScreenOn();
       _playbackStart = null;
       final simulationEngine = _simulationEngine;
+      final resampledAudio = _simulationResampledAudio;
       _simulationEngine = null;
+      _simulationResampledAudio = null;
       simulationEngine?.dispose();
+      resampledAudio?.dispose();
       unawaited(_simulationOutput.stop());
       unawaited(_playbackOutput.dispose());
       showNotice(
@@ -1838,6 +1888,8 @@ class EditorController extends ChangeNotifier {
       if (generation != _playbackGeneration) {
         return;
       }
+      _simulationLatencyMs = state.latencyMs;
+      _simulationBufferFrames = state.bufferFrames;
       final engine = _simulationEngine;
       if (engine != null) {
         final judgements = engine.drainJudgements();
@@ -2555,8 +2607,11 @@ class EditorController extends ChangeNotifier {
     _audioExportCancellation?.request();
     unawaited(_applyKeepScreenOn(false));
     final simulationEngine = _simulationEngine;
+    final resampledAudio = _simulationResampledAudio;
     _simulationEngine = null;
+    _simulationResampledAudio = null;
     simulationEngine?.dispose();
+    resampledAudio?.dispose();
     unawaited(_simulationOutput.dispose());
     unawaited(_playbackOutput.dispose());
     _audio?.dispose();

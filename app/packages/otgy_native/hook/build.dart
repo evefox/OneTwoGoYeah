@@ -59,6 +59,7 @@ final _coreSources = <String>[
   'audio/pcm16.cpp',
   'audio/pcm16_hash.cpp',
   'audio/pcm_offset.cpp',
+  'audio/pcm_resample.cpp',
   'chart/chart_draft.cpp',
   'chart/chart_editor.cpp',
   'chart/chart_projection.cpp',

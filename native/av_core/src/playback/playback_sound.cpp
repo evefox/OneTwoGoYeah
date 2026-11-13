@@ -23,7 +23,7 @@ namespace otgy::core {
 namespace {
 
 constexpr std::uint8_t kMaximumSoundId =
-    static_cast<std::uint8_t>(PlaybackSoundId::Turn2);
+    static_cast<std::uint8_t>(PlaybackSoundId::Miss);
 
 [[nodiscard]] bool valid_language(PlaybackSoundLanguage language) noexcept {
   return language == PlaybackSoundLanguage::Chinese ||
@@ -184,7 +184,7 @@ class DecodedWavResult final {
 [[nodiscard]] std::size_t asset_key(PlaybackSoundLanguage language,
                                     PlaybackSoundId id) noexcept {
   constexpr std::size_t kSoundsPerLanguage =
-      static_cast<std::size_t>(PlaybackSoundId::Turn2) + 1U;
+      static_cast<std::size_t>(PlaybackSoundId::Miss) + 1U;
   return static_cast<std::size_t>(language) * kSoundsPerLanguage +
          static_cast<std::size_t>(id);
 }
@@ -242,7 +242,7 @@ PlaybackSoundBankResult decode_playback_sound_bank(
     return PlaybackSoundBankResult{PlaybackSoundBankError::InvalidAsset};
   }
   constexpr std::size_t kAssetKeyCount =
-      2U * (static_cast<std::size_t>(PlaybackSoundId::Turn2) + 1U);
+      2U * (static_cast<std::size_t>(PlaybackSoundId::Miss) + 1U);
   std::array<bool, kAssetKeyCount> seen{};
   std::vector<PlaybackSoundClip> clips;
   try {

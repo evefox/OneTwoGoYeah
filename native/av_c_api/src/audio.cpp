@@ -148,6 +148,29 @@ otgy_status otgy_apply_pcm_offset(const otgy_pcm* pcm, double offset_seconds,
   });
 }
 
+otgy_status otgy_pcm_resample(const otgy_pcm* pcm,
+                              std::uint32_t target_sample_rate,
+                              otgy_pcm** out_pcm, otgy_error** out_error) {
+  if (out_pcm != nullptr) {
+    *out_pcm = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (pcm == nullptr || out_pcm == nullptr) {
+      return invalid_argument(out_error);
+    }
+    auto result = otgy::core::resample_pcm(pcm->value, target_sample_rate);
+    if (!result.pcm) {
+      return core_error(out_error, OTGY_ERROR_DOMAIN_PCM,
+                        static_cast<std::uint32_t>(result.error),
+                        otgy::core::pcm_error_message(result.error));
+    }
+    return make_handle<otgy_pcm>(
+        otgy_pcm{std::move(*result.pcm), pcm->has_source_info, pcm->source_info,
+                 {}},
+        out_pcm, out_error);
+  });
+}
+
 otgy_status otgy_normalize_audio_export_base_name(
     otgy_string_view input, otgy_bytes** out_utf8, otgy_error** out_error) {
   if (out_utf8 != nullptr) {

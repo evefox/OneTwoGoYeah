@@ -65,6 +65,10 @@ struct JudgementResult final {
   ChartEventId note_id;
   PlaybackSoundId expected_sound;
   PlaybackSoundId pressed_sound;
+  /// Song timeline of the matched note, used by the tuning log.
+  double note_seconds;
+  /// Song timeline at which the press was judged.
+  double press_seconds;
 };
 
 enum class JudgementError : std::uint8_t {

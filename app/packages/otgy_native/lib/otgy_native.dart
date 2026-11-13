@@ -515,6 +515,8 @@ final class PlaybackJudgement {
     required this.noteId,
     required this.expectedSound,
     required this.pressedSound,
+    this.noteSeconds = 0,
+    this.pressSeconds = 0,
   });
 
   final PlaybackJudgementGrade grade;
@@ -522,6 +524,12 @@ final class PlaybackJudgement {
   final int noteId;
   final PlaybackSoundId expectedSound;
   final PlaybackSoundId pressedSound;
+
+  /// Song timeline of the matched note.
+  final double noteSeconds;
+
+  /// Song timeline at which the press was judged.
+  final double pressSeconds;
 }
 
 final class PlaybackEngineState {
@@ -582,6 +590,7 @@ enum PlaybackSoundId {
   spaceBar,
   turn1,
   turn2,
+  miss,
 }
 
 final class PlaybackSoundAsset {
@@ -733,6 +742,8 @@ final class NativePlaybackEngine {
             noteId: output[index].note_id,
             expectedSound: PlaybackSoundId.values[output[index].expected_sound],
             pressedSound: PlaybackSoundId.values[output[index].pressed_sound],
+            noteSeconds: output[index].note_seconds,
+            pressSeconds: output[index].press_seconds,
           ),
       ];
     });
@@ -806,6 +817,34 @@ final class NativeAudio {
   int get sampleRate => native.otgy_pcm_get_sample_rate(_requireHandle());
   int get frameCount => native.otgy_pcm_get_frame_count(_requireHandle());
   double get durationSeconds => frameCount / sampleRate;
+
+  /// Returns a resampled copy for simulation playback at the device output
+  /// rate, or null when resampling fails. The receiver stays untouched.
+  NativeAudio? resampleTo(int targetSampleRate) {
+    if (targetSampleRate <= 0 || targetSampleRate == sampleRate) {
+      return null;
+    }
+    return using((arena) {
+      final outPcm = arena<Pointer<native.otgy_pcm>>();
+      final outError = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(
+          native.otgy_pcm_resample(
+            _requireHandle(),
+            targetSampleRate,
+            outPcm,
+            outError,
+          ),
+          outError,
+        );
+        return NativeAudio._(outPcm.value);
+      } on Object {
+        return null;
+      } finally {
+        _destroyError(outError);
+      }
+    });
+  }
 
   AudioSourceInfo get sourceInfo {
     return using((arena) {

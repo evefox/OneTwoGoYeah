@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define OTGY_C_API_VERSION UINT32_C(2)
+#define OTGY_C_API_VERSION UINT32_C(3)
 
 typedef uint32_t otgy_status;
 #define OTGY_STATUS_OK UINT32_C(0)
@@ -186,6 +186,13 @@ OTGY_C_API otgy_status otgy_apply_pcm_offset(const otgy_pcm* pcm,
                                              double offset_seconds,
                                              otgy_pcm** out_pcm,
                                              otgy_error** out_error);
+/// Resamples canonical PCM16 to `target_sample_rate` with linear
+/// interpolation, preserving duration. Used to render simulation playback at
+/// the device's native output rate for the low-latency audio path.
+OTGY_C_API otgy_status otgy_pcm_resample(const otgy_pcm* pcm,
+                                         uint32_t target_sample_rate,
+                                         otgy_pcm** out_pcm,
+                                         otgy_error** out_error);
 
 typedef struct otgy_audio_export_local_time {
   uint16_t year;
@@ -528,6 +535,7 @@ OTGY_C_API otgy_byte_view otgy_playback_pcm_get_bytes(
 #define OTGY_PLAYBACK_SOUND_M1_9 UINT32_C(17)
 #define OTGY_PLAYBACK_SOUND_M1_GO UINT32_C(18)
 #define OTGY_PLAYBACK_SOUND_M1_YEAH UINT32_C(19)
+#define OTGY_PLAYBACK_SOUND_MISS UINT32_C(23)
 #define OTGY_PLAYBACK_SOUND_SPACE_BAR UINT32_C(20)
 #define OTGY_PLAYBACK_SOUND_TURN_1 UINT32_C(21)
 #define OTGY_PLAYBACK_SOUND_TURN_2 UINT32_C(22)
@@ -602,6 +610,8 @@ typedef struct otgy_playback_judgement {
   uint64_t note_id;
   uint32_t expected_sound;
   uint32_t pressed_sound;
+  double note_seconds;
+  double press_seconds;
 } otgy_playback_judgement;
 
 typedef struct otgy_playback_engine_state {

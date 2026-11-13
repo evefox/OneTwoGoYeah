@@ -1885,6 +1885,39 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _lastJudgementReadout(context),
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '判定日志',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _judgementLogSummary(controller.judgementLog),
+                          textAlign: TextAlign.right,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton(
+                      key: const ValueKey('judgement-log-copy'),
+                      onPressed: controller.judgementLog.isEmpty
+                          ? null
+                          : () => _copyJudgementLog(context, windows),
+                      child: const Text('复制判定日志'),
+                    ),
+                  ),
+                  Text(
+                    '设备输出：延迟 ${controller.simulationLatencyMs} ms · '
+                    '缓冲 ${controller.simulationBufferFrames} 帧',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     '参数从下一次模拟播放开始生效，播放中不可调整；'
@@ -2053,6 +2086,80 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
     Clipboard.setData(ClipboardData(text: buffer.toString()));
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('判定参数已复制')));
+  }
+
+  static String _judgementLogSummary(List<PlaybackJudgement> log) {
+    final counts = <PlaybackJudgementGrade, int>{};
+    for (final judgement in log) {
+      counts.update(judgement.grade, (value) => value + 1, ifAbsent: () => 1);
+    }
+    if (counts.isEmpty) {
+      return '尚无判定';
+    }
+    String count(PlaybackJudgementGrade grade) =>
+        '${_gradeLabels[grade]}:${counts[grade] ?? 0}';
+    return [
+      count(PlaybackJudgementGrade.perfect),
+      count(PlaybackJudgementGrade.great),
+      count(PlaybackJudgementGrade.cool),
+      count(PlaybackJudgementGrade.bad),
+      count(PlaybackJudgementGrade.miss),
+    ].join('  ');
+  }
+
+  void _copyJudgementLog(
+    BuildContext context,
+    PlaybackJudgementWindows? windows,
+  ) {
+    final config = controller.judgementConfig;
+    final log = controller.judgementLog;
+    final buffer = StringBuffer()
+      ..writeln('模拟模式判定日志')
+      ..writeln('BPM: ${controller.projectedBpm.toStringAsFixed(1)}')
+      ..writeln(
+        '基准: ${config.basis == PlaybackJudgementBasis.sixteenthNote ? '1/16 音符' : '半拍'}',
+      )
+      ..writeln(
+        'Offset: ${config.offsetMs.round()} ms'
+        '${windows == null ? '' : '，单位 ${windows.unitMs.toStringAsFixed(2)} ms'}',
+      )
+      ..writeln(
+        '设备: 输出延迟 ${controller.simulationLatencyMs} ms，'
+        '缓冲 ${controller.simulationBufferFrames} 帧',
+      );
+    if (windows != null) {
+      buffer.writeln(
+        '窗口: P ${windows.perfectMs.toStringAsFixed(1)} / '
+        'G ${windows.greatMs.toStringAsFixed(1)} / '
+        'C ${windows.coolMs.toStringAsFixed(1)} / '
+        'B ${windows.badMs.toStringAsFixed(1)} ms',
+      );
+    }
+    buffer.writeln('合计: ${_judgementLogSummary(log)}');
+    buffer.writeln('note=音符时间 press=判定按键时间 expected=正确键 pressed=按下键');
+    for (var index = 0; index < log.length; index++) {
+      final item = log[index];
+      final sign = item.deltaMs >= 0 ? '+' : '';
+      buffer.writeln(
+        '#${index + 1} ${_gradeLabels[item.grade]} '
+        'Δ$sign${item.deltaMs.toStringAsFixed(1)}ms '
+        'note=${item.noteSeconds.toStringAsFixed(3)} '
+        'press=${item.pressSeconds.toStringAsFixed(3)} '
+        'expected=${_soundLabel(item.expectedSound)} '
+        'pressed=${_soundLabel(item.pressedSound)}',
+      );
+    }
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('判定日志已复制')));
+  }
+
+  static String _soundLabel(PlaybackSoundId sound) {
+    return switch (sound) {
+      PlaybackSoundId.f1Yeah => 'f1_yeah',
+      PlaybackSoundId.f1Go => 'f1-go',
+      _ => sound.name.replaceFirst('f1_', 'f1-'),
+    };
   }
 }
 

@@ -1030,6 +1030,37 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
   otgy_playback_pcm_destroy(nullptr);
 }
 
+void test_pcm_resample_abi(const otgy_pcm* pcm) {
+  otgy_error* raw_error = nullptr;
+  otgy_pcm* raw_output = nullptr;
+  const auto source_frames = otgy_pcm_get_frame_count(pcm);
+  const auto source_rate = otgy_pcm_get_sample_rate(pcm);
+  expect(source_frames > 0U && source_rate > 0U,
+         "missing PCM for resampling");
+  expect(otgy_pcm_resample(pcm, 48000U, &raw_output, &raw_error) ==
+             OTGY_STATUS_OK,
+         "C ABI PCM resample failed");
+  auto output = handle<otgy_pcm, otgy_pcm_destroy>(raw_output);
+  expect(output != nullptr, "C ABI PCM resample exposed no handle");
+  expect(otgy_pcm_get_sample_rate(output.get()) == 48000U,
+         "C ABI PCM resample rate differs");
+  const auto expected_frames =
+      (source_frames * 48000U + source_rate / 2U) / source_rate;
+  expect(otgy_pcm_get_frame_count(output.get()) == expected_frames,
+         "C ABI PCM resample frame count differs");
+
+  raw_output = nullptr;
+  expect(otgy_pcm_resample(pcm, 0U, &raw_output, &raw_error) ==
+             OTGY_STATUS_CORE_ERROR,
+         "C ABI invalid PCM resample status differs");
+  expect(raw_output == nullptr, "failed PCM resample exposed ownership");
+  auto error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(error.get(), OTGY_ERROR_DOMAIN_PCM,
+               static_cast<std::uint32_t>(otgy::core::PcmError::InvalidSampleRate),
+               otgy::core::pcm_error_message(
+                   otgy::core::PcmError::InvalidSampleRate));
+}
+
 void test_judgement_windows_abi() {
   otgy_error* raw_error = nullptr;
   const auto check_config = [&](double bpm, std::uint32_t basis,
@@ -1111,6 +1142,7 @@ int main() {
     test_waveforms(direct_pcm, abi_pcm.get());
     test_analysis(direct_pcm, abi_pcm.get());
     test_playback(direct_pcm, abi_pcm.get());
+    test_pcm_resample_abi(abi_pcm.get());
     test_judgement_windows_abi();
     return 0;
   } catch (const std::exception& error) {

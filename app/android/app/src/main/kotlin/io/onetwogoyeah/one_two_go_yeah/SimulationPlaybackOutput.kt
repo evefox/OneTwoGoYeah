@@ -28,6 +28,8 @@ class SimulationPlaybackOutput(private val context: Context) {
     @Volatile private var running = false
     @Volatile private var paused = true
     @Volatile private var finished = false
+    @Volatile private var latencyMs = 0
+    @Volatile private var bufferFrames = 0
     @Volatile private var engineHandle = 0L
     private val lock = Object()
 
@@ -61,6 +63,16 @@ class SimulationPlaybackOutput(private val context: Context) {
                     resume()
                     result.success(null)
                 }
+                "preferredSampleRate" -> result.success(
+                    audioManager.getProperty(
+                        AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE
+                    )?.toIntOrNull() ?: 0
+                )
+                "preferredFramesPerBuffer" -> result.success(
+                    audioManager.getProperty(
+                        AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER
+                    )?.toIntOrNull() ?: 0
+                )
                 "query" -> result.success(state())
                 "stop" -> {
                     stop()
@@ -84,7 +96,10 @@ class SimulationPlaybackOutput(private val context: Context) {
             AudioFormat.ENCODING_PCM_16BIT,
         )
         require(minBuffer > 0) { "Unable to query the minimum audio buffer" }
-        val bufferBytes = maxOf(minBuffer, frames * 4 * 2)
+        // One block beyond the platform minimum keeps the writer from
+        // starving, while the minimum buffer keeps key-to-speaker latency
+        // as small as the device allows.
+        val bufferBytes = maxOf(minBuffer, frames * 4)
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -103,6 +118,10 @@ class SimulationPlaybackOutput(private val context: Context) {
             builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
         }
         val next = builder.build()
+        // Buffer duration is the largest avoidable part of the key-to-speaker
+        // latency and is always available; the device HAL adds its own delay.
+        bufferFrames = bufferBytes / 4
+        latencyMs = if (rate > 0) bufferFrames * 1000 / rate else 0
         audioManager.requestAudioFocus(
             focusListener,
             AudioManager.STREAM_MUSIC,
@@ -198,6 +217,8 @@ class SimulationPlaybackOutput(private val context: Context) {
             "playedFrames" to frames,
             "playing" to (running && !paused && !finished && current != null),
             "finished" to finished,
+            "latencyMs" to latencyMs,
+            "bufferFrames" to bufferFrames,
         )
     }
 

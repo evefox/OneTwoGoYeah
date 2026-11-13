@@ -124,6 +124,8 @@ void test_press_matching_and_wrong_key() {
   assert(result->expected_sound == PlaybackSoundId::F1_2);
   assert(result->pressed_sound == PlaybackSoundId::F1_2);
   assert(near(result->delta_ms, 0.0));
+  assert(near(result->note_seconds, 1.5));
+  assert(near(result->press_seconds, 1.5));
   assert(!session.press(1.5, PlaybackSoundId::F1_2));
 
   assert(session.reset(plan, settings) == JudgementError::None);
@@ -132,6 +134,8 @@ void test_press_matching_and_wrong_key() {
   assert(result->grade == JudgementGrade::Miss);
   assert(result->pressed_sound == PlaybackSoundId::F1_4);
   assert(near(result->delta_ms, 10.0));
+  assert(near(result->note_seconds, 1.5));
+  assert(near(result->press_seconds, 1.51));
   assert(!session.press(1.5, PlaybackSoundId::F1_2));
 
   assert(session.reset(plan, settings) == JudgementError::None);
@@ -140,6 +144,8 @@ void test_press_matching_and_wrong_key() {
   assert(session.advance(1.6, output, 2U) == 1U);
   assert(output[0].grade == JudgementGrade::Miss);
   assert(output[0].note_id.value == 101U);
+  assert(near(output[0].note_seconds, 1.5));
+  assert(near(output[0].press_seconds, 1.6));
   assert(!session.press(1.5, PlaybackSoundId::F1_2));
 }
 

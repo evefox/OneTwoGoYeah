@@ -143,6 +143,24 @@ external int otgy_apply_pcm_offset(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+/// Resamples canonical PCM16 to `target_sample_rate` with linear
+/// interpolation, preserving duration. Used to render simulation playback at
+/// the device's native output rate for the low-latency audio path.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_pcm>,
+    ffi.Uint32,
+    ffi.Pointer<ffi.Pointer<otgy_pcm>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_pcm_resample(
+  ffi.Pointer<otgy_pcm> pcm,
+  int target_sample_rate,
+  ffi.Pointer<ffi.Pointer<otgy_pcm>> out_pcm,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     otgy_string_view,
@@ -2536,6 +2554,12 @@ final class otgy_playback_judgement extends ffi.Struct {
 
   @ffi.Uint32()
   external int pressed_sound;
+
+  @ffi.Double()
+  external double note_seconds;
+
+  @ffi.Double()
+  external double press_seconds;
 }
 
 final class otgy_playback_engine_state extends ffi.Struct {
@@ -2771,7 +2795,7 @@ final class otgy_slk_position extends ffi.Struct {
   external int total_sixteenth;
 }
 
-const int OTGY_C_API_VERSION = 2;
+const int OTGY_C_API_VERSION = 3;
 
 const int OTGY_STATUS_OK = 0;
 
@@ -2964,6 +2988,8 @@ const int OTGY_PLAYBACK_SOUND_M1_9 = 17;
 const int OTGY_PLAYBACK_SOUND_M1_GO = 18;
 
 const int OTGY_PLAYBACK_SOUND_M1_YEAH = 19;
+
+const int OTGY_PLAYBACK_SOUND_MISS = 23;
 
 const int OTGY_PLAYBACK_SOUND_SPACE_BAR = 20;
 

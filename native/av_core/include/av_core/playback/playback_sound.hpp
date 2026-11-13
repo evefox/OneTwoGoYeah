@@ -49,6 +49,7 @@ enum class PlaybackSoundId : std::uint8_t {
   SpaceBar = 20,
   Turn1 = 21,
   Turn2 = 22,
+  Miss = 23,
 };
 
 struct PlaybackSoundAsset final {

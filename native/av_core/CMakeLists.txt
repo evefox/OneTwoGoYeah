@@ -16,6 +16,7 @@ add_library(av_core STATIC
   src/audio/pcm16.cpp
   src/audio/pcm16_hash.cpp
   src/audio/pcm_offset.cpp
+  src/audio/pcm_resample.cpp
   src/playback/playback_position.cpp
   src/playback/playback_pcm.cpp
   src/playback/playback_engine.cpp

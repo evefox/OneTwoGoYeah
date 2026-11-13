@@ -643,7 +643,9 @@ void otgy_playback_engine_drain_judgements(
           buffer[index].delta_ms,
           buffer[index].note_id.value,
           static_cast<std::uint32_t>(buffer[index].expected_sound),
-          static_cast<std::uint32_t>(buffer[index].pressed_sound)};
+          static_cast<std::uint32_t>(buffer[index].pressed_sound),
+          buffer[index].note_seconds,
+          buffer[index].press_seconds};
     }
     if (count < request) {
       break;

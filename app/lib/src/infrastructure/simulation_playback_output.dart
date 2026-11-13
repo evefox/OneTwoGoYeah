@@ -5,19 +5,29 @@ final class SimulationPlaybackDeviceState {
     required this.playedFrames,
     required this.playing,
     required this.finished,
+    this.latencyMs = 0,
+    this.bufferFrames = 0,
   });
 
   final int playedFrames;
   final bool playing;
   final bool finished;
+  final int latencyMs;
+  final int bufferFrames;
 }
 
 abstract interface class SimulationPlaybackOutput {
   Future<void> start({
     required int engineHandle,
     required int sampleRate,
-    int blockFrames = 256,
+    int blockFrames = 128,
   });
+
+  /// The device's preferred output sample rate, or 0 when unknown.
+  Future<int> preferredSampleRate();
+
+  /// The device's preferred frames per output buffer, or 0 when unknown.
+  Future<int> preferredFramesPerBuffer();
 
   Future<void> pause();
   Future<void> resume();
@@ -36,13 +46,35 @@ final class MethodChannelSimulationPlaybackOutput
   Future<void> start({
     required int engineHandle,
     required int sampleRate,
-    int blockFrames = 256,
+    int blockFrames = 128,
   }) {
     return _channel.invokeMethod<void>('start', {
       'engineHandle': engineHandle,
       'sampleRate': sampleRate,
       'blockFrames': blockFrames,
     });
+  }
+
+  @override
+  Future<int> preferredSampleRate() async {
+    try {
+      return await _channel.invokeMethod<int>('preferredSampleRate') ?? 0;
+    } on MissingPluginException {
+      return 0;
+    } on PlatformException {
+      return 0;
+    }
+  }
+
+  @override
+  Future<int> preferredFramesPerBuffer() async {
+    try {
+      return await _channel.invokeMethod<int>('preferredFramesPerBuffer') ?? 0;
+    } on MissingPluginException {
+      return 0;
+    } on PlatformException {
+      return 0;
+    }
   }
 
   @override
@@ -53,8 +85,7 @@ final class MethodChannelSimulationPlaybackOutput
 
   @override
   Future<SimulationPlaybackDeviceState> query() async {
-    final value =
-        await _channel.invokeMapMethod<String, Object?>('query');
+    final value = await _channel.invokeMapMethod<String, Object?>('query');
     if (value == null || value['playedFrames'] is! int) {
       throw PlatformException(
         code: 'invalid-simulation-playback-state',
@@ -65,6 +96,10 @@ final class MethodChannelSimulationPlaybackOutput
       playedFrames: value['playedFrames'] as int,
       playing: value['playing'] == true,
       finished: value['finished'] == true,
+      latencyMs: value['latencyMs'] is int ? value['latencyMs'] as int : 0,
+      bufferFrames: value['bufferFrames'] is int
+          ? value['bufferFrames'] as int
+          : 0,
     );
   }
 

@@ -250,7 +250,11 @@ void PlaybackEngine::render(std::uint8_t* output,
         std::max(input_seconds, block_start_timeline - 0.05);
     auto result = judgement_.press(input_seconds, event.sound);
     if (result) {
-      const auto* clip = sound_bank_->find(config_.language, event.sound);
+      const auto feedback_sound =
+          result->grade == JudgementGrade::Miss ? PlaybackSoundId::Miss
+                                                : event.sound;
+      const auto* clip =
+          sound_bank_->find(config_.language, feedback_sound);
       if (clip != nullptr) {
         if (auto* voice = start_voice(*clip, 0U)) {
           mix_voice_segment(*voice, output, 0U, frames_this, sample_rate_);

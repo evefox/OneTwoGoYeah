@@ -1011,10 +1011,13 @@ NPC/SHOW 以及玩家切换音；`player_notes` 保存有配对音效的 `PLY-N/
 reset 之后不再分配。窗口由权威 BPM 和显式基准计算：1/16 音符基准的单位为
 `60000 / BPM / 4`，半拍基准为 `60000 / BPM / 2`；四档窗口是该单位的显式正数倍率，
 必须严格递增。一次按键匹配 Bad 窗口内最近的未判音符，距离相同时取较早的音符；
-窗口内按错键判 Miss 并消费该音符，超过 Bad 仍未按由 `advance` 判 Miss。没有任何
+窗口内按错键判 Miss、消费该音符并触发 `PlaybackSoundId::Miss` 反馈音；超过 Bad
+仍未按由 `advance` 判 Miss 且不发声。没有任何
 待判音符时 `press` 返回空结果，调用方不得发声或产生判定。内部 `offset_ms` 从测得
 的时间差中扣除，用于设备校准和隐藏测试菜单调参，只属于当前 App 会话；它不进入
-用户偏好文件、草稿、SLK 或撤销历史。
+用户偏好文件、草稿、SLK 或撤销历史。每条 `JudgementResult` 同时携带音符歌曲时间和
+判定按键歌曲时间，供测试菜单记录最近 `200` 条判定日志；日志只在内存中保留当前
+播放会话，下一次模拟播放开始时清空。
 
 模拟播放引擎 `PlaybackEngine` 在同一 `PlaybackPlan` 上按块渲染。`initialize` 构建
 计划、过滤玩家拥有的切换音、把 NPC/SHOW 行投影到采样帧并按 `(frame, order)` 排序，
@@ -1047,10 +1050,14 @@ Windows `waveOut`，并以约 33 毫秒轮询平台已播放帧数。模拟游�
 渲染，四个平台共用同一 `start/pause/resume/query/stop` 方法通道契约：
 
 - Android 使用 `AudioTrack` 的 `MODE_STREAM`、`PERFORMANCE_MODE_LOW_LATENCY`、
-  `USAGE_MEDIA`/`CONTENT_TYPE_MUSIC` 音频属性和固定块，在 urgent-audio 优先级线程
-  上阻塞写入；通过只做句柄转换、固定块渲染和完成状态查询的 JNI 桥调用 C ABI。
+  `USAGE_MEDIA`/`CONTENT_TYPE_MUSIC` 音频属性，在 urgent-audio 优先级线程上阻塞
+  写入；通过只做句柄转换、固定块渲染和完成状态查询的 JNI 桥调用 C ABI。
   Release 使用 native-assets 链接钩子，`android_jni.cpp` 必须进入送给链接钩子的
-  静态库，最终 `.so` 必须导出两个 JNI 符号。
+  静态库，最终 `.so` 必须导出两个 JNI 符号。设备原生采样率与歌曲采样率不同时，
+  Flutter 在开始模拟播放前调用共享核心 `otgy_pcm_resample` 把歌曲 PCM 重采样一次，
+  并以设备采样率创建引擎和 `AudioTrack`，使轨道能进入系统低延迟快速通道；块大小
+  取设备 `PROPERTY_OUTPUT_FRAMES_PER_BUFFER`，缓冲取平台最小值。重采样只作用于
+  本次模拟播放的内存副本，不改变歌曲文件、常规预听、波形、项目数据或导出结果。
 - iOS/macOS 使用 `AVAudioSourceNode` 的 Int16 交错格式回调直接调用 C ABI 渲染；
   iOS 额外设置 `5 ms` 首选 IO 缓冲。适配层通过 `dlopen` 加载
   `otgy_native.framework`，不复制音频或判定逻辑。
@@ -1104,8 +1111,9 @@ UI 格式与存储相互独立：
 `OTGY_APPLICATION_OPERATION_NAVIGATION_OR_VIEW = 5`、
 `OTGY_APPLICATION_OPERATION_HISTORY_NAVIGATION = 6` 和
 `OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE = 5`。
-函数签名、结构布局和所有权均不改变，因此 `OTGY_C_API_VERSION` 必须保持 `2`，
-动态库 `VERSION 2.0.0` 与 `SOVERSION 2` 均不改变。
+函数签名、结构布局和所有权均不改变，因此该追加不提升 ABI 版本。后续判定结果在末尾
+追加 `note_seconds` 和 `press_seconds` 改变了 `otgy_playback_judgement` 的布局，
+`OTGY_C_API_VERSION` 提升为 `3`，动态库 `VERSION 3.0.0` 与 `SOVERSION 3` 同步更新。
 
 `otgy_pcm`、波形、分析数组、字节、音频导出快照/输出、谱面、编辑器、校验结果、
 成品谱面和 SLK 文档均为不透明拥有句柄。每类句柄只有一个匹配销毁函数，销毁函数
@@ -1171,7 +1179,7 @@ ArrowVortex 的编辑画布只作为时间线、波形、固定光标、Zoom、S
 
 核心另提供无副作用的粘贴预检，返回稳定结果码、整体目标区间、每个舞步跨度和按列/行/类型投影的幽灵标记；它与提交共用领域规划，不消耗 ID。选择、快照、意图和预览都是编辑器会话状态，与 `undo_`/`redo_` 同级但不进入 `ChartDraft`、项目文件或平台剪贴板。普通编辑、撤销和重做逐项重验证选择；待剪切源变化由首次落点的逐值验证拒绝。失效 Showtime 和零事件舞步/组仍按现有提交清理顺序处理，序列化、加载、只读查询和失败命令不执行清理。核心、C ABI 和 Flutter仍不提供框选、单个标记移动和通用删除命令。
 
-C ABI 为选择集合和粘贴预览提供拥有式投影句柄及 `destroy/get_data/get_count`，指针只在句柄销毁前有效；Dart wrapper 立即复制为不可变值列表并在 `finally` 销毁句柄。选择调用的实际列、精确目标行及结果经 C ABI、FFI 和 UI 原样透传，不在适配层复制按行解析或列过滤；按行选择本身不改变公开签名、结构或枚举。应用操作门控仅按上述契约追加同宽度枚举常量，不改变 ABI 版本。会话命令结果只保留标量结果码和 `changed`，C 层不得重建多选、冲突、删除或 ID 算法。当前契约固定使用 `OTGY_C_API_VERSION = 2`、动态库 `VERSION 2.0.0` 与 `SOVERSION 2`，绑定由 ffigen 生成。
+C ABI 为选择集合和粘贴预览提供拥有式投影句柄及 `destroy/get_data/get_count`，指针只在句柄销毁前有效；Dart wrapper 立即复制为不可变值列表并在 `finally` 销毁句柄。选择调用的实际列、精确目标行及结果经 C ABI、FFI 和 UI 原样透传，不在适配层复制按行解析或列过滤；按行选择本身不改变公开签名、结构或枚举。应用操作门控仅按上述契约追加同宽度枚举常量，不改变 ABI 版本。会话命令结果只保留标量结果码和 `changed`，C 层不得重建多选、冲突、删除或 ID 算法。当前契约固定使用 `OTGY_C_API_VERSION = 3`、动态库 `VERSION 3.0.0` 与 `SOVERSION 3`，绑定由 ffigen 生成。
 
 Flutter 的 `EditorController` 只持有普通、选择、待粘贴三态交互枚举，选择集合、快照数量、意图和预检直接查询 `NativeChartEditor`。画布普通点击发送按列上下文编辑，选择态点击透传实际列与精确目标行发送核心 toggle。桌面和移动端的长按入口同样透传列与行并调用同一 `select`：可选标记所在行的任一列长按都切换完整舞步，`SHOW-C` 在三列均不可选；三列全空行或高亮跨度内无标记行的长按只进入模式且不改变已有选择，不在 Flutter 扩大范围命中。Windows/macOS 待粘贴态把指针悬停行投影为最近非负 1/16 行并请求核心预检，点击有效目标行才发送核心 `paste`；离开画布或失去有效行时清除悬停预览。iOS/Android 待粘贴态始终把固定判定线投影为最近非负 1/16 行并请求核心预检，时间线滚动、Zoom 或导航变化后刷新，显式“粘贴到当前判定线”按钮才发送核心 `paste`；平台入口按操作系统选择，iOS/Android 外接鼠标不切换为桌面语义；移动端画布轻触、marker 激活、语义激活和 Enter 不映射为粘贴提交，只有显式按钮调用该事务。移动端按钮在非播放且非忙碌时即使预览冲突也保持启用，点击仍把当前锚点发送核心并显示其稳定错误，不在 Flutter 拦截，核心提交结果是唯一权威。两类平台点击列或判定线覆盖的列都不改变片段列归属。桌面和移动端都用长按进入选择，不显示常驻选择按钮；待粘贴控件按平台显示对应提示、按钮或退出。画布分别绘制核心选择跨度和预检的整体区间、舞步跨度与幽灵标记，不扫描关系或复制冲突算法。会话切换、选择、复制/剪切准备、预检更新与清除和粘贴提交必须使用 `SelectionCommand` 门控，导航与视图使用 `NavigationOrView`，撤销/重做使用 `HistoryNavigation`；普通内容编辑和其他未列入白名单的入口继续使用 `General`。成功粘贴后保持待粘贴状态且不自动移动 `currentRow`，文本输入、菜单和对话框优先处理自身按键，诊断只记录模式、数量、意图和结果等安全标量，不记录选择 ID 或快照内容。
 

@@ -99,6 +99,14 @@ void main() {
     expect(find.textContaining('上次判定：尚无'), findsOneWidget);
     expect(find.text('恢复默认'), findsOneWidget);
     expect(find.text('复制参数'), findsOneWidget);
+    expect(find.text('判定日志'), findsOneWidget);
+    expect(find.text('尚无判定'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('judgement-log-copy')))
+          .onPressed,
+      isNull,
+    );
 
     await tester.tap(find.text('半拍'));
     await tester.pump();
@@ -107,6 +115,33 @@ void main() {
     await tester.tap(find.text('复制参数'));
     await tester.pump();
     expect(find.text('判定参数已复制'), findsOneWidget);
+    // SnackBars queue, so clear the parameters message before the log copy.
+    tester
+        .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger).first)
+        .clearSnackBars();
+    await tester.pumpAndSettle();
+
+    controller.applyJudgementForTest(
+      const PlaybackJudgement(
+        grade: PlaybackJudgementGrade.cool,
+        deltaMs: 30,
+        noteId: 1,
+        expectedSound: PlaybackSoundId.f1_2,
+        pressedSound: PlaybackSoundId.f1_2,
+        noteSeconds: 1.5,
+        pressSeconds: 1.53,
+      ),
+    );
+    await tester.pump();
+    expect(find.textContaining('Cool:1'), findsOneWidget);
+
+    final logButton = find.byKey(const ValueKey('judgement-log-copy'));
+    await tester.ensureVisible(logButton);
+    await tester.pumpAndSettle();
+    await tester.tap(logButton);
+    await tester.pump();
+    expect(find.text('判定日志已复制'), findsOneWidget);
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
@@ -212,6 +247,25 @@ void main() {
     expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
   });
 
+  test('the judgement log keeps only the newest 200 entries', () {
+    for (var index = 0; index < 205; index++) {
+      controller.applyJudgementForTest(
+        PlaybackJudgement(
+          grade: PlaybackJudgementGrade.bad,
+          deltaMs: 40,
+          noteId: index,
+          expectedSound: PlaybackSoundId.f1_4,
+          pressedSound: PlaybackSoundId.f1_4,
+          noteSeconds: index.toDouble(),
+          pressSeconds: index + 0.04,
+        ),
+      );
+    }
+    expect(controller.judgementLog.length, 200);
+    expect(controller.judgementLog.first.noteId, 5);
+    expect(controller.judgementLog.last.noteId, 204);
+  });
+
   test('the last judgement is kept for the delta readout', () {
     controller.setJudgementEnabled(false);
     controller.applyJudgementForTest(
@@ -279,7 +333,7 @@ void main() {
   });
 
   test('shared clips ship once outside the language directories', () {
-    for (final name in const ['space_bar', 'turn_1', 'turn_2']) {
+    for (final name in const ['space_bar', 'turn_1', 'turn_2', 'miss']) {
       expect(
         File('assets/sounds/common/$name.wav').existsSync(),
         isTrue,
