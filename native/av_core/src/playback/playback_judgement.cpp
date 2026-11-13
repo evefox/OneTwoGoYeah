@@ -174,6 +174,7 @@ std::optional<JudgementResult> JudgementSession::press(
       sound,
       best->seconds,
       press_seconds,
+      0.0,
   };
   if (best->note.expected_sound != sound) {
     result.grade = JudgementGrade::Miss;
@@ -214,6 +215,7 @@ std::size_t JudgementSession::advance(double now_seconds,
         state.note.expected_sound,
         state.seconds,
         now_seconds,
+        0.0,
     };
     state.judged = true;
     ++cursor_;

@@ -250,6 +250,9 @@ void PlaybackEngine::render(std::uint8_t* output,
         std::max(input_seconds, block_start_timeline - 0.05);
     auto result = judgement_.press(input_seconds, event.sound);
     if (result) {
+      const auto queue_delay =
+          std::chrono::duration<double>(now - event.time).count() * 1000.0;
+      result->queue_delay_ms = queue_delay > 0.0 ? queue_delay : 0.0;
       const auto feedback_sound =
           result->grade == JudgementGrade::Miss ? PlaybackSoundId::Miss
                                                 : event.sound;

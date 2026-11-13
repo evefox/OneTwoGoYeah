@@ -517,6 +517,7 @@ final class PlaybackJudgement {
     required this.pressedSound,
     this.noteSeconds = 0,
     this.pressSeconds = 0,
+    this.queueDelayMs = 0,
   });
 
   final PlaybackJudgementGrade grade;
@@ -530,6 +531,9 @@ final class PlaybackJudgement {
 
   /// Song timeline at which the press was judged.
   final double pressSeconds;
+
+  /// Time from queueing the key to the audio thread consuming it.
+  final double queueDelayMs;
 }
 
 final class PlaybackEngineState {
@@ -744,6 +748,7 @@ final class NativePlaybackEngine {
             pressedSound: PlaybackSoundId.values[output[index].pressed_sound],
             noteSeconds: output[index].note_seconds,
             pressSeconds: output[index].press_seconds,
+            queueDelayMs: output[index].queue_delay_ms,
           ),
       ];
     });

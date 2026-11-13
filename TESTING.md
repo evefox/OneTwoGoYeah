@@ -582,7 +582,7 @@ SHA-256、Offset、文件名、品质、不可变 Ogg 导出、按拍结束、�
 应用操作门控的 C ABI 一致性循环必须覆盖 `mode 0..4 × operation 0..8`，逐项与直接
 `coordinate_application_operation` 比较状态、结果码和消息，覆盖全部合法组合、非法
 操作类、非法模式与两者同时非法时的判定优先级。C 头文件测试必须用 C 编译期断言钉死
-`OTGY_C_API_VERSION == 3`，模式旧值 `Idle/Playing/ExportingAudio = 0/1/2` 与新值
+`OTGY_C_API_VERSION == 4`，模式旧值 `Idle/Playing/ExportingAudio = 0/1/2` 与新值
 `OTGY_APPLICATION_MODE_CHART_INTERACTION = 3`，操作类旧值
 `General/PausePlayback/ToggleWaveformVisibility/CancelAudioExport = 0/1/2/3` 与新常量
 `OTGY_APPLICATION_OPERATION_SELECTION_COMMAND = 4`、
@@ -840,7 +840,7 @@ Offset 微调浮窗测试必须验证：
 - `恢复默认` 恢复 `1/16 音符`、`1/8、1/4、3/8、1/2`、`0 ms` 和 `320 ms`；`复制参数` 写入当前 BPM、比例、毫秒宽度、Offset、显示时长和上次判定
 - 判定开关关闭时，判定文字不显示但上次判定读数仍更新；上一次读数在下一次模拟播放开始时清零
 - 测试菜单显示平台上报的设备输出延迟和缓冲帧数（未知时显示 0）
-- 判定日志只保留最近 `200` 条，记录等级、带符号时间差、音符歌曲时间、按键歌曲时间和正确/实际音效；`复制判定日志` 写入同一批数据，空日志时按钮禁用；日志在下一次模拟播放开始时清空且不写入任何持久化文件
+- 判定日志只保留最近 `200` 条，记录等级、带符号时间差、音符歌曲时间、按键歌曲时间、按键排队耗时和正确/实际音效；`复制判定日志` 写入同一批数据，空日志时按钮禁用；日志在下一次模拟播放开始时清空且不写入任何持久化文件
 - 测试菜单的窗口毫秒预览与 `judgement_windows_ms` 直接 C++ 调用逐值相等；不得由 Flutter 计算窗口
 - App 固定加载裁切音效，不再提供“原始 / 裁切”切换；裁切资源仍由生成脚本和资源测试校验
 - iOS `Info.plist` 只声明竖屏方向，Android `MainActivity` 使用 `screenOrientation="portrait"`，Flutter 启动时只保留 `portraitUp`；手机旋转不改变界面方向

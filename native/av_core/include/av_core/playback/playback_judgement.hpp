@@ -69,6 +69,9 @@ struct JudgementResult final {
   double note_seconds;
   /// Song timeline at which the press was judged.
   double press_seconds;
+  /// Time between the key entering the lock-free queue and the audio thread
+  /// consuming it, in milliseconds. Diagnostic only, never used for grading.
+  double queue_delay_ms;
 };
 
 enum class JudgementError : std::uint8_t {

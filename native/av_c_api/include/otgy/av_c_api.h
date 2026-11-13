@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define OTGY_C_API_VERSION UINT32_C(3)
+#define OTGY_C_API_VERSION UINT32_C(4)
 
 typedef uint32_t otgy_status;
 #define OTGY_STATUS_OK UINT32_C(0)
@@ -612,6 +612,7 @@ typedef struct otgy_playback_judgement {
   uint32_t pressed_sound;
   double note_seconds;
   double press_seconds;
+  double queue_delay_ms;
 } otgy_playback_judgement;
 
 typedef struct otgy_playback_engine_state {

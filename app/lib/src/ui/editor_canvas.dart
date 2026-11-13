@@ -2136,7 +2136,10 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
       );
     }
     buffer.writeln('合计: ${_judgementLogSummary(log)}');
-    buffer.writeln('note=音符时间 press=判定按键时间 expected=正确键 pressed=按下键');
+    buffer.writeln(
+      'note=音符时间 press=判定按键时间 q=按键排队耗时 '
+      'expected=正确键 pressed=按下键',
+    );
     for (var index = 0; index < log.length; index++) {
       final item = log[index];
       final sign = item.deltaMs >= 0 ? '+' : '';
@@ -2145,6 +2148,7 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
         'Δ$sign${item.deltaMs.toStringAsFixed(1)}ms '
         'note=${item.noteSeconds.toStringAsFixed(3)} '
         'press=${item.pressSeconds.toStringAsFixed(3)} '
+        'q=${item.queueDelayMs.toStringAsFixed(1)}ms '
         'expected=${_soundLabel(item.expectedSound)} '
         'pressed=${_soundLabel(item.pressedSound)}',
       );

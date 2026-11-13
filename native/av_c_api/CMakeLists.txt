@@ -24,8 +24,8 @@ target_link_libraries(otgy_c_api PRIVATE OneTwoGoYeah::av_core)
 set_target_properties(otgy_c_api PROPERTIES
   CXX_EXTENSIONS OFF
   CXX_VISIBILITY_PRESET hidden
-  VERSION 3.0.0
-  SOVERSION 3
+  VERSION 4.0.0
+  SOVERSION 4
   VISIBILITY_INLINES_HIDDEN ON
   POSITION_INDEPENDENT_CODE ON
 )

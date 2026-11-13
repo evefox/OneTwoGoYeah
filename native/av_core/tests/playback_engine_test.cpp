@@ -246,6 +246,7 @@ void test_key_trigger_judges_and_plays() {
   assert(results[0].grade == JudgementGrade::Perfect);
   assert(results[0].expected_sound == expected);
   assert(results[0].pressed_sound == expected);
+  assert(results[0].queue_delay_ms >= 0.0);
 }
 
 void test_wrong_key_plays_the_miss_sound() {
