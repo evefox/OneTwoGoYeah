@@ -13,9 +13,16 @@ const _judgementBad = Color(0xFFFFA3A3);
 const _judgementMiss = Color(0xFFFF5C5C);
 
 class ScreenKeypadOverlay extends StatelessWidget {
-  const ScreenKeypadOverlay({super.key, required this.controller});
+  const ScreenKeypadOverlay({
+    super.key,
+    required this.controller,
+    this.onTrigger,
+  });
 
   final EditorController controller;
+
+  /// Test seam: when provided it replaces the controller's native trigger.
+  final ValueChanged<PlaybackSoundId>? onTrigger;
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +32,7 @@ class ScreenKeypadOverlay extends StatelessWidget {
         final arrows =
             controller.screenKeypadLayout == ScreenKeypadLayout.arrows &&
             controller.playbackDanceMode == PlaybackDanceMode.fourKey;
+        final trigger = onTrigger ?? controller.pushSimulationTrigger;
         return Material(
           color: Colors.transparent,
           child: GestureDetector(
@@ -33,8 +41,8 @@ class ScreenKeypadOverlay extends StatelessWidget {
             child: ColoredBox(
               color: const Color(0xD910151A),
               child: arrows
-                  ? _ArrowLayout(controller: controller)
-                  : _NumericLayout(controller: controller),
+                  ? _ArrowLayout(controller: controller, trigger: trigger)
+                  : _NumericLayout(controller: controller, trigger: trigger),
             ),
           ),
         );
@@ -44,9 +52,10 @@ class ScreenKeypadOverlay extends StatelessWidget {
 }
 
 class _NumericLayout extends StatelessWidget {
-  const _NumericLayout({required this.controller});
+  const _NumericLayout({required this.controller, required this.trigger});
 
   final EditorController controller;
+  final ValueChanged<PlaybackSoundId> trigger;
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +94,7 @@ class _NumericLayout extends StatelessWidget {
             alignment: Alignment.bottomCenter,
             child: FittedBox(
               fit: BoxFit.scaleDown,
-              child: _NumericKeypad(controller: controller),
+              child: _NumericKeypad(controller: controller, trigger: trigger),
             ),
           ),
         ),
@@ -95,9 +104,10 @@ class _NumericLayout extends StatelessWidget {
 }
 
 class _ArrowLayout extends StatelessWidget {
-  const _ArrowLayout({required this.controller});
+  const _ArrowLayout({required this.controller, required this.trigger});
 
   final EditorController controller;
+  final ValueChanged<PlaybackSoundId> trigger;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +143,9 @@ class _ArrowLayout extends StatelessWidget {
                       child: _JudgementText(judgement: judgement),
                     ),
                   ),
-                Center(child: _ArrowKeys(controller: controller)),
+                Center(
+                  child: _ArrowKeys(controller: controller, trigger: trigger),
+                ),
               ],
             ),
           ),
@@ -234,7 +246,7 @@ class _JudgementText extends StatelessWidget {
 }
 
 class _NumericKeypad extends StatelessWidget {
-  const _NumericKeypad({required this.controller});
+  const _NumericKeypad({required this.controller, required this.trigger});
 
   /// A standard keyboard key is a 19.05 mm pitch with an 18 mm cap and about
   /// 1 mm between caps. In Flutter's density-independent units that is
@@ -246,6 +258,7 @@ class _NumericKeypad extends StatelessWidget {
   static const _gap = 7.0;
 
   final EditorController controller;
+  final ValueChanged<PlaybackSoundId> trigger;
 
   bool _enabled(int number) {
     if (controller.playbackDanceMode == PlaybackDanceMode.eightKey) {
@@ -267,7 +280,7 @@ class _NumericKeypad extends StatelessWidget {
       height: _keyHeight,
       enabled: enabled,
       fontSize: 34,
-      onTap: enabled ? () => controller.pushSimulationTrigger(sound) : null,
+      onTap: enabled ? () => trigger(sound) : null,
     );
   }
 
@@ -316,13 +329,14 @@ class _NumericKeypad extends StatelessWidget {
 }
 
 class _ArrowKeys extends StatelessWidget {
-  const _ArrowKeys({required this.controller});
+  const _ArrowKeys({required this.controller, required this.trigger});
 
   static const _key = 108.0;
   static const _wideKey = 140.0;
   static const _gap = 7.0;
 
   final EditorController controller;
+  final ValueChanged<PlaybackSoundId> trigger;
 
   @override
   Widget build(BuildContext context) {
@@ -340,8 +354,7 @@ class _ArrowKeys extends StatelessWidget {
               height: _key,
               enabled: true,
               fontSize: 40,
-              onTap: () =>
-                  controller.pushSimulationTrigger(PlaybackSoundId.f1_8),
+              onTap: () => trigger(PlaybackSoundId.f1_8),
             ),
           ),
           Positioned(
@@ -355,8 +368,7 @@ class _ArrowKeys extends StatelessWidget {
                   height: _key,
                   enabled: true,
                   fontSize: 20,
-                  onTap: () =>
-                      controller.pushSimulationTrigger(PlaybackSoundId.f1Go),
+                  onTap: () => trigger(PlaybackSoundId.f1Go),
                 ),
                 const SizedBox(width: _gap),
                 _KeySurface(
@@ -365,8 +377,7 @@ class _ArrowKeys extends StatelessWidget {
                   height: _key,
                   enabled: true,
                   fontSize: 40,
-                  onTap: () =>
-                      controller.pushSimulationTrigger(PlaybackSoundId.f1_4),
+                  onTap: () => trigger(PlaybackSoundId.f1_4),
                 ),
                 const SizedBox(width: _gap),
                 _KeySurface(
@@ -375,8 +386,7 @@ class _ArrowKeys extends StatelessWidget {
                   height: _key,
                   enabled: true,
                   fontSize: 40,
-                  onTap: () =>
-                      controller.pushSimulationTrigger(PlaybackSoundId.f1_2),
+                  onTap: () => trigger(PlaybackSoundId.f1_2),
                 ),
                 const SizedBox(width: _gap),
                 _KeySurface(
@@ -385,8 +395,7 @@ class _ArrowKeys extends StatelessWidget {
                   height: _key,
                   enabled: true,
                   fontSize: 40,
-                  onTap: () =>
-                      controller.pushSimulationTrigger(PlaybackSoundId.f1_6),
+                  onTap: () => trigger(PlaybackSoundId.f1_6),
                 ),
                 const SizedBox(width: _gap),
                 _KeySurface(
@@ -395,8 +404,7 @@ class _ArrowKeys extends StatelessWidget {
                   height: _key,
                   enabled: true,
                   fontSize: 36,
-                  onTap: () =>
-                      controller.pushSimulationTrigger(PlaybackSoundId.f1Yeah),
+                  onTap: () => trigger(PlaybackSoundId.f1Yeah),
                 ),
               ],
             ),
@@ -434,30 +442,36 @@ class _KeySurface extends StatelessWidget {
         key: ValueKey<String>('screen-keypad-key-$label'),
         width: width,
         height: height,
-        child: Material(
-          color: enabled
-              ? EditorColors.surfaceRaised
-              : EditorColors.surface.withValues(alpha: 0.6),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-            side: BorderSide(
-              color: enabled
-                  ? EditorColors.border
-                  : EditorColors.border.withValues(alpha: 0.45),
+        child: Listener(
+          // Rhythm input must fire on finger-down, not on tap-up, and a
+          // Listener also reports every pointer so two thumbs can hit two
+          // keys at once. InkWell only provides the pressed highlight.
+          onPointerDown: enabled ? (_) => onTap?.call() : null,
+          child: Material(
+            color: enabled
+                ? EditorColors.surfaceRaised
+                : EditorColors.surface.withValues(alpha: 0.6),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+              side: BorderSide(
+                color: enabled
+                    ? EditorColors.border
+                    : EditorColors.border.withValues(alpha: 0.45),
+              ),
             ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: enabled
-                      ? EditorColors.text
-                      : EditorColors.textMuted.withValues(alpha: 0.45),
-                  fontSize: fontSize,
-                  fontWeight: FontWeight.w600,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: enabled ? () {} : null,
+              child: Center(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: enabled
+                        ? EditorColors.text
+                        : EditorColors.textMuted.withValues(alpha: 0.45),
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),

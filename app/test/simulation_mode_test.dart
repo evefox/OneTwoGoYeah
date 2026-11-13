@@ -137,6 +137,38 @@ void main() {
     );
   });
 
+  testWidgets('screen keys fire on pointer down and honor the 4K grayout', (
+    tester,
+  ) async {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    controller.setSimulationEnabled(true);
+    controller.openScreenKeypad();
+    final triggered = <PlaybackSoundId>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ScreenKeypadOverlay(
+            controller: controller,
+            onTrigger: triggered.add,
+          ),
+        ),
+      ),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('screen-keypad-key-2'))),
+    );
+    await tester.pump();
+    expect(triggered, [PlaybackSoundId.f1_2]);
+    await gesture.up();
+
+    await tester.tap(find.byKey(const ValueKey('screen-keypad-key-1')));
+    await tester.pump();
+    expect(triggered, [PlaybackSoundId.f1_2]);
+  });
+
   testWidgets('arrow overlay renders Ctrl, arrows and 0', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
