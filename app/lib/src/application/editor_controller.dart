@@ -9,12 +9,15 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../infrastructure/local_diagnostics.dart';
 import '../infrastructure/playback_output.dart';
+import '../infrastructure/simulation_playback_output.dart';
 
 enum EditorNoticeKind { info, error }
 
 enum WorkspaceSourceKind { untitled, importedSlk, savedDraft }
 
-enum EditorPlaybackMode { idle, chartPreview, rhythmTest }
+enum EditorPlaybackMode { idle, chartPreview, rhythmTest, simulation }
+
+enum ScreenKeypadLayout { numeric, arrows }
 
 /// Selects which packaged WAV set feeds chart playback. The trimmed variant
 /// only differs for the Chinese clips listed in
@@ -171,10 +174,14 @@ class EditorController extends ChangeNotifier {
   EditorController({
     NativeChartEditor? editor,
     PlaybackOutput? playbackOutput,
+    SimulationPlaybackOutput? simulationPlaybackOutput,
     DiagnosticRecorder? diagnosticRecorder,
     KeepScreenOnCallback? keepScreenOn,
   }) : _editor = editor ?? NativeChartEditor.createEmpty(),
        _playbackOutput = playbackOutput ?? const MethodChannelPlaybackOutput(),
+       _simulationOutput =
+           simulationPlaybackOutput ??
+           const MethodChannelSimulationPlaybackOutput(),
        _keepScreenOn = keepScreenOn ?? _platformKeepScreenOn,
        _diagnosticRecorder =
            diagnosticRecorder ??
@@ -189,6 +196,7 @@ class EditorController extends ChangeNotifier {
 
   NativeChartEditor _editor;
   final PlaybackOutput _playbackOutput;
+  final SimulationPlaybackOutput _simulationOutput;
   final KeepScreenOnCallback _keepScreenOn;
   final DiagnosticRecorder? _diagnosticRecorder;
   NativeAudio? _audio;
@@ -218,6 +226,13 @@ class EditorController extends ChangeNotifier {
   PlaybackSoundVariant _playbackSoundVariant = PlaybackSoundVariant.trimmed;
   PlaybackDanceMode _playbackDanceMode = PlaybackDanceMode.fourKey;
   bool _transitionSoundsEnabled = false;
+  bool _simulationEnabled = false;
+  bool _judgementEnabled = true;
+  ScreenKeypadLayout _screenKeypadLayout = ScreenKeypadLayout.numeric;
+  bool _screenKeypadOpen = false;
+  NativePlaybackEngine? _simulationEngine;
+  PlaybackJudgement? _latestJudgement;
+  Timer? _judgementTimer;
   String? _audioFileName;
   Uint8List? _audioSourceBytes;
   String? _audioExtension;
@@ -470,6 +485,13 @@ class EditorController extends ChangeNotifier {
   PlaybackSoundVariant get playbackSoundVariant => _playbackSoundVariant;
   PlaybackDanceMode get playbackDanceMode => _playbackDanceMode;
   bool get transitionSoundsEnabled => _transitionSoundsEnabled;
+  bool get simulationEnabled => _simulationEnabled;
+  bool get judgementEnabled => _judgementEnabled;
+  ScreenKeypadLayout get screenKeypadLayout => _screenKeypadLayout;
+  bool get screenKeypadOpen => _screenKeypadOpen;
+  PlaybackJudgement? get latestJudgement => _latestJudgement;
+  bool get isSimulationPlaying =>
+      _playbackMode == EditorPlaybackMode.simulation;
   bool get hasAudio => _audio != null;
   bool get canUndo => !cutPending && _editor.canUndo;
   bool get canRedo => !cutPending && _editor.canRedo;
@@ -1408,6 +1430,10 @@ class EditorController extends ChangeNotifier {
       OtgyNative.defaultAudioExportBaseName(_audioFileName ?? 'audio');
 
   Future<void> togglePlayback() async {
+    if (isSimulationPlaying) {
+      await pausePlayback();
+      return;
+    }
     if (isChartPlaying) {
       await pausePlayback();
       return;
@@ -1415,7 +1441,90 @@ class EditorController extends ChangeNotifier {
     if (isRhythmTesting) {
       return;
     }
-    await _startPlayback(EditorPlaybackMode.chartPreview);
+    await _startPlayback(
+      _simulationEnabled
+          ? EditorPlaybackMode.simulation
+          : EditorPlaybackMode.chartPreview,
+    );
+  }
+
+  void pushSimulationTrigger(PlaybackSoundId sound) {
+    if (!isSimulationPlaying) {
+      return;
+    }
+    _simulationEngine?.pushTrigger(sound);
+  }
+
+  bool handleSimulationKeyEvent(KeyEvent event) {
+    if (!isSimulationPlaying) {
+      return false;
+    }
+    final sound = simulationSoundForKey(event.logicalKey);
+    if (sound == null) {
+      return false;
+    }
+    if (event is KeyDownEvent) {
+      pushSimulationTrigger(sound);
+    }
+    return true;
+  }
+
+  PlaybackSoundId? simulationSoundForKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.controlLeft ||
+        key == LogicalKeyboardKey.controlRight) {
+      return PlaybackSoundId.f1Go;
+    }
+    if (key == LogicalKeyboardKey.numpad0 ||
+        key == LogicalKeyboardKey.numpad5) {
+      return PlaybackSoundId.f1Yeah;
+    }
+    final mapping = <LogicalKeyboardKey, PlaybackSoundId>{
+      LogicalKeyboardKey.numpad1: PlaybackSoundId.f1_1,
+      LogicalKeyboardKey.numpad2: PlaybackSoundId.f1_2,
+      LogicalKeyboardKey.numpad3: PlaybackSoundId.f1_3,
+      LogicalKeyboardKey.numpad4: PlaybackSoundId.f1_4,
+      LogicalKeyboardKey.numpad6: PlaybackSoundId.f1_6,
+      LogicalKeyboardKey.numpad7: PlaybackSoundId.f1_7,
+      LogicalKeyboardKey.numpad8: PlaybackSoundId.f1_8,
+      LogicalKeyboardKey.numpad9: PlaybackSoundId.f1_9,
+      LogicalKeyboardKey.arrowUp: PlaybackSoundId.f1_8,
+      LogicalKeyboardKey.arrowDown: PlaybackSoundId.f1_2,
+      LogicalKeyboardKey.arrowLeft: PlaybackSoundId.f1_4,
+      LogicalKeyboardKey.arrowRight: PlaybackSoundId.f1_6,
+    };
+    final sound = mapping[key];
+    if (sound == null) {
+      return null;
+    }
+    if (_playbackDanceMode == PlaybackDanceMode.fourKey &&
+        sound != PlaybackSoundId.f1_2 &&
+        sound != PlaybackSoundId.f1_4 &&
+        sound != PlaybackSoundId.f1_6 &&
+        sound != PlaybackSoundId.f1_8) {
+      return null;
+    }
+    return sound;
+  }
+
+  void _applyJudgement(PlaybackJudgement judgement) {
+    if (!_judgementEnabled) {
+      return;
+    }
+    _latestJudgement = judgement;
+    _judgementTimer?.cancel();
+    _judgementTimer = Timer(const Duration(milliseconds: 320), () {
+      _latestJudgement = null;
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  Future<void> _stopSimulationEngine() async {
+    final engine = _simulationEngine;
+    _simulationEngine = null;
+    await _simulationOutput.stop();
+    engine?.dispose();
   }
 
   Future<void> toggleRhythmTest() async {
@@ -1468,6 +1577,47 @@ class EditorController extends ChangeNotifier {
         cursorTimelineSeconds: cursorSeconds,
       );
       if (!start.isPlaying) {
+        return;
+      }
+      if (mode == EditorPlaybackMode.simulation) {
+        final soundBank = await _ensurePlaybackSoundBank();
+        final seed = _soundSeedForPlayback();
+        final engine = audio.createPlaybackEngine(
+          editor: _editor,
+          soundBank: soundBank,
+          language: _playbackSoundLanguage,
+          danceMode: _playbackDanceMode,
+          transitionSoundsEnabled: _transitionSoundsEnabled,
+          randomSeed: seed,
+          bpm: projectedBpm,
+          offset: _offset,
+          startSeconds: start.timelineSeconds,
+          endSeconds: effectiveEnd,
+          judgement: const PlaybackJudgementConfig(),
+        );
+        final frameLimit = OtgyNative.playbackFrameLimit(
+          sampleRate: engine.sampleRate,
+          keepSeconds: effectiveEnd - start.timelineSeconds,
+        );
+        await _simulationOutput.start(
+          engineHandle: engine.nativeHandle,
+          sampleRate: engine.sampleRate,
+        );
+        _simulationEngine = engine;
+        _playbackStart = start;
+        _playbackSampleRate = engine.sampleRate;
+        _playbackFrameCount = frameLimit;
+        _playbackPlayedFrames = 0;
+        _playbackMode = mode;
+        _latestJudgement = null;
+        _syncKeepScreenOn();
+        final generation = ++_playbackGeneration;
+        _playbackTimer?.cancel();
+        _playbackTimer = Timer.periodic(
+          const Duration(milliseconds: 16),
+          (_) => unawaited(_pollSimulation(generation)),
+        );
+        notifyListeners();
         return;
       }
       PlaybackPcm playback;
@@ -1556,6 +1706,10 @@ class EditorController extends ChangeNotifier {
       _playbackMode = EditorPlaybackMode.idle;
       _syncKeepScreenOn();
       _playbackStart = null;
+      final simulationEngine = _simulationEngine;
+      _simulationEngine = null;
+      simulationEngine?.dispose();
+      unawaited(_simulationOutput.stop());
       unawaited(_playbackOutput.dispose());
       showNotice(
         mode == EditorPlaybackMode.rhythmTest
@@ -1575,6 +1729,23 @@ class EditorController extends ChangeNotifier {
       return;
     }
     final generation = _playbackGeneration;
+    if (isSimulationPlaying) {
+      try {
+        await _simulationOutput.pause();
+        final state = await _simulationOutput.query();
+        if (generation != _playbackGeneration) {
+          return;
+        }
+        _finishPlaybackAt(state.playedFrames, forcePause: true);
+      } catch (error, stack) {
+        recordDiagnosticException('simulation.pause', error, stack);
+        if (generation != _playbackGeneration) {
+          return;
+        }
+        _finishPlaybackAt(_playbackPlayedFrames, forcePause: true);
+      }
+      return;
+    }
     try {
       final state = await _playbackOutput.pause();
       if (generation != _playbackGeneration) {
@@ -1619,6 +1790,42 @@ class EditorController extends ChangeNotifier {
     }
   }
 
+  Future<void> _pollSimulation(int generation) async {
+    if (!isSimulationPlaying ||
+        generation != _playbackGeneration ||
+        _playbackPollActive) {
+      return;
+    }
+    _playbackPollActive = true;
+    try {
+      final state = await _simulationOutput.query();
+      if (generation != _playbackGeneration) {
+        return;
+      }
+      final engine = _simulationEngine;
+      if (engine != null) {
+        final judgements = engine.drainJudgements();
+        for (final judgement in judgements) {
+          _applyJudgement(judgement);
+        }
+      }
+      _finishPlaybackAt(
+        state.playedFrames,
+        forcePause: !state.playing,
+        naturalEnd: state.finished,
+      );
+    } catch (error, stack) {
+      recordDiagnosticException('simulation.query', error, stack);
+      if (generation != _playbackGeneration) {
+        return;
+      }
+      _finishPlaybackAt(_playbackPlayedFrames, forcePause: true);
+      showNotice('音频输出已中断', error: true);
+    } finally {
+      _playbackPollActive = false;
+    }
+  }
+
   void _finishPlaybackAt(
     int frames, {
     required bool forcePause,
@@ -1646,12 +1853,19 @@ class EditorController extends ChangeNotifier {
       _playbackMode = EditorPlaybackMode.idle;
       _syncKeepScreenOn();
       _playbackGeneration++;
-      if (completedMode == EditorPlaybackMode.chartPreview &&
+      if ((completedMode == EditorPlaybackMode.chartPreview ||
+              completedMode == EditorPlaybackMode.simulation) &&
           _playbackSoundSeed != null &&
           !naturalEnd) {
         _playbackSoundResumeRow = _currentRow;
       } else {
         _invalidatePlaybackSoundSession();
+      }
+      if (completedMode == EditorPlaybackMode.simulation) {
+        _latestJudgement = null;
+        _judgementTimer?.cancel();
+        _judgementTimer = null;
+        unawaited(_stopSimulationEngine());
       }
     }
     notifyListeners();
@@ -1746,6 +1960,10 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _playbackDanceMode = value;
+    if (value == PlaybackDanceMode.eightKey &&
+        _screenKeypadLayout == ScreenKeypadLayout.arrows) {
+      _screenKeypadLayout = ScreenKeypadLayout.numeric;
+    }
     _invalidatePlaybackSoundSession();
     notifyListeners();
   }
@@ -1760,6 +1978,70 @@ class EditorController extends ChangeNotifier {
     _transitionSoundsEnabled = value;
     _invalidatePlaybackSoundSession();
     notifyListeners();
+  }
+
+  void setSimulationEnabled(bool value) {
+    if (!generalActionsEnabled ||
+        isPlaying ||
+        _isBusy ||
+        value == _simulationEnabled) {
+      return;
+    }
+    _simulationEnabled = value;
+    if (!value) {
+      _screenKeypadOpen = false;
+    }
+    notifyListeners();
+  }
+
+  void setJudgementEnabled(bool value) {
+    if (value == _judgementEnabled) {
+      return;
+    }
+    _judgementEnabled = value;
+    if (!value) {
+      _latestJudgement = null;
+      _judgementTimer?.cancel();
+      _judgementTimer = null;
+    }
+    notifyListeners();
+  }
+
+  void setScreenKeypadLayout(ScreenKeypadLayout value) {
+    if (!generalActionsEnabled ||
+        isPlaying ||
+        _isBusy ||
+        value == _screenKeypadLayout) {
+      return;
+    }
+    if (value == ScreenKeypadLayout.arrows &&
+        _playbackDanceMode == PlaybackDanceMode.eightKey) {
+      return;
+    }
+    _screenKeypadLayout = value;
+    notifyListeners();
+  }
+
+  void openScreenKeypad() {
+    if (!_simulationEnabled || !generalActionsEnabled || _isBusy) {
+      return;
+    }
+    if (_playbackDanceMode == PlaybackDanceMode.eightKey) {
+      _screenKeypadLayout = ScreenKeypadLayout.numeric;
+    }
+    _screenKeypadOpen = true;
+    notifyListeners();
+  }
+
+  Future<void> closeScreenKeypad() async {
+    if (!_screenKeypadOpen) {
+      return;
+    }
+    _screenKeypadOpen = false;
+    notifyListeners();
+    if (isSimulationPlaying) {
+      await pausePlayback();
+    }
   }
 
   void moveToRow(double value) {
@@ -2147,8 +2429,13 @@ class EditorController extends ChangeNotifier {
   @override
   void dispose() {
     _playbackTimer?.cancel();
+    _judgementTimer?.cancel();
     _audioExportCancellation?.request();
     unawaited(_applyKeepScreenOn(false));
+    final simulationEngine = _simulationEngine;
+    _simulationEngine = null;
+    simulationEngine?.dispose();
+    unawaited(_simulationOutput.dispose());
     unawaited(_playbackOutput.dispose());
     _audio?.dispose();
     _playbackSoundBank?.dispose();

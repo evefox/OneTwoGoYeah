@@ -468,6 +468,56 @@ final class PlaybackPcm {
   final Uint8List interleavedPcm16le;
 }
 
+enum PlaybackJudgementBasis { sixteenthNote, halfBeat }
+
+enum PlaybackJudgementGrade { perfect, great, cool, bad, miss }
+
+final class PlaybackJudgementConfig {
+  const PlaybackJudgementConfig({
+    this.basis = PlaybackJudgementBasis.sixteenthNote,
+    this.perfectFraction = 0.125,
+    this.greatFraction = 0.25,
+    this.coolFraction = 0.375,
+    this.badFraction = 0.5,
+    this.offsetMs = 0.0,
+  });
+
+  final PlaybackJudgementBasis basis;
+  final double perfectFraction;
+  final double greatFraction;
+  final double coolFraction;
+  final double badFraction;
+  final double offsetMs;
+}
+
+final class PlaybackJudgement {
+  const PlaybackJudgement({
+    required this.grade,
+    required this.deltaMs,
+    required this.noteId,
+    required this.expectedSound,
+    required this.pressedSound,
+  });
+
+  final PlaybackJudgementGrade grade;
+  final double deltaMs;
+  final int noteId;
+  final PlaybackSoundId expectedSound;
+  final PlaybackSoundId pressedSound;
+}
+
+final class PlaybackEngineState {
+  const PlaybackEngineState({
+    required this.renderedFrames,
+    required this.positionSeconds,
+    required this.finished,
+  });
+
+  final int renderedFrames;
+  final double positionSeconds;
+  final bool finished;
+}
+
 enum PlaybackSoundLanguage { chinese, english }
 
 enum PlaybackDanceMode { fourKey, eightKey }
@@ -556,6 +606,81 @@ final class NativePlaybackSoundBank {
   void dispose() {
     if (_handle != nullptr) {
       native.otgy_playback_sound_bank_destroy(_handle);
+      _handle = nullptr;
+    }
+  }
+}
+
+/// Owns a real-time simulation engine. The source [NativeAudio] PCM and the
+/// [NativePlaybackSoundBank] must stay alive until this engine is disposed.
+final class NativePlaybackEngine {
+  NativePlaybackEngine._(this._handle);
+
+  Pointer<native.otgy_playback_engine> _handle;
+
+  Pointer<native.otgy_playback_engine> _requireHandle() {
+    if (_handle == nullptr) {
+      throw StateError('NativePlaybackEngine has been disposed.');
+    }
+    return _handle;
+  }
+
+  /// Native address used by the platform streaming audio adapter.
+  int get nativeHandle => _requireHandle().address;
+
+  int get sampleRate =>
+      native.otgy_playback_engine_get_sample_rate(_requireHandle());
+
+  void pushTrigger(PlaybackSoundId sound) {
+    native.otgy_playback_engine_push_trigger(_requireHandle(), sound.index);
+  }
+
+  List<PlaybackJudgement> drainJudgements({int capacity = 32}) {
+    if (capacity <= 0) {
+      return const <PlaybackJudgement>[];
+    }
+    return using((arena) {
+      final output = arena<native.otgy_playback_judgement>(capacity);
+      final count = arena<Uint32>();
+      native.otgy_playback_engine_drain_judgements(
+        _requireHandle(),
+        output,
+        capacity,
+        count,
+      );
+      return <PlaybackJudgement>[
+        for (var index = 0; index < count.value; index++)
+          PlaybackJudgement(
+            grade: PlaybackJudgementGrade.values[output[index].grade],
+            deltaMs: output[index].delta_ms,
+            noteId: output[index].note_id,
+            expectedSound:
+                PlaybackSoundId.values[output[index].expected_sound],
+            pressedSound: PlaybackSoundId.values[output[index].pressed_sound],
+          ),
+      ];
+    });
+  }
+
+  PlaybackEngineState state() {
+    return using((arena) {
+      final output = arena<native.otgy_playback_engine_state>();
+      native.otgy_playback_engine_get_state(_requireHandle(), output);
+      return PlaybackEngineState(
+        renderedFrames: output.ref.rendered_frames,
+        positionSeconds: output.ref.position_seconds,
+        finished: output.ref.finished != 0,
+      );
+    });
+  }
+
+  void reset() {
+    native.otgy_playback_engine_reset(_requireHandle());
+  }
+
+  void dispose() {
+    if (_handle != nullptr) {
+      native.otgy_playback_engine_destroy(_handle);
       _handle = nullptr;
     }
   }
@@ -1027,6 +1152,61 @@ final class NativeAudio {
       } finally {
         if (output.value != nullptr) {
           native.otgy_playback_pcm_destroy(output.value);
+        }
+        _destroyError(error);
+      }
+    });
+  }
+
+  NativePlaybackEngine createPlaybackEngine({
+    required NativeChartEditor editor,
+    required NativePlaybackSoundBank soundBank,
+    required PlaybackSoundLanguage language,
+    required PlaybackDanceMode danceMode,
+    required bool transitionSoundsEnabled,
+    required int randomSeed,
+    required double bpm,
+    required double offset,
+    required double startSeconds,
+    required double endSeconds,
+    PlaybackJudgementConfig judgement = const PlaybackJudgementConfig(),
+  }) {
+    return using((arena) {
+      final output = arena<Pointer<native.otgy_playback_engine>>();
+      final error = arena<Pointer<native.otgy_error>>();
+      final config = arena<native.otgy_playback_engine_config>()
+        ..ref.language = language.index
+        ..ref.dance_mode = danceMode.index
+        ..ref.transition_sounds_enabled = transitionSoundsEnabled ? 1 : 0
+        ..ref.random_seed = randomSeed
+        ..ref.bpm = bpm
+        ..ref.offset_seconds = offset
+        ..ref.start_seconds = startSeconds
+        ..ref.end_seconds = endSeconds
+        ..ref.judgement_basis = judgement.basis.index
+        ..ref.judgement_perfect_fraction = judgement.perfectFraction
+        ..ref.judgement_great_fraction = judgement.greatFraction
+        ..ref.judgement_cool_fraction = judgement.coolFraction
+        ..ref.judgement_bad_fraction = judgement.badFraction
+        ..ref.judgement_offset_ms = judgement.offsetMs;
+      Pointer<native.otgy_chart> chart = nullptr;
+      try {
+        chart = editor._copyChart(error);
+        _checkStatus(
+          native.otgy_playback_engine_create(
+            _requireHandle(),
+            chart,
+            soundBank._requireHandle(),
+            config.ref,
+            output,
+            error,
+          ),
+          error,
+        );
+        return NativePlaybackEngine._(output.value);
+      } finally {
+        if (chart != nullptr) {
+          native.otgy_chart_destroy(chart);
         }
         _destroyError(error);
       }

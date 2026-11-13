@@ -25,6 +25,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private lateinit var playback: PcmPlaybackOutput
+    private lateinit var simulationPlayback: SimulationPlaybackOutput
     private lateinit var documentWriter: DocumentWriter
     private var pendingCreateDocumentResult: MethodChannel.Result? = null
 
@@ -35,6 +36,11 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "io.onetwogoyeah/playback",
         ).setMethodCallHandler(playback::handle)
+        simulationPlayback = SimulationPlaybackOutput(this)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "io.onetwogoyeah/simulation-playback",
+        ).setMethodCallHandler(simulationPlayback::handle)
         documentWriter = DocumentWriter(this)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -139,6 +145,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        if (::simulationPlayback.isInitialized) {
+            simulationPlayback.dispose()
+        }
         if (::playback.isInitialized) {
             playback.dispose()
         }

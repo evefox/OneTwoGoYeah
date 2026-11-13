@@ -1138,13 +1138,12 @@ class _EditorCanvasState extends State<EditorCanvas>
           ): widget.controller.redo,
           const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
               widget.controller.undo,
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            meta: true,
-            shift: true,
-          ): widget.controller.redo,
-          const SingleActivator(LogicalKeyboardKey.space):
-              widget.controller.togglePlayback,
+          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true,
+              shift: true):
+              widget.controller.redo,
+          if (!widget.controller.isSimulationPlaying)
+            const SingleActivator(LogicalKeyboardKey.space):
+                widget.controller.togglePlayback,
         };
         if (_macOS) {
           shortcutBindings.addAll({
@@ -1170,6 +1169,10 @@ class _EditorCanvasState extends State<EditorCanvas>
           child: Focus(
             focusNode: _focusNode,
             autofocus: true,
+            onKeyEvent: (node, event) =>
+                widget.controller.handleSimulationKeyEvent(event)
+                ? KeyEventResult.handled
+                : KeyEventResult.ignored,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -2054,6 +2057,68 @@ class _NavigationRailState extends State<_NavigationRail> {
                               ? controller.setTransitionSoundsEnabled
                               : null,
                         ),
+                        const Divider(height: 18),
+                        Text(
+                          '播放设置',
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        SwitchListTile.adaptive(
+                          key: const ValueKey('simulation-mode-switch'),
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('模拟模式'),
+                          value: controller.simulationEnabled,
+                          onChanged:
+                              controller.generalActionsEnabled &&
+                                  !controller.isBusy
+                              ? controller.setSimulationEnabled
+                              : null,
+                        ),
+                        if (controller.simulationEnabled) ...[
+                          SwitchListTile.adaptive(
+                            key: const ValueKey('judgement-switch'),
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: const Text('判定'),
+                            value: controller.judgementEnabled,
+                            onChanged: controller.setJudgementEnabled,
+                          ),
+                          Text(
+                            '屏幕键盘布局',
+                            style: Theme.of(context).textTheme.labelMedium,
+                          ),
+                          const SizedBox(height: 6),
+                          SegmentedButton<ScreenKeypadLayout>(
+                            key: const ValueKey('screen-keypad-layout'),
+                            segments: const [
+                              ButtonSegment(
+                                value: ScreenKeypadLayout.numeric,
+                                label: Text('数字'),
+                              ),
+                              ButtonSegment(
+                                value: ScreenKeypadLayout.arrows,
+                                label: Text('方向键'),
+                              ),
+                            ],
+                            selected: {controller.screenKeypadLayout},
+                            showSelectedIcon: false,
+                            onSelectionChanged:
+                                controller.generalActionsEnabled &&
+                                    !controller.isBusy &&
+                                    controller.playbackDanceMode ==
+                                        PlaybackDanceMode.fourKey
+                                ? (value) => controller.setScreenKeypadLayout(
+                                    value.single,
+                                  )
+                                : null,
+                          ),
+                          if (controller.playbackDanceMode ==
+                              PlaybackDanceMode.eightKey)
+                            Text(
+                              '8K 下不提供方向键布局',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
                       ],
                     ),
                   ),
@@ -2069,6 +2134,20 @@ class _NavigationRailState extends State<_NavigationRail> {
                 icon: const Icon(Icons.spatial_audio_off_outlined, size: 20),
               ),
             ),
+            if (controller.simulationEnabled &&
+                (Theme.of(context).platform == TargetPlatform.android ||
+                    Theme.of(context).platform == TargetPlatform.iOS))
+              IconButton(
+                key: const ValueKey('screen-keypad-button'),
+                onPressed:
+                    controller.isPlaying ||
+                        !controller.generalActionsEnabled ||
+                        controller.isBusy
+                    ? null
+                    : controller.openScreenKeypad,
+                tooltip: '屏幕键盘',
+                icon: const Icon(Icons.dialpad, size: 20),
+              ),
             const SizedBox(width: 24, child: Divider(height: 5)),
             IconButton(
               onPressed: controller.navigationEnabled && navigation.canToBegin

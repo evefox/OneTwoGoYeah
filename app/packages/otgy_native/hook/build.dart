@@ -208,11 +208,15 @@ void main(List<String> args) async {
       ),
     );
 
+    final androidOnlySources = input.config.code.targetOS == OS.android
+        ? const <String>['$_root/av_c_api/src/android_jni.cpp']
+        : const <String>[];
+
     if (!input.config.linkingEnabled) {
       await CBuilder.library(
         name: 'otgy_native',
         assetName: 'otgy_native_bindings_generated.dart',
-        sources: [..._coreSources, ..._apiSources],
+        sources: [..._coreSources, ..._apiSources, ...androidOnlySources],
         includes: const [
           '$_root/av_core/include',
           '$_root/av_core/src/timing/arrowvortex/include',

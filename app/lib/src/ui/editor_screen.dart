@@ -17,6 +17,7 @@ import '../infrastructure/local_ui_preferences.dart';
 import 'editor_canvas.dart';
 import 'editor_theme.dart';
 import 'editor_toolbars.dart';
+import 'screen_keypad_overlay.dart';
 
 typedef ProjectStoreFactory = Future<LocalProjectStore> Function();
 
@@ -1492,6 +1493,10 @@ class _EditorScreenState extends State<EditorScreen>
                   ),
                   if (_controller.isExportingAudio)
                     _AudioExportProgressOverlay(controller: _controller),
+                  if (_controller.screenKeypadOpen)
+                    Positioned.fill(
+                      child: ScreenKeypadOverlay(controller: _controller),
+                    ),
                 ],
               ),
             ),

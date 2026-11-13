@@ -1233,6 +1233,85 @@ external int otgy_render_rhythm_test_playback_pcm(
 
 @ffi.Native<
   otgy_status Function(
+    ffi.Pointer<otgy_pcm>,
+    ffi.Pointer<otgy_chart>,
+    ffi.Pointer<otgy_playback_sound_bank>,
+    otgy_playback_engine_config,
+    ffi.Pointer<ffi.Pointer<otgy_playback_engine>>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_playback_engine_create(
+  ffi.Pointer<otgy_pcm> pcm,
+  ffi.Pointer<otgy_chart> chart,
+  ffi.Pointer<otgy_playback_sound_bank> sound_bank,
+  otgy_playback_engine_config config,
+  ffi.Pointer<ffi.Pointer<otgy_playback_engine>> out_engine,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<otgy_playback_engine>)>()
+external void otgy_playback_engine_destroy(
+  ffi.Pointer<otgy_playback_engine> engine,
+);
+
+@ffi.Native<ffi.Uint32 Function(ffi.Pointer<otgy_playback_engine>)>()
+external int otgy_playback_engine_get_sample_rate(
+  ffi.Pointer<otgy_playback_engine> engine,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<otgy_playback_engine>, ffi.Uint32)>()
+external void otgy_playback_engine_push_trigger(
+  ffi.Pointer<otgy_playback_engine> engine,
+  int sound_id,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<otgy_playback_engine>,
+    ffi.Pointer<ffi.Uint8>,
+    ffi.Uint32,
+  )
+>()
+external void otgy_playback_engine_render(
+  ffi.Pointer<otgy_playback_engine> engine,
+  ffi.Pointer<ffi.Uint8> interleaved_pcm16le,
+  int frame_count,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<otgy_playback_engine>,
+    ffi.Pointer<otgy_playback_judgement>,
+    ffi.Uint32,
+    ffi.Pointer<ffi.Uint32>,
+  )
+>()
+external void otgy_playback_engine_drain_judgements(
+  ffi.Pointer<otgy_playback_engine> engine,
+  ffi.Pointer<otgy_playback_judgement> out_judgements,
+  int capacity,
+  ffi.Pointer<ffi.Uint32> out_count,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<otgy_playback_engine>,
+    ffi.Pointer<otgy_playback_engine_state>,
+  )
+>()
+external void otgy_playback_engine_get_state(
+  ffi.Pointer<otgy_playback_engine> engine,
+  ffi.Pointer<otgy_playback_engine_state> out_state,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<otgy_playback_engine>)>()
+external void otgy_playback_engine_reset(
+  ffi.Pointer<otgy_playback_engine> engine,
+);
+
+@ffi.Native<
+  otgy_status Function(
     ffi.Uint32,
     ffi.Uint32,
     ffi.Pointer<ffi.Uint32>,
@@ -2361,6 +2440,80 @@ final class otgy_rhythm_test_sound_config extends ffi.Struct {
   external double offset_seconds;
 }
 
+final class otgy_playback_engine extends ffi.Opaque {}
+
+final class otgy_playback_engine_config extends ffi.Struct {
+  @ffi.Uint32()
+  external int language;
+
+  @ffi.Uint32()
+  external int dance_mode;
+
+  @ffi.Uint8()
+  external int transition_sounds_enabled;
+
+  @ffi.Uint64()
+  external int random_seed;
+
+  @ffi.Double()
+  external double bpm;
+
+  @ffi.Double()
+  external double offset_seconds;
+
+  @ffi.Double()
+  external double start_seconds;
+
+  @ffi.Double()
+  external double end_seconds;
+
+  @ffi.Uint32()
+  external int judgement_basis;
+
+  @ffi.Double()
+  external double judgement_perfect_fraction;
+
+  @ffi.Double()
+  external double judgement_great_fraction;
+
+  @ffi.Double()
+  external double judgement_cool_fraction;
+
+  @ffi.Double()
+  external double judgement_bad_fraction;
+
+  @ffi.Double()
+  external double judgement_offset_ms;
+}
+
+final class otgy_playback_judgement extends ffi.Struct {
+  @ffi.Uint32()
+  external int grade;
+
+  @ffi.Double()
+  external double delta_ms;
+
+  @ffi.Uint64()
+  external int note_id;
+
+  @ffi.Uint32()
+  external int expected_sound;
+
+  @ffi.Uint32()
+  external int pressed_sound;
+}
+
+final class otgy_playback_engine_state extends ffi.Struct {
+  @ffi.Uint64()
+  external int rendered_frames;
+
+  @ffi.Double()
+  external double position_seconds;
+
+  @ffi.Uint8()
+  external int finished;
+}
+
 final class otgy_chart_marker extends ffi.Struct {
   @ffi.Uint64()
   external int id;
@@ -2642,6 +2795,8 @@ const int OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK = 31;
 
 const int OTGY_ERROR_DOMAIN_AUDIO_END = 32;
 
+const int OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE = 33;
+
 const int OTGY_ABI_ERROR_NULL_ARGUMENT = 1;
 
 const int OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE = 2;
@@ -2763,6 +2918,20 @@ const int OTGY_PLAYBACK_SOUND_SPACE_BAR = 20;
 const int OTGY_PLAYBACK_SOUND_TURN_1 = 21;
 
 const int OTGY_PLAYBACK_SOUND_TURN_2 = 22;
+
+const int OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE = 0;
+
+const int OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT = 1;
+
+const int OTGY_PLAYBACK_JUDGEMENT_PERFECT = 0;
+
+const int OTGY_PLAYBACK_JUDGEMENT_GREAT = 1;
+
+const int OTGY_PLAYBACK_JUDGEMENT_COOL = 2;
+
+const int OTGY_PLAYBACK_JUDGEMENT_BAD = 3;
+
+const int OTGY_PLAYBACK_JUDGEMENT_MISS = 4;
 
 const int OTGY_APPLICATION_MODE_IDLE = 0;
 
