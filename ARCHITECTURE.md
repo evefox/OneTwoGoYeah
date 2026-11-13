@@ -1044,11 +1044,22 @@ PCM16LE 与判定结果，不能区分或重新实现混音模式。
 
 Flutter 把普通播放的核心缓冲交给 Android `AudioTrack`、Apple `AVAudioEngine` 或
 Windows `waveOut`，并以约 33 毫秒轮询平台已播放帧数。模拟游戏使用平台流式输出按块
-渲染；当前 Android 适配层使用 `AudioTrack` 低延迟流式模式和固定块，通过一个只做
-句柄转换与块渲染的 JNI 桥调用 C ABI，Dart 负责创建引擎、入队按键和读取判定。暂停、
-自然结束、音频焦点丢失、输出中断或 App 进入后台都先保留平台最后已播放帧，再调用
-共享帧推进/暂停入口；恢复焦点或返回前台不自动播放。平台不得用墙钟时间或缓冲总长度
-猜测中断位置。
+渲染，四个平台共用同一 `start/pause/resume/query/stop` 方法通道契约：
+
+- Android 使用 `AudioTrack` 的 `MODE_STREAM`、`PERFORMANCE_MODE_LOW_LATENCY`、
+  `USAGE_MEDIA`/`CONTENT_TYPE_MUSIC` 音频属性和固定块，在 urgent-audio 优先级线程
+  上阻塞写入；通过只做句柄转换、固定块渲染和完成状态查询的 JNI 桥调用 C ABI。
+  Release 使用 native-assets 链接钩子，`android_jni.cpp` 必须进入送给链接钩子的
+  静态库，最终 `.so` 必须导出两个 JNI 符号。
+- iOS/macOS 使用 `AVAudioSourceNode` 的 Int16 交错格式回调直接调用 C ABI 渲染；
+  iOS 额外设置 `5 ms` 首选 IO 缓冲。适配层通过 `dlopen` 加载
+  `otgy_native.framework`，不复制音频或判定逻辑。
+- Windows 使用 WASAPI 共享模式、事件回调和 `AUTOCONVERTPCM`，事件线程以 MMCSS
+  优先级按块渲染并写入，暂停和停止由原子状态与事件控制。
+
+Dart 负责创建引擎、入队按键和读取判定。暂停、自然结束、音频焦点丢失、输出中断或
+App 进入后台都先保留平台最后已播放帧，再调用共享帧推进/暂停入口；恢复焦点或返回
+前台不自动播放。平台不得用墙钟时间或缓冲总长度猜测中断位置。
 
 移动端方向锁定由平台清单和应用启动共同保证：iOS `Info.plist` 只声明竖屏方向，
 Android `MainActivity` 声明 `screenOrientation="portrait"`，Flutter 启动时调用
