@@ -62,6 +62,14 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
     echo "$library_entry does not export otgy_chart_create_empty" >&2
     exit 1
   fi
+  for symbol in \
+      Java_io_onetwogoyeah_one_1two_1go_1yeah_PlaybackEngineBridge_renderNative \
+      Java_io_onetwogoyeah_one_1two_1go_1yeah_PlaybackEngineBridge_isFinishedNative; do
+    if ! "$readelf_bin" -Ws "$library_path" | grep -Eq "[[:space:]]$symbol$"; then
+      echo "$library_entry does not export $symbol" >&2
+      exit 1
+    fi
+  done
 done
 
-echo "Android native assets have no unresolved shared libc++ dependency."
+echo "Android native assets have no unresolved shared libc++ dependency and export the playback JNI bridge."

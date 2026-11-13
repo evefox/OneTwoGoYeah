@@ -137,6 +137,10 @@ void main(List<String> args) async {
         ? <AssetRouting>[ToLinkHook(input.packageName)]
         : const <AssetRouting>[];
 
+    final androidOnlySources = input.config.code.targetOS == OS.android
+        ? const <String>['$_root/av_c_api/src/android_jni.cpp']
+        : const <String>[];
+
     Future<void> buildStatic(CBuilder builder) => builder.run(
       input: input,
       output: output,
@@ -189,7 +193,7 @@ void main(List<String> args) async {
       CBuilder.library(
         name: 'otgy_core_api',
         assetName: 'component_core_api',
-        sources: [..._coreSources, ..._apiSources],
+        sources: [..._coreSources, ..._apiSources, ...androidOnlySources],
         includes: const [
           '$_root/av_core/include',
           '$_root/av_core/src/timing/arrowvortex/include',
@@ -207,10 +211,6 @@ void main(List<String> args) async {
         std: 'c++17',
       ),
     );
-
-    final androidOnlySources = input.config.code.targetOS == OS.android
-        ? const <String>['$_root/av_c_api/src/android_jni.cpp']
-        : const <String>[];
 
     if (!input.config.linkingEnabled) {
       await CBuilder.library(
