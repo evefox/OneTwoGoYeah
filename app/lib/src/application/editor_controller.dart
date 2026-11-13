@@ -431,6 +431,19 @@ class EditorController extends ChangeNotifier {
   bool get isChartPlaying => _playbackMode == EditorPlaybackMode.chartPreview;
   bool get isRhythmTesting => _playbackMode == EditorPlaybackMode.rhythmTest;
 
+  /// The main rail play button turns into pause for chart preview and for
+  /// simulation played with a wired keyboard. The rhythm test keeps its own
+  /// button and the on-screen keypad owns its overlay pause button.
+  bool get canPauseFromRail =>
+      isChartPlaying ||
+      (_playbackMode == EditorPlaybackMode.simulation && !_screenKeypadOpen);
+
+  @visibleForTesting
+  void setPlaybackModeForTest(EditorPlaybackMode mode) {
+    _playbackMode = mode;
+    notifyListeners();
+  }
+
   /// The single global application-operation mode. Playback and audio export
   /// outrank the chart interaction session, so an active session can never
   /// widen what a running playback or export allows.

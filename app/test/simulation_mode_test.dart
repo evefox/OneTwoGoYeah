@@ -89,6 +89,31 @@ void main() {
     expect(controller.screenKeypadOpen, isFalse);
   });
 
+  test('the rail play button pauses keyboard simulation playback', () async {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    expect(controller.canPauseFromRail, isFalse);
+
+    controller.setPlaybackModeForTest(EditorPlaybackMode.chartPreview);
+    expect(controller.canPauseFromRail, isTrue);
+
+    controller.setPlaybackModeForTest(EditorPlaybackMode.simulation);
+    expect(controller.canPauseFromRail, isTrue);
+
+    controller.setPlaybackModeForTest(EditorPlaybackMode.idle);
+    controller.setSimulationEnabled(true);
+    controller.openScreenKeypad();
+    controller.setPlaybackModeForTest(EditorPlaybackMode.simulation);
+    // The overlay owns the pause button while the screen keypad is open.
+    expect(controller.canPauseFromRail, isFalse);
+
+    await controller.closeScreenKeypad();
+    expect(controller.canPauseFromRail, isTrue);
+
+    controller.setPlaybackModeForTest(EditorPlaybackMode.rhythmTest);
+    expect(controller.canPauseFromRail, isFalse);
+  });
+
   testWidgets('numeric overlay renders fixed keypad and judgement colors', (
     tester,
   ) async {

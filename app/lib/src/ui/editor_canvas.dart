@@ -2448,13 +2448,13 @@ class _NavigationRailState extends State<_NavigationRail> {
               onPressed:
                   controller.hasAudio &&
                       !controller.isRhythmTesting &&
-                      (controller.isChartPlaying ||
+                      (controller.canPauseFromRail ||
                           (controller.generalActionsEnabled &&
                               !controller.isBusy &&
                               controller.playbackStartEnabled))
                   ? controller.togglePlayback
                   : null,
-              tooltip: controller.isChartPlaying
+              tooltip: controller.canPauseFromRail
                   ? '暂停'
                   : controller.isRhythmTesting
                   ? '节奏测试中'
@@ -2466,7 +2466,7 @@ class _NavigationRailState extends State<_NavigationRail> {
                   ? '已到音乐结束位置'
                   : '播放',
               icon: Icon(
-                controller.isChartPlaying
+                controller.canPauseFromRail
                     ? Icons.pause_rounded
                     : Icons.play_arrow_rounded,
                 size: 20,
