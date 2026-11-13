@@ -862,7 +862,10 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, '清空'));
         await tester.pumpAndSettle();
         expect(controller.markers, isEmpty);
-        expect(find.textContaining('chart-with-marker'), findsOneWidget);
+        expect(controller.chartName, '未命名草稿');
+        expect(find.textContaining('chart-with-marker'), findsNothing);
+        expect(find.text('点击导入slk'), findsOneWidget);
+        expect(find.textContaining('未保存'), findsNothing);
         expect(
           tester
               .widget<IconButton>(find.byKey(const ValueKey('save-chart')))
@@ -875,12 +878,9 @@ void main() {
               .onPressed,
           isNull,
         );
-        expect(
-          tester
-              .widget<IconButton>(find.byKey(const ValueKey('save-options')))
-              .onPressed,
-          isNull,
-        );
+        // The workspace is untitled again after clearing, so the saved-draft
+        // save-as segment is gone instead of merely disabled.
+        expect(find.byKey(const ValueKey('save-options')), findsNothing);
         expect(tester.takeException(), isNull);
       } finally {
         debugDefaultTargetPlatformOverride = previousPlatform;
@@ -967,10 +967,12 @@ void main() {
     expect(controller.isDirty, isFalse);
 
     controller.clearChart();
-    expect(controller.isDirty, isTrue);
+    expect(controller.isDirty, isFalse);
+    expect(controller.sourceKind, WorkspaceSourceKind.untitled);
+    expect(controller.chartName, '未命名草稿');
 
     controller.undo();
-    expect(controller.isDirty, isFalse);
+    expect(controller.isDirty, isTrue);
   });
 
   testWidgets('reports audio picker platform failures', (tester) async {

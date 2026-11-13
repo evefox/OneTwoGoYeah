@@ -921,7 +921,7 @@ class _EditorScreenState extends State<EditorScreen>
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('清空当前谱面？'),
-        content: const Text('只清除谱面内容。已加载音频、BPM 和 Offset 会保留。'),
+        content: const Text('只清除谱面内容，草稿名会一并清除。已加载音频、BPM 和 Offset 会保留。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

@@ -53,6 +53,12 @@ void main() {
     expect(await store.readRecovery(), isNull);
   });
 
+  test('concurrent recovery deletion tolerates a disappearing file', () async {
+    await store.writeRecovery(Uint8List.fromList([1, 2, 3]));
+    await Future.wait([store.deleteRecovery(), store.deleteRecovery()]);
+    expect(await store.readRecovery(), isNull);
+  });
+
   test('session marker reports an interrupted previous session', () async {
     expect((await store.beginSession()).wasInterrupted, isFalse);
     await store.writeRecovery(Uint8List.fromList([3, 1, 4]));

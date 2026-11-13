@@ -1027,6 +1027,13 @@ class EditorController extends ChangeNotifier {
     final result = _diagnosticCall('clear', _editor.clear);
     if (result.changed) {
       _refreshProjection();
+      // Clearing detaches the workspace from its saved draft or imported
+      // source. The empty chart becomes a clean untitled baseline, while the
+      // existing draft record on disk is left untouched.
+      _sourceKind = WorkspaceSourceKind.untitled;
+      _sourceName = null;
+      _draftId = null;
+      _savedPayload = Uint8List.fromList(encodeFormalDraft());
       _commitChartChange();
     }
     _recordEdit('clear', result);

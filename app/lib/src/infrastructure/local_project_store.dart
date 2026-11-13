@@ -149,7 +149,7 @@ final class LocalProjectStore {
     final files = await _dataFiles();
     for (final file in files) {
       if (_baseName(file.path).startsWith('draft-$id-')) {
-        await file.delete();
+        await _deleteIfPresent(file);
       }
     }
   }
@@ -178,7 +178,7 @@ final class LocalProjectStore {
     final files = await _dataFiles();
     for (final file in files) {
       if (_baseName(file.path).startsWith('recovery-')) {
-        await file.delete();
+        await _deleteIfPresent(file);
       }
     }
   }
@@ -257,7 +257,21 @@ final class LocalProjectStore {
   }) async {
     for (final file in await _dataFiles()) {
       if (file.path != keepPath && _baseName(file.path).startsWith(prefix)) {
-        await file.delete();
+        await _deleteIfPresent(file);
+      }
+    }
+  }
+
+  /// Another cleanup path may remove the same generation between listing and
+  /// deletion (for example the recovery flush racing a manual save). A file
+  /// that is already gone reached the desired state; real failures still
+  /// propagate.
+  Future<void> _deleteIfPresent(File file) async {
+    try {
+      await file.delete();
+    } on FileSystemException {
+      if (await file.exists()) {
+        rethrow;
       }
     }
   }
@@ -265,7 +279,7 @@ final class LocalProjectStore {
   Future<void> _removeStaleTemporaryFiles() async {
     await for (final entity in _directory.list(followLinks: false)) {
       if (entity is File && _baseName(entity.path).startsWith('.tmp-')) {
-        await entity.delete();
+        await _deleteIfPresent(entity);
       }
     }
   }
