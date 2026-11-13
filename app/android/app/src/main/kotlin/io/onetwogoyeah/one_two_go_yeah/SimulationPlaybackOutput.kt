@@ -119,12 +119,14 @@ class SimulationPlaybackOutput(private val context: Context) {
         }
         val next = builder.build()
         var actualBufferFrames = bufferBytes / 4
-        // Shrink the effective queue to one device block when the track
-        // supports it. This is the remaining avoidable key-to-speaker delay;
-        // the HAL adds its own fixed latency on top.
+        // Shrink the effective queue to two device blocks when the track
+        // supports it: one block holds the next write while the other is being
+        // consumed, which keeps the key-to-speaker delay tiny without
+        // underrunning on a normal Android scheduling jitter. The HAL adds
+        // its own fixed latency on top.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-                val shrunk = next.setBufferSizeInFrames(maxOf(frames, 64))
+                val shrunk = next.setBufferSizeInFrames(maxOf(frames, 64) * 2)
                 if (shrunk > 0) {
                     actualBufferFrames = shrunk
                 }

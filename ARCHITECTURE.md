@@ -1057,7 +1057,7 @@ Windows `waveOut`，并以约 33 毫秒轮询平台已播放帧数。模拟游�
   Flutter 在开始模拟播放前调用共享核心 `otgy_pcm_resample` 把歌曲 PCM 重采样一次，
   并以设备采样率创建引擎和 `AudioTrack`，使轨道能进入系统低延迟快速通道；块大小
   取设备 `PROPERTY_OUTPUT_FRAMES_PER_BUFFER`，缓冲取平台最小值，并在轨道支持时用
-  `setBufferSizeInFrames` 收缩到单个设备块。重采样只作用于
+  `setBufferSizeInFrames` 收缩到两个设备块。重采样只作用于
   本次模拟播放的内存副本，不改变歌曲文件、常规预听、波形、项目数据或导出结果。
 - iOS/macOS 使用 `AVAudioSourceNode` 的 Int16 交错格式回调直接调用 C ABI 渲染；
   iOS 额外设置 `5 ms` 首选 IO 缓冲。适配层通过 `dlopen` 加载
