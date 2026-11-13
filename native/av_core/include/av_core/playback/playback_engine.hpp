@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace otgy::core {
@@ -36,6 +37,25 @@ enum class PlaybackEngineError : std::uint8_t {
   MissingSoundAsset = 4,
   SizeOverflow = 5,
 };
+
+[[nodiscard]] constexpr std::string_view playback_engine_error_message(
+    PlaybackEngineError error) noexcept {
+  switch (error) {
+    case PlaybackEngineError::None:
+      return {};
+    case PlaybackEngineError::InvalidConfiguration:
+      return "playback engine configuration is invalid";
+    case PlaybackEngineError::AllocationFailure:
+      return "unable to allocate playback engine storage";
+    case PlaybackEngineError::SoundTimingFailure:
+      return "playback engine could not project a sound row onto audio time";
+    case PlaybackEngineError::MissingSoundAsset:
+      return "playback engine is missing a required sound asset";
+    case PlaybackEngineError::SizeOverflow:
+      return "playback engine dimensions exceed the representable size";
+  }
+  return "unknown playback engine error";
+}
 
 struct PlaybackEngineState final {
   std::uint64_t rendered_frames;
