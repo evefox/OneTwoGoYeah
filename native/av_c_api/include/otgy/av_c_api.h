@@ -628,6 +628,10 @@ OTGY_C_API void otgy_playback_engine_drain_judgements(
     uint32_t capacity, uint32_t* out_count);
 OTGY_C_API void otgy_playback_engine_get_state(
     const otgy_playback_engine* engine, otgy_playback_engine_state* out_state);
+OTGY_C_API uint8_t otgy_playback_engine_is_finished(
+    const otgy_playback_engine* engine);
+OTGY_C_API uint64_t otgy_playback_engine_get_rendered_frames(
+    const otgy_playback_engine* engine);
 OTGY_C_API void otgy_playback_engine_reset(otgy_playback_engine* engine);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(

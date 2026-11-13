@@ -81,7 +81,9 @@ class PlaybackEngine final {
       const PlaybackSoundBank& sound_bank,
       const PlaybackEngineConfig& config) noexcept;
 
-  [[nodiscard]] bool initialized() const noexcept { return initialized_; }
+  [[nodiscard]] bool initialized() const noexcept {
+    return initialized_.load(std::memory_order_acquire);
+  }
   [[nodiscard]] std::uint32_t sample_rate() const noexcept {
     return sample_rate_;
   }
@@ -146,9 +148,9 @@ class PlaybackEngine final {
   std::int64_t start_frame_ = 0;
   std::int64_t end_frame_ = 0;
   std::int64_t song_frame_ = 0;
-  std::uint64_t rendered_frames_ = 0U;
-  bool finished_ = false;
-  bool initialized_ = false;
+  std::atomic<std::uint64_t> rendered_frames_{0U};
+  std::atomic<bool> finished_{false};
+  std::atomic<bool> initialized_{false};
 
   std::array<Voice, kVoiceCapacity> voices_{};
 

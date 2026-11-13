@@ -1305,6 +1305,16 @@ external void otgy_playback_engine_get_state(
   ffi.Pointer<otgy_playback_engine_state> out_state,
 );
 
+@ffi.Native<ffi.Uint8 Function(ffi.Pointer<otgy_playback_engine>)>()
+external int otgy_playback_engine_is_finished(
+  ffi.Pointer<otgy_playback_engine> engine,
+);
+
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_playback_engine>)>()
+external int otgy_playback_engine_get_rendered_frames(
+  ffi.Pointer<otgy_playback_engine> engine,
+);
+
 @ffi.Native<ffi.Void Function(ffi.Pointer<otgy_playback_engine>)>()
 external void otgy_playback_engine_reset(
   ffi.Pointer<otgy_playback_engine> engine,

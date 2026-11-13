@@ -136,9 +136,9 @@ PlaybackEngineError PlaybackEngine::initialize(
     start_frame_ = start_frame;
     end_frame_ = static_cast<std::int64_t>(end_rounded);
     song_frame_ = start_frame_;
-    rendered_frames_ = 0U;
-    finished_ = end_frame_ <= start_frame_;
-    initialized_ = true;
+    rendered_frames_.store(0U, std::memory_order_release);
+    finished_.store(end_frame_ <= start_frame_, std::memory_order_release);
+    initialized_.store(true, std::memory_order_release);
     return PlaybackEngineError::None;
   } catch (const std::bad_alloc&) {
     reset();
@@ -150,21 +150,22 @@ PlaybackEngineError PlaybackEngine::initialize(
 }
 
 PlaybackEngineState PlaybackEngine::state() const noexcept {
-  if (!initialized_) {
+  if (!initialized_.load(std::memory_order_acquire)) {
     return PlaybackEngineState{0U, 0.0, true};
   }
+  const auto rendered = rendered_frames_.load(std::memory_order_acquire);
   const auto position =
       config_.start_seconds +
-      static_cast<double>(rendered_frames_) / static_cast<double>(sample_rate_);
+      static_cast<double>(rendered) / static_cast<double>(sample_rate_);
   return PlaybackEngineState{
-      rendered_frames_,
+      rendered,
       std::min(position, config_.end_seconds),
-      finished_,
+      finished_.load(std::memory_order_acquire),
   };
 }
 
 void PlaybackEngine::push_trigger(PlaybackSoundId sound) noexcept {
-  if (!initialized_) {
+  if (!initialized_.load(std::memory_order_acquire)) {
     return;
   }
   const auto head = key_head_.load(std::memory_order_relaxed);
@@ -183,17 +184,19 @@ void PlaybackEngine::render(std::uint8_t* output,
     return;
   }
   const auto byte_count = static_cast<std::size_t>(frames) * 4U;
-  if (!initialized_ || finished_) {
+  if (!initialized_.load(std::memory_order_acquire) ||
+      finished_.load(std::memory_order_acquire)) {
     std::fill_n(output, byte_count, std::uint8_t{0});
     return;
   }
 
   const auto block_start_timeline =
       config_.start_seconds +
-      static_cast<double>(rendered_frames_) / static_cast<double>(sample_rate_);
+      static_cast<double>(rendered_frames_.load(std::memory_order_relaxed)) /
+          static_cast<double>(sample_rate_);
   const auto frames_to_end = end_frame_ - song_frame_;
   if (frames_to_end <= 0) {
-    finished_ = true;
+    finished_.store(true, std::memory_order_release);
     std::fill_n(output, byte_count, std::uint8_t{0});
     return;
   }
@@ -269,9 +272,10 @@ void PlaybackEngine::render(std::uint8_t* output,
   }
 
   song_frame_ += static_cast<std::int64_t>(frames_this);
-  rendered_frames_ += static_cast<std::uint64_t>(frames_this);
+  rendered_frames_.fetch_add(static_cast<std::uint64_t>(frames_this),
+                             std::memory_order_release);
   if (frames_this < frames || song_frame_ >= end_frame_) {
-    finished_ = true;
+    finished_.store(true, std::memory_order_release);
   }
 }
 
@@ -292,7 +296,7 @@ std::size_t PlaybackEngine::drain_judgements(
 }
 
 void PlaybackEngine::reset() noexcept {
-  initialized_ = false;
+  initialized_.store(false, std::memory_order_release);
   song_ = nullptr;
   sound_bank_ = nullptr;
   config_ = PlaybackEngineConfig{};
@@ -304,8 +308,8 @@ void PlaybackEngine::reset() noexcept {
   start_frame_ = 0;
   end_frame_ = 0;
   song_frame_ = 0;
-  rendered_frames_ = 0U;
-  finished_ = false;
+  rendered_frames_.store(0U, std::memory_order_release);
+  finished_.store(false, std::memory_order_release);
   voices_.fill(Voice{nullptr, 0U, 0U});
   clear_queues();
 }

@@ -676,6 +676,26 @@ void otgy_playback_engine_reset(otgy_playback_engine* engine) {
   }
 }
 
+std::uint8_t otgy_playback_engine_is_finished(
+    const otgy_playback_engine* engine) {
+  if (engine == nullptr) {
+    return 1U;
+  }
+  otgy_playback_engine_state state{};
+  otgy_playback_engine_get_state(engine, &state);
+  return state.finished;
+}
+
+std::uint64_t otgy_playback_engine_get_rendered_frames(
+    const otgy_playback_engine* engine) {
+  if (engine == nullptr) {
+    return 0U;
+  }
+  otgy_playback_engine_state state{};
+  otgy_playback_engine_get_state(engine, &state);
+  return state.rendered_frames;
+}
+
 otgy_status otgy_coordinate_application_operation(
     std::uint32_t mode, std::uint32_t operation, std::uint32_t* out_result,
     otgy_error** out_error) {
