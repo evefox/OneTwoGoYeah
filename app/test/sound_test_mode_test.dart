@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
@@ -136,11 +137,32 @@ void main() {
     expect(find.textContaining('Cool:1'), findsOneWidget);
 
     final logButton = find.byKey(const ValueKey('judgement-log-copy'));
+    String? clipboardText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
     await tester.ensureVisible(logButton);
     await tester.pumpAndSettle();
     await tester.tap(logButton);
     await tester.pump();
     expect(find.text('判定日志已复制'), findsOneWidget);
+    expect(clipboardText, isNotNull);
+    expect(clipboardText, contains('note=1.500'));
+    expect(clipboardText, contains('press=1.530'));
+    expect(clipboardText, contains('q=0.0ms'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('关闭'));
