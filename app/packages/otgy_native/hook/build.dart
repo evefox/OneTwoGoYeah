@@ -66,6 +66,7 @@ final _coreSources = <String>[
   'coordination/operation_gate.cpp',
   'playback/playback_position.cpp',
   'playback/playback_pcm.cpp',
+  'playback/playback_engine.cpp',
   'playback/playback_judgement.cpp',
   'playback/playback_plan.cpp',
   'playback/playback_sound.cpp',

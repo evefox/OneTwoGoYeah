@@ -1128,3 +1128,24 @@ endif()
 add_test(NAME av_core.playback_judgement
   COMMAND av_core_playback_judgement_test
 )
+
+add_executable(av_core_playback_engine_test
+  playback_engine_test.cpp
+)
+target_link_libraries(av_core_playback_engine_test
+  PRIVATE OneTwoGoYeah::av_core
+)
+
+if(MSVC)
+  target_compile_options(av_core_playback_engine_test PRIVATE
+    /W4 /permissive-
+  )
+else()
+  target_compile_options(av_core_playback_engine_test PRIVATE
+    -Wall -Wextra -Wpedantic
+  )
+endif()
+
+add_test(NAME av_core.playback_engine
+  COMMAND av_core_playback_engine_test
+)
