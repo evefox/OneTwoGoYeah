@@ -118,9 +118,20 @@ class SimulationPlaybackOutput(private val context: Context) {
             builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
         }
         val next = builder.build()
-        // Buffer duration is the largest avoidable part of the key-to-speaker
-        // latency and is always available; the device HAL adds its own delay.
-        bufferFrames = bufferBytes / 4
+        var actualBufferFrames = bufferBytes / 4
+        // Shrink the effective queue to one device block when the track
+        // supports it. This is the remaining avoidable key-to-speaker delay;
+        // the HAL adds its own fixed latency on top.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val shrunk = next.setBufferSizeInFrames(maxOf(frames, 64))
+                if (shrunk > 0) {
+                    actualBufferFrames = shrunk
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        bufferFrames = actualBufferFrames
         latencyMs = if (rate > 0) bufferFrames * 1000 / rate else 0
         audioManager.requestAudioFocus(
             focusListener,
