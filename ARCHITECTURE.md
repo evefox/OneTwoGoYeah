@@ -998,6 +998,23 @@ Flutter 不能根据标记类型选择文件，C ABI 只能转换枚举、字节
 音效尾部裁剪、重采样、PCM16 饱和相加和输出长度契约。BPM 为零时没有可投影网格，
 核心返回稳定的 `SoundTimingFailure`；Flutter 在入口处明确禁用该状态。
 
+播放预听与后续模拟播放共用 `PlaybackPlan`。`build_playback_plan` 只读取 `ChartDraft`
+的显式语义关系，按与上述相同的伪随机规则生成两类数据：`audio_triggers` 保存
+NPC/SHOW 以及玩家切换音；`player_notes` 保存有配对音效的 `PLY-N/PLY-S` 及其期望
+`f1-*` 音效。`PlaybackTrigger.player` 精确标记玩家列拥有的切换音，供模拟播放过滤，
+离线预听仍消费全部触发。两个数组共享同一个递增 `order`，因此按 `(row, order)` 合并
+后与旧实现的触发顺序完全一致；无关联 NPC 的玩家 N/S 不进入 `player_notes`，但仍按
+原规则推进配对索引。`render_chart_playback_pcm` 只消费该计划，不复制选音逻辑。
+
+`JudgementSession` 是模拟播放的判定核心。`reset` 复制并按 `(row, order)` 排序
+`player_notes`，用共享时序换算预计算每个音符的歌曲秒数；`press` 和 `advance` 在
+reset 之后不再分配。窗口由权威 BPM 和显式基准计算：1/16 音符基准的单位为
+`60000 / BPM / 4`，半拍基准为 `60000 / BPM / 2`；四档窗口是该单位的显式正数倍率，
+必须严格递增。一次按键匹配 Bad 窗口内最近的未判音符，距离相同时取较早的音符；
+窗口内按错键判 Miss 并消费该音符，超过 Bad 仍未按由 `advance` 判 Miss。没有任何
+待判音符时 `press` 返回空结果，调用方不得发声或产生判定。内部 `offset_ms` 从测得
+的时间差中扣除，仅用于设备校准，不进入用户偏好、草稿、SLK 或撤销历史。
+
 Flutter 播放状态使用 `Idle`、谱面预听和节奏测试三值互斥模式，不能用两个可同时为真的
 布尔值表示。两个活跃模式在应用操作协调层都映射到 `Playing`，共享同一白名单；只有
 当前模式自身的暂停入口可用。平台播放层仍只接收核心生成的一份最终交错 PCM 和帧数，

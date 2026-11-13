@@ -273,6 +273,20 @@ WAV 夹具必须覆盖 PCM16 单声道复制、双声道保留、RIFF 分块与�
 以及 `SHOW-D -> space_bar`。还必须比较负/正播放起点截取音效尾部、同时触发的稳定
 顺序、左右声道、PCM16 正负饱和、输出帧数、歌曲输入和 `ChartDraft` 均不变。
 
+播放计划测试直接调用 `build_playback_plan`，必须验证 NPC 触发与玩家音符使用同一组
+配对选择、`PLY-C` 触发带玩家标记而 NPC/SHOW 不带、无关联玩家 N/S 不产生音符、
+4K 只出现 `2/4/6/8`、8K 只出现 `1/2/3/4/6/7/8/9`、切换开关只影响三种 C、
+Showtime 触发顺序正确、两个数组的 `order` 合并后无重复且连续，以及非法舞步模式
+返回稳定错误并清空输出。现有 `render_chart_playback_pcm` 回归必须继续逐字节覆盖
+计划重构前的音效混音结果。
+
+判定测试直接构造 `PlaybackPlan` 并调用 `JudgementSession`，必须覆盖 80/160 BPM 下
+1/16 音符和半拍两种基准的单位与四档毫秒值、每一档的精确边界、窗口外返回空结果、
+窗口内按错键判 Miss 且消费音符、超过 Bad 由 `advance` 判 Miss、两个音符同时进入
+窗口时选择最近者、距离相同时选择较早者、`offset_ms` 对时间差的符号、输入乱序时
+按 `(row, order)` 排序、非法 BPM/倍率/基准返回 `InvalidConfiguration`、空计划和
+判定完成后的会话不再产生结果。`press` 和 `advance` 在 `reset` 之后不得分配内存。
+
 节奏测试音效必须直接调用 `render_rhythm_test_playback_pcm`，精确证明只在行
 `0/16/32...` 对应帧触发所选语言的 `space_bar`，非小节行不触发，且 API 不接收
 `ChartDraft`。测试必须覆盖从小节音效中途开始时只保留尾部、正负 Offset、小数帧
