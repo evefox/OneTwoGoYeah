@@ -2,6 +2,8 @@
 
 #include "av_core/playback/playback_sound.hpp"
 
+#include "av_core/playback/playback_plan.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -186,142 +188,11 @@ class DecodedWavResult final {
          static_cast<std::size_t>(id);
 }
 
-class StableRandom final {
- public:
-  explicit StableRandom(std::uint64_t seed) noexcept : state_(seed) {}
-
-  [[nodiscard]] std::uint64_t next() noexcept {
-    state_ += UINT64_C(0x9e3779b97f4a7c15);
-    auto value = state_;
-    value = (value ^ (value >> 30U)) * UINT64_C(0xbf58476d1ce4e5b9);
-    value = (value ^ (value >> 27U)) * UINT64_C(0x94d049bb133111eb);
-    return value ^ (value >> 31U);
-  }
-
- private:
-  std::uint64_t state_;
-};
-
-struct SoundPair final {
-  PlaybackSoundId npc;
-  PlaybackSoundId player;
-};
-
-constexpr std::array<SoundPair, 4U> kFourKeySounds{{
-    {PlaybackSoundId::M1_2, PlaybackSoundId::F1_2},
-    {PlaybackSoundId::M1_4, PlaybackSoundId::F1_4},
-    {PlaybackSoundId::M1_6, PlaybackSoundId::F1_6},
-    {PlaybackSoundId::M1_8, PlaybackSoundId::F1_8},
-}};
-
-constexpr std::array<SoundPair, 8U> kEightKeySounds{{
-    {PlaybackSoundId::M1_1, PlaybackSoundId::F1_1},
-    {PlaybackSoundId::M1_2, PlaybackSoundId::F1_2},
-    {PlaybackSoundId::M1_3, PlaybackSoundId::F1_3},
-    {PlaybackSoundId::M1_4, PlaybackSoundId::F1_4},
-    {PlaybackSoundId::M1_6, PlaybackSoundId::F1_6},
-    {PlaybackSoundId::M1_7, PlaybackSoundId::F1_7},
-    {PlaybackSoundId::M1_8, PlaybackSoundId::F1_8},
-    {PlaybackSoundId::M1_9, PlaybackSoundId::F1_9},
-}};
-
-[[nodiscard]] SoundPair choose_note(StableRandom& random,
-                                    PlaybackDanceMode mode) noexcept {
-  if (mode == PlaybackDanceMode::FourKey) {
-    return kFourKeySounds[static_cast<std::size_t>(random.next() & 3U)];
-  }
-  return kEightKeySounds[static_cast<std::size_t>(random.next() & 7U)];
-}
-
 struct SoundTrigger final {
   std::uint64_t row;
   PlaybackSoundId sound;
   std::size_t order;
 };
-
-using EventLookup =
-    std::unordered_map<std::uint64_t, const ChartRoleEvent*>;
-
-void append_role_triggers(const ChartDraft& chart, PlaybackSoundConfig config,
-                          StableRandom& random,
-                          std::vector<SoundTrigger>& triggers) {
-  EventLookup events;
-  events.reserve(chart.role_events().size());
-  for (const auto& event : chart.role_events()) {
-    events.emplace(event.id.value, &event);
-  }
-  const auto append = [&triggers](const ChartRoleEvent& event,
-                                  PlaybackSoundId sound) {
-    triggers.push_back({event.row, sound, triggers.size()});
-  };
-
-  for (const auto& group : chart.drill_groups()) {
-    std::vector<SoundPair> note_choices;
-    std::vector<bool> end_choices;
-    for (const auto id : group.npc_event_ids) {
-      const auto found = events.find(id.value);
-      if (found == events.end() || found->second->role != ChartRole::Npc) {
-        continue;
-      }
-      const auto& event = *found->second;
-      if (event.type == ChartRoleEventType::BlockStart) {
-        if (config.transition_sounds_enabled) {
-          append(event, PlaybackSoundId::Turn1);
-        }
-      } else if (event.type == ChartRoleEventType::Note) {
-        const auto choice = choose_note(random, config.dance_mode);
-        note_choices.push_back(choice);
-        append(event, choice.npc);
-      } else if (event.type == ChartRoleEventType::MoveEnd) {
-        const bool yeah = (random.next() & 1U) != 0U;
-        end_choices.push_back(yeah);
-        append(event, yeah ? PlaybackSoundId::M1Yeah
-                           : PlaybackSoundId::M1Go);
-      }
-    }
-
-    std::size_t note_index = 0U;
-    std::size_t end_index = 0U;
-    for (const auto id : group.player_event_ids) {
-      const auto found = events.find(id.value);
-      if (found == events.end() || found->second->role != ChartRole::Player) {
-        continue;
-      }
-      const auto& event = *found->second;
-      if (event.type == ChartRoleEventType::BlockStart) {
-        if (config.transition_sounds_enabled) {
-          append(event, PlaybackSoundId::Turn1);
-        }
-      } else if (event.type == ChartRoleEventType::Note) {
-        if (note_index < note_choices.size()) {
-          append(event, note_choices[note_index].player);
-        }
-        ++note_index;
-      } else if (event.type == ChartRoleEventType::MoveEnd) {
-        if (end_index < end_choices.size()) {
-          append(event, end_choices[end_index] ? PlaybackSoundId::F1Yeah
-                                               : PlaybackSoundId::F1Go);
-        }
-        ++end_index;
-      }
-    }
-  }
-}
-
-void append_showtime_triggers(const ChartDraft& chart,
-                              PlaybackSoundConfig config,
-                              std::vector<SoundTrigger>& triggers) {
-  if (config.transition_sounds_enabled) {
-    for (const auto& event : chart.showtime_start_events()) {
-      triggers.push_back(
-          {event.row, PlaybackSoundId::Turn2, triggers.size()});
-    }
-  }
-  for (const auto& event : chart.showtime_move_events()) {
-    triggers.push_back(
-        {event.row, PlaybackSoundId::SpaceBar, triggers.size()});
-  }
-}
 
 [[nodiscard]] bool project_frame(std::uint64_t row, std::uint32_t sample_rate,
                                  TimingParameters timing,
@@ -559,13 +430,25 @@ PlaybackPcmResult render_chart_playback_pcm(
   }
 
   try {
+    PlaybackPlan plan;
+    const auto plan_error = build_playback_plan(chart, config, plan);
+    if (plan_error == PlaybackPlanError::InvalidConfiguration) {
+      return PlaybackPcmResult{PlaybackPcmError::InvalidSoundConfiguration};
+    }
+    if (plan_error == PlaybackPlanError::AllocationFailure) {
+      return PlaybackPcmResult{PlaybackPcmError::AllocationFailure};
+    }
+    if (plan_error == PlaybackPlanError::SizeOverflow) {
+      return PlaybackPcmResult{PlaybackPcmError::SizeOverflow};
+    }
     std::vector<SoundTrigger> triggers;
-    triggers.reserve(chart.role_events().size() +
-                     chart.showtime_start_events().size() +
-                     chart.showtime_move_events().size());
-    StableRandom random{config.random_seed};
-    append_role_triggers(chart, config, random, triggers);
-    append_showtime_triggers(chart, config, triggers);
+    triggers.reserve(plan.audio_triggers.size() + plan.player_notes.size());
+    for (const auto& trigger : plan.audio_triggers) {
+      triggers.push_back({trigger.row, trigger.sound, trigger.order});
+    }
+    for (const auto& note : plan.player_notes) {
+      triggers.push_back({note.row, note.expected_sound, note.order});
+    }
     if (triggers.empty()) {
       return rendered;
     }
