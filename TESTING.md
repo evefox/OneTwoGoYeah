@@ -566,7 +566,9 @@ CLI 失败测试必须覆盖严格参数形态、逗号小数、非法/越界品
 当前 `av_c_api.c_header` 使用 C 编译器包含唯一公共头并链接动态库，证明头文件不泄漏
 C++ 类型。`av_c_api.audio_consistency` 对同一输入逐项比较 MP3/Ogg 解码、PCM 与
 SHA-256、Offset、文件名、品质、不可变 Ogg 导出、按拍结束、播放帧上限与带结束行的时间线范围、十六种波形、起音、BPM、Offset
-和联合分析；另验证音频导出取消句柄的创建、跨线程原子请求、查询和预取消编码。
+和联合分析；另验证音频导出取消句柄的创建、跨线程原子请求、查询和预取消编码，以及
+`otgy_playback_judgement_windows_for` 与 `judgement_windows_ms` 的逐值一致性、非法
+比例的核心错误和输出清零。
 输入释放后拥有结果仍须有效，失败不得暴露部分句柄。
 
 应用操作门控的 C ABI 一致性循环必须覆盖 `mode 0..4 × operation 0..8`，逐项与直接
@@ -823,8 +825,15 @@ Offset 微调浮窗测试必须验证：
 - 到达音频末尾时暂停在末尾；从末尾播放时先跳到开头
 - 右侧波形按钮下方显示“音效切换”按钮；一般操作门控允许且非忙碌时可打开选择框，框外点击关闭；播放开始时关闭且按钮禁用，选择/待粘贴会话中按钮与已打开面板内设置同样禁用，退出后按全局门控恢复
 - 音效选择框默认中文、4K、切换音效关，并可独立切换中文/英文、4K/8K 和开/关；这些设置不改变未保存状态、项目负载、撤销历史或音频导出
-- 隐藏测试入口默认关闭：长按按普通点击处理并打开使用指南，不打开测试框。启用测试开关时，必须验证测试框能打开，并在播放中、忙碌和选择/待粘贴会话中仍被门控阻止
-- 默认音效版本为裁切，可切换回原始；版本只属于当前 App 会话，切换使音效库缓存失效并在下一次播放生效，不改变草稿、BPM/Offset、dirty、来源、撤销历史、音频导出或 `ui-preferences.json`
+- 测试菜单默认启用：空闲且非忙碌时长按使用指南按钮打开测试菜单而不是使用指南，短按仍打开使用指南；播放、忙碌和选择/待粘贴会话中长按被门控阻止
+- 测试菜单显示判定基准、四档窗口比例、内部 Offset、显示时长、上次判定读数、`恢复默认` 和 `复制参数`；手机竖屏尺寸下不溢出
+- 四档比例按 `1/16` 步进并保持 `Perfect < Great < Cool < Bad <= 1`，越界调整被夹到相邻窗口；Offset 夹到 `-250..250 ms`，显示时长夹到 `100..1000 ms`
+- 修改判定参数只改变下一次模拟播放的引擎配置，不改变草稿、BPM/Offset、dirty、来源、撤销历史、音频导出或 `ui-preferences.json`；播放中控件禁用
+- `恢复默认` 恢复 `1/16 音符`、`1/8、1/4、3/8、1/2`、`0 ms` 和 `320 ms`；`复制参数` 写入当前 BPM、比例、毫秒宽度、Offset、显示时长和上次判定
+- 判定开关关闭时，判定文字不显示但上次判定读数仍更新；上一次读数在下一次模拟播放开始时清零
+- 测试菜单的窗口毫秒预览与 `judgement_windows_ms` 直接 C++ 调用逐值相等；不得由 Flutter 计算窗口
+- App 固定加载裁切音效，不再提供“原始 / 裁切”切换；裁切资源仍由生成脚本和资源测试校验
+- iOS `Info.plist` 只声明竖屏方向，Android `MainActivity` 使用 `screenOrientation="portrait"`，Flutter 启动时只保留 `portraitUp`；手机旋转不改变界面方向
 - Flutter 把完整离线 WAV bank、显式设置、当前 `ChartDraft`、BPM/Offset 和随机种子传入 C ABI，并把核心最终交错 PCM 原样交给平台；不得在 Dart 或 Runner 根据标记重新选择或混音
 - 暂停后从原位置继续复用同一随机种子；手动移动时间位置、修改谱面或音效设置后再次播放使用新会话，且同一会话内玩家音效始终与此前 NPC 选择一致
 - 空工作区的时间线基础范围为四小节、16 拍、64 个 1/16 行；默认 BPM `100`、Offset `0` 时精确对应 9.6 秒
@@ -878,7 +887,7 @@ Offset 微调浮窗测试必须验证：
 
 `.github/workflows/stage8-platforms.yml` 在 Ubuntu、macOS、Windows 构建并运行原生核心测试；另在对应 Runner 上构建 Android、Windows、macOS 和无签名 iOS Flutter App，并运行 Flutter 与 Dart FFI 分析和测试。平台构建负责验证 `AudioTrack`、`AVAudioEngine`、`waveOut`、原子不替换文件发布及桌面关闭协调代码能够随各自 SDK 编译。macOS 构建后还应使用 `codesign -d --entitlements :- <App>` 确认最终签名保留用户所选文件读写权限。阶段 9 仍须在实际 x86-64 与 ARM64 支持环境运行完整黄金套件；某平台的黄金结果未通过前，不能视为最终发布兼容。
 
-Android 平台构建完成后运行 `tool/verify_android_native_asset.sh`，逐一检查 `arm64-v8a`、`armeabi-v7a` 和 `x86_64` 的 `libotgy_native.so` 导出 `otgy_chart_create_empty`，且不声明或打包 `libc++_shared.so` 依赖。该检查防止 FFI 首次加载因 NDK C++ 运行库缺失而失败；模拟器或真机启动验证仍需在阶段 9 完成。
+Android 平台构建完成后运行 `tool/verify_android_native_asset.sh`，逐一检查 `arm64-v8a`、`armeabi-v7a` 和 `x86_64` 的 `libotgy_native.so` 导出 `otgy_chart_create_empty` 和模拟播放 JNI 桥的两个符号，且不声明或打包 `libc++_shared.so` 依赖。Release 使用构建/链接钩子分离的 native assets 流程，`android_jni.cpp` 必须加入送进链接钩子的静态库，否则最终 `.so` 会缺少 JNI 符号并在真机启动流式播放时抛 `UnsatisfiedLinkError`。该检查防止 FFI 首次加载因 NDK C++ 运行库缺失而失败；模拟器或真机启动验证仍需在阶段 9 完成。
 
 ## 本地诊断验收
 
