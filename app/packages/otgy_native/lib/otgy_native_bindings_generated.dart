@@ -1320,6 +1320,31 @@ external void otgy_playback_engine_reset(
   ffi.Pointer<otgy_playback_engine> engine,
 );
 
+/// Computes the four symmetric judgement windows in milliseconds for a BPM and
+/// judgement configuration. Used by the tuning menu to preview the windows.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Double,
+    ffi.Uint32,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Pointer<otgy_playback_judgement_windows>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_playback_judgement_windows_for(
+  double bpm,
+  int basis,
+  double perfect_fraction,
+  double great_fraction,
+  double cool_fraction,
+  double bad_fraction,
+  ffi.Pointer<otgy_playback_judgement_windows> out_windows,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     ffi.Uint32,
@@ -2522,6 +2547,23 @@ final class otgy_playback_engine_state extends ffi.Struct {
 
   @ffi.Uint8()
   external int finished;
+}
+
+final class otgy_playback_judgement_windows extends ffi.Struct {
+  @ffi.Double()
+  external double unit_ms;
+
+  @ffi.Double()
+  external double perfect_ms;
+
+  @ffi.Double()
+  external double great_ms;
+
+  @ffi.Double()
+  external double cool_ms;
+
+  @ffi.Double()
+  external double bad_ms;
 }
 
 final class otgy_chart_marker extends ffi.Struct {

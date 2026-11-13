@@ -610,6 +610,14 @@ typedef struct otgy_playback_engine_state {
   uint8_t finished;
 } otgy_playback_engine_state;
 
+typedef struct otgy_playback_judgement_windows {
+  double unit_ms;
+  double perfect_ms;
+  double great_ms;
+  double cool_ms;
+  double bad_ms;
+} otgy_playback_judgement_windows;
+
 OTGY_C_API otgy_status otgy_playback_engine_create(
     const otgy_pcm* pcm, const otgy_chart* chart,
     const otgy_playback_sound_bank* sound_bank,
@@ -633,6 +641,13 @@ OTGY_C_API uint8_t otgy_playback_engine_is_finished(
 OTGY_C_API uint64_t otgy_playback_engine_get_rendered_frames(
     const otgy_playback_engine* engine);
 OTGY_C_API void otgy_playback_engine_reset(otgy_playback_engine* engine);
+
+/// Computes the four symmetric judgement windows in milliseconds for a BPM and
+/// judgement configuration. Used by the tuning menu to preview the windows.
+OTGY_C_API otgy_status otgy_playback_judgement_windows_for(
+    double bpm, uint32_t basis, double perfect_fraction,
+    double great_fraction, double cool_fraction, double bad_fraction,
+    otgy_playback_judgement_windows* out_windows, otgy_error** out_error);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(
     uint32_t mode, uint32_t operation, uint32_t* out_result,

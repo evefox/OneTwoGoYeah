@@ -488,6 +488,24 @@ final class PlaybackJudgementConfig {
   final double coolFraction;
   final double badFraction;
   final double offsetMs;
+
+  PlaybackJudgementConfig copyWith({
+    PlaybackJudgementBasis? basis,
+    double? perfectFraction,
+    double? greatFraction,
+    double? coolFraction,
+    double? badFraction,
+    double? offsetMs,
+  }) {
+    return PlaybackJudgementConfig(
+      basis: basis ?? this.basis,
+      perfectFraction: perfectFraction ?? this.perfectFraction,
+      greatFraction: greatFraction ?? this.greatFraction,
+      coolFraction: coolFraction ?? this.coolFraction,
+      badFraction: badFraction ?? this.badFraction,
+      offsetMs: offsetMs ?? this.offsetMs,
+    );
+  }
 }
 
 final class PlaybackJudgement {
@@ -516,6 +534,24 @@ final class PlaybackEngineState {
   final int renderedFrames;
   final double positionSeconds;
   final bool finished;
+}
+
+/// The four symmetric judgement windows in milliseconds for one BPM and
+/// judgement configuration.
+final class PlaybackJudgementWindows {
+  const PlaybackJudgementWindows({
+    required this.unitMs,
+    required this.perfectMs,
+    required this.greatMs,
+    required this.coolMs,
+    required this.badMs,
+  });
+
+  final double unitMs;
+  final double perfectMs;
+  final double greatMs;
+  final double coolMs;
+  final double badMs;
 }
 
 enum PlaybackSoundLanguage { chinese, english }
@@ -618,6 +654,47 @@ final class NativePlaybackEngine {
 
   Pointer<native.otgy_playback_engine> _handle;
 
+  /// Computes the judgement windows the engine would use at [bpm]. The tuning
+  /// menu uses this to preview window widths without duplicating the timing
+  /// rules in Dart.
+  static PlaybackJudgementWindows windowsFor({
+    required double bpm,
+    required PlaybackJudgementBasis basis,
+    required double perfectFraction,
+    required double greatFraction,
+    required double coolFraction,
+    required double badFraction,
+  }) {
+    return using((arena) {
+      final output = arena<native.otgy_playback_judgement_windows>();
+      final error = arena<Pointer<native.otgy_error>>();
+      try {
+        _checkStatus(
+          native.otgy_playback_judgement_windows_for(
+            bpm,
+            basis.index,
+            perfectFraction,
+            greatFraction,
+            coolFraction,
+            badFraction,
+            output,
+            error,
+          ),
+          error,
+        );
+        return PlaybackJudgementWindows(
+          unitMs: output.ref.unit_ms,
+          perfectMs: output.ref.perfect_ms,
+          greatMs: output.ref.great_ms,
+          coolMs: output.ref.cool_ms,
+          badMs: output.ref.bad_ms,
+        );
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
   Pointer<native.otgy_playback_engine> _requireHandle() {
     if (_handle == nullptr) {
       throw StateError('NativePlaybackEngine has been disposed.');
@@ -654,8 +731,7 @@ final class NativePlaybackEngine {
             grade: PlaybackJudgementGrade.values[output[index].grade],
             deltaMs: output[index].delta_ms,
             noteId: output[index].note_id,
-            expectedSound:
-                PlaybackSoundId.values[output[index].expected_sound],
+            expectedSound: PlaybackSoundId.values[output[index].expected_sound],
             pressedSound: PlaybackSoundId.values[output[index].pressed_sound],
           ),
       ];

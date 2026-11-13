@@ -17,10 +17,10 @@ const double editorCursorViewportFraction = 0.25;
 const double mobileEditorContentRightInset = 24;
 const Duration playbackVisualPredictionLimit = Duration(milliseconds: 50);
 
-/// Hidden playback-sound test entry. Disabled in normal builds; set to true
-/// in tests or local debugging to restore the long-press menu.
+/// Hidden playback test menu entry reached by long-pressing the usage guide.
+/// Kept behind a flag so tests can verify both states.
 @visibleForTesting
-bool soundTestMenuEnabled = false;
+bool soundTestMenuEnabled = true;
 
 enum EditorWaveformLayer { original, overlayOriginal, filtered }
 
@@ -1138,9 +1138,11 @@ class _EditorCanvasState extends State<EditorCanvas>
           ): widget.controller.redo,
           const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
               widget.controller.undo,
-          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true,
-              shift: true):
-              widget.controller.redo,
+          const SingleActivator(
+            LogicalKeyboardKey.keyZ,
+            meta: true,
+            shift: true,
+          ): widget.controller.redo,
           if (!widget.controller.isSimulationPlaying)
             const SingleActivator(LogicalKeyboardKey.space):
                 widget.controller.togglePlayback,
@@ -1739,49 +1741,171 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
 
   final EditorController controller;
 
+  static const Map<PlaybackJudgementGrade, String> _gradeLabels = {
+    PlaybackJudgementGrade.perfect: 'Perfect',
+    PlaybackJudgementGrade.great: 'Great',
+    PlaybackJudgementGrade.cool: 'Cool',
+    PlaybackJudgementGrade.bad: 'Bad',
+    PlaybackJudgementGrade.miss: 'Miss',
+  };
+
+  static const Map<PlaybackJudgementGrade, Color> _gradeColors = {
+    PlaybackJudgementGrade.perfect: Color(0xFFC08BFF),
+    PlaybackJudgementGrade.great: Color(0xFF9BE37A),
+    PlaybackJudgementGrade.cool: Color(0xFF6FC8FF),
+    PlaybackJudgementGrade.bad: Color(0xFFFFA3A3),
+    PlaybackJudgementGrade.miss: Color(0xFFFF5C5C),
+  };
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, child) {
-        final enabled = controller.generalActionsEnabled && !controller.isBusy;
+        final enabled = controller.judgementTuningEnabled;
+        final config = controller.judgementConfig;
+        final windows = _windowsFor(controller.projectedBpm);
         return AlertDialog(
           key: const ValueKey('playback-sound-test-dialog'),
-          title: const Text('音效测试'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('音效版本', style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 6),
-              SegmentedButton<PlaybackSoundVariant>(
-                key: const ValueKey('playback-sound-test-variant'),
-                segments: const [
-                  ButtonSegment(
-                    value: PlaybackSoundVariant.original,
-                    label: Text('原始'),
+          title: const Text('测试菜单'),
+          content: SizedBox(
+            width: 380,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('判定基准', style: Theme.of(context).textTheme.labelMedium),
+                  const SizedBox(height: 6),
+                  SegmentedButton<PlaybackJudgementBasis>(
+                    key: const ValueKey('judgement-basis'),
+                    segments: const [
+                      ButtonSegment(
+                        value: PlaybackJudgementBasis.sixteenthNote,
+                        label: Text('1/16 音符'),
+                      ),
+                      ButtonSegment(
+                        value: PlaybackJudgementBasis.halfBeat,
+                        label: Text('半拍'),
+                      ),
+                    ],
+                    selected: {config.basis},
+                    showSelectedIcon: false,
+                    onSelectionChanged: enabled
+                        ? (value) => controller.setJudgementBasis(value.single)
+                        : null,
                   ),
-                  ButtonSegment(
-                    value: PlaybackSoundVariant.trimmed,
-                    label: Text('裁切'),
+                  const SizedBox(height: 6),
+                  Text(
+                    windows == null
+                        ? '判定窗口无效'
+                        : '${controller.projectedBpm.toStringAsFixed(1)} BPM · '
+                              '单位 ${windows.unitMs.toStringAsFixed(1)} ms',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Text('判定窗口', style: Theme.of(context).textTheme.labelMedium),
+                  _fractionRow(
+                    context,
+                    enabled: enabled,
+                    grade: PlaybackJudgementGrade.perfect,
+                    fraction: config.perfectFraction,
+                    min: 0.0625,
+                    max: config.greatFraction - 0.0625,
+                    windowMs: windows?.perfectMs,
+                  ),
+                  _fractionRow(
+                    context,
+                    enabled: enabled,
+                    grade: PlaybackJudgementGrade.great,
+                    fraction: config.greatFraction,
+                    min: config.perfectFraction + 0.0625,
+                    max: config.coolFraction - 0.0625,
+                    windowMs: windows?.greatMs,
+                  ),
+                  _fractionRow(
+                    context,
+                    enabled: enabled,
+                    grade: PlaybackJudgementGrade.cool,
+                    fraction: config.coolFraction,
+                    min: config.greatFraction + 0.0625,
+                    max: config.badFraction - 0.0625,
+                    windowMs: windows?.coolMs,
+                  ),
+                  _fractionRow(
+                    context,
+                    enabled: enabled,
+                    grade: PlaybackJudgementGrade.bad,
+                    fraction: config.badFraction,
+                    min: config.coolFraction + 0.0625,
+                    max: 1.0,
+                    windowMs: windows?.badMs,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Text('Offset'),
+                      const Spacer(),
+                      Text(
+                        '${config.offsetMs.round()} ms',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    key: const ValueKey('judgement-offset'),
+                    value: config.offsetMs.clamp(-250.0, 250.0),
+                    min: -250,
+                    max: 250,
+                    divisions: 100,
+                    label: '${config.offsetMs.round()} ms',
+                    onChanged: enabled ? controller.setJudgementOffsetMs : null,
+                  ),
+                  Row(
+                    children: [
+                      const Text('显示时长'),
+                      const Spacer(),
+                      Text(
+                        '${controller.judgementDisplayDurationMs} ms',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                  Slider(
+                    key: const ValueKey('judgement-display-duration'),
+                    value: controller.judgementDisplayDurationMs.toDouble(),
+                    min: 100,
+                    max: 1000,
+                    divisions: 18,
+                    label: '${controller.judgementDisplayDurationMs} ms',
+                    onChanged: enabled
+                        ? (value) => controller.setJudgementDisplayDurationMs(
+                            value.round(),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  _lastJudgementReadout(context),
+                  const SizedBox(height: 4),
+                  Text(
+                    '参数从下一次模拟播放开始生效，播放中不可调整；'
+                    '设置只属于当前会话。',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
-                selected: {controller.playbackSoundVariant},
-                showSelectedIcon: false,
-                onSelectionChanged: enabled
-                    ? (value) =>
-                          controller.setPlaybackSoundVariant(value.single)
-                    : null,
               ),
-              const SizedBox(height: 12),
-              Text(
-                '裁切音效仅移除中文音效开头的 3–30 ms 静音；英文音效不变。'
-                '设置只属于当前会话，从下一次播放开始生效。',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
           actions: [
+            TextButton(
+              key: const ValueKey('judgement-reset'),
+              onPressed: enabled ? controller.resetJudgementTuning : null,
+              child: const Text('恢复默认'),
+            ),
+            TextButton(
+              key: const ValueKey('judgement-copy'),
+              onPressed: () => _copySettings(context, config, windows),
+              child: const Text('复制参数'),
+            ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('关闭'),
@@ -1791,6 +1915,162 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
       },
     );
   }
+
+  PlaybackJudgementWindows? _windowsFor(double bpm) {
+    final config = controller.judgementConfig;
+    try {
+      return NativePlaybackEngine.windowsFor(
+        bpm: bpm,
+        basis: config.basis,
+        perfectFraction: config.perfectFraction,
+        greatFraction: config.greatFraction,
+        coolFraction: config.coolFraction,
+        badFraction: config.badFraction,
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  Widget _fractionRow(
+    BuildContext context, {
+    required bool enabled,
+    required PlaybackJudgementGrade grade,
+    required double fraction,
+    required double min,
+    required double max,
+    required double? windowMs,
+  }) {
+    final lower = min < 0.0625 ? 0.0625 : min;
+    final upper = max > lower ? max : lower;
+    return Row(
+      children: [
+        SizedBox(
+          width: 58,
+          child: Text(
+            _gradeLabels[grade]!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: _gradeColors[grade],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Slider(
+            key: ValueKey<String>('judgement-fraction-${grade.name}'),
+            value: fraction.clamp(lower, upper),
+            min: lower,
+            max: upper,
+            divisions: ((upper - lower) / 0.0625).round().clamp(1, 15),
+            label: _fractionLabel(fraction),
+            onChanged: enabled
+                ? (value) => controller.setJudgementFraction(grade, value)
+                : null,
+          ),
+        ),
+        SizedBox(
+          width: 96,
+          child: Text(
+            windowMs == null
+                ? _fractionLabel(fraction)
+                : '${_fractionLabel(fraction)} · '
+                      '${windowMs.toStringAsFixed(1)} ms',
+            textAlign: TextAlign.right,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _lastJudgementReadout(BuildContext context) {
+    final judgement = controller.lastJudgement;
+    if (judgement == null) {
+      return Text('上次判定：尚无', style: Theme.of(context).textTheme.bodySmall);
+    }
+    final delta = judgement.deltaMs;
+    final sign = delta >= 0 ? '+' : '';
+    return Text.rich(
+      TextSpan(
+        children: [
+          const TextSpan(text: '上次判定：'),
+          TextSpan(
+            text: _gradeLabels[judgement.grade]!,
+            style: TextStyle(
+              color: _gradeColors[judgement.grade],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          TextSpan(text: '  $sign${delta.toStringAsFixed(1)} ms'),
+        ],
+      ),
+      style: Theme.of(context).textTheme.bodySmall,
+    );
+  }
+
+  void _copySettings(
+    BuildContext context,
+    PlaybackJudgementConfig config,
+    PlaybackJudgementWindows? windows,
+  ) {
+    final bpm = controller.projectedBpm;
+    final buffer = StringBuffer()
+      ..writeln('模拟模式判定参数')
+      ..writeln('BPM: ${bpm.toStringAsFixed(1)}')
+      ..writeln(
+        '基准: ${config.basis == PlaybackJudgementBasis.sixteenthNote ? '1/16 音符' : '半拍'}',
+      );
+    if (windows != null) {
+      buffer.writeln('单位: ${windows.unitMs.toStringAsFixed(2)} ms');
+    }
+    buffer
+      ..writeln(
+        'Perfect: ${_fractionLabel(config.perfectFraction)}'
+        '${windows == null ? '' : ' (${windows.perfectMs.toStringAsFixed(2)} ms)'}',
+      )
+      ..writeln(
+        'Great: ${_fractionLabel(config.greatFraction)}'
+        '${windows == null ? '' : ' (${windows.greatMs.toStringAsFixed(2)} ms)'}',
+      )
+      ..writeln(
+        'Cool: ${_fractionLabel(config.coolFraction)}'
+        '${windows == null ? '' : ' (${windows.coolMs.toStringAsFixed(2)} ms)'}',
+      )
+      ..writeln(
+        'Bad: ${_fractionLabel(config.badFraction)}'
+        '${windows == null ? '' : ' (${windows.badMs.toStringAsFixed(2)} ms)'}',
+      )
+      ..writeln('Offset: ${config.offsetMs.round()} ms')
+      ..writeln('显示时长: ${controller.judgementDisplayDurationMs} ms');
+    final last = controller.lastJudgement;
+    if (last != null) {
+      final sign = last.deltaMs >= 0 ? '+' : '';
+      buffer.writeln(
+        '上次判定: ${_gradeLabels[last.grade]} '
+        '$sign${last.deltaMs.toStringAsFixed(1)} ms',
+      );
+    }
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('判定参数已复制')));
+  }
+}
+
+String _fractionLabel(double value) {
+  final sixteenths = (value * 16).round();
+  if (sixteenths <= 0) {
+    return '0';
+  }
+  if (sixteenths % 16 == 0) {
+    return '${sixteenths ~/ 16}';
+  }
+  var numerator = sixteenths;
+  var denominator = 16;
+  while (numerator.isEven) {
+    numerator ~/= 2;
+    denominator ~/= 2;
+  }
+  return '$numerator/$denominator';
 }
 
 class _GuideHintArrowPainter extends CustomPainter {

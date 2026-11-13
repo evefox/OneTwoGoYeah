@@ -7,6 +7,7 @@ import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_project_store.dart';
 import 'package:one_two_go_yeah/src/ui/editor_canvas.dart';
+import 'package:otgy_native/otgy_native.dart';
 
 const _trimmedClips = <String>{
   'f1-6.wav',
@@ -51,7 +52,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('the hidden sound test entry is disabled by default', (
+  testWidgets('the hidden test entry can be disabled by the flag', (
     tester,
   ) async {
     await pumpEditor(tester);
@@ -68,13 +69,9 @@ void main() {
     expect(find.byKey(const ValueKey('usage-guide-screen')), findsOneWidget);
   });
 
-  testWidgets('long-pressing help opens the hidden sound test menu', (
-    tester,
-  ) async {
+  testWidgets('long-pressing help opens the hidden test menu', (tester) async {
     soundTestMenuEnabled = true;
     await pumpEditor(tester);
-
-    expect(controller.playbackSoundVariant, PlaybackSoundVariant.trimmed);
 
     await tester.longPress(find.byKey(const ValueKey('usage-guide-button')));
     await tester.pumpAndSettle();
@@ -84,14 +81,32 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('usage-guide-screen')), findsNothing);
-    expect(find.text('音效测试'), findsOneWidget);
-    expect(find.text('音效版本'), findsOneWidget);
-    expect(find.text('原始'), findsOneWidget);
-    expect(find.text('裁切'), findsOneWidget);
+    expect(find.text('测试菜单'), findsOneWidget);
+    expect(find.byKey(const ValueKey('judgement-basis')), findsOneWidget);
+    expect(find.text('1/16 音符'), findsOneWidget);
+    expect(find.text('半拍'), findsOneWidget);
+    for (final grade in const ['perfect', 'great', 'cool', 'bad']) {
+      expect(
+        find.byKey(ValueKey<String>('judgement-fraction-$grade')),
+        findsOneWidget,
+      );
+    }
+    expect(find.byKey(const ValueKey('judgement-offset')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('judgement-display-duration')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('上次判定：尚无'), findsOneWidget);
+    expect(find.text('恢复默认'), findsOneWidget);
+    expect(find.text('复制参数'), findsOneWidget);
 
-    await tester.tap(find.text('原始'));
+    await tester.tap(find.text('半拍'));
     await tester.pump();
-    expect(controller.playbackSoundVariant, PlaybackSoundVariant.original);
+    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
+
+    await tester.tap(find.text('复制参数'));
+    await tester.pump();
+    expect(find.text('判定参数已复制'), findsOneWidget);
 
     await tester.tap(find.text('关闭'));
     await tester.pumpAndSettle();
@@ -101,7 +116,7 @@ void main() {
     );
   });
 
-  testWidgets('the hidden sound test menu fits a phone layout', (tester) async {
+  testWidgets('the hidden test menu fits a phone layout', (tester) async {
     soundTestMenuEnabled = true;
     await pumpEditor(tester, size: const Size(390, 844));
 
@@ -128,9 +143,7 @@ void main() {
     );
   });
 
-  testWidgets('the hidden sound test menu follows the general gate', (
-    tester,
-  ) async {
+  testWidgets('the hidden test menu follows the general gate', (tester) async {
     soundTestMenuEnabled = true;
     await pumpEditor(tester);
     controller.enterSelectionMode();
@@ -145,18 +158,74 @@ void main() {
     );
   });
 
-  test('the variant is session-scoped and blocked by the selection gate', () {
-    expect(controller.playbackSoundVariant, PlaybackSoundVariant.trimmed);
-    controller.setPlaybackSoundVariant(PlaybackSoundVariant.original);
-    expect(controller.playbackSoundVariant, PlaybackSoundVariant.original);
+  test('judgement tuning keeps windows ordered and resets to defaults', () {
+    final config = controller.judgementConfig;
+    expect(config.basis, PlaybackJudgementBasis.sixteenthNote);
+    expect(config.perfectFraction, 0.125);
+    expect(config.greatFraction, 0.25);
+    expect(config.coolFraction, 0.375);
+    expect(config.badFraction, 0.5);
+    expect(config.offsetMs, 0);
+    expect(controller.judgementDisplayDurationMs, 320);
 
+    controller.setJudgementBasis(PlaybackJudgementBasis.halfBeat);
+    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
+
+    // A Perfect window cannot cross into Great.
+    controller.setJudgementFraction(PlaybackJudgementGrade.perfect, 0.5);
+    expect(controller.judgementConfig.perfectFraction, 0.1875);
+    // A Cool window cannot cross the Bad window.
+    controller.setJudgementFraction(PlaybackJudgementGrade.cool, 0.9);
+    expect(controller.judgementConfig.coolFraction, 0.4375);
+    // Wide Bad windows are allowed up to one full unit.
+    controller.setJudgementFraction(PlaybackJudgementGrade.bad, 0.9);
+    expect(controller.judgementConfig.badFraction, 0.875);
+
+    controller.setJudgementOffsetMs(-999);
+    expect(controller.judgementConfig.offsetMs, -250);
+    controller.setJudgementDisplayDurationMs(5000);
+    expect(controller.judgementDisplayDurationMs, 1000);
+
+    controller.resetJudgementTuning();
+    expect(
+      controller.judgementConfig.basis,
+      PlaybackJudgementBasis.sixteenthNote,
+    );
+    expect(controller.judgementConfig.perfectFraction, 0.125);
+    expect(controller.judgementConfig.badFraction, 0.5);
+    expect(controller.judgementConfig.offsetMs, 0);
+    expect(controller.judgementDisplayDurationMs, 320);
+  });
+
+  test('judgement tuning is blocked by the selection gate', () {
     controller.enterSelectionMode();
-    controller.setPlaybackSoundVariant(PlaybackSoundVariant.trimmed);
-    expect(controller.playbackSoundVariant, PlaybackSoundVariant.original);
+    controller.setJudgementBasis(PlaybackJudgementBasis.halfBeat);
+    controller.setJudgementOffsetMs(40);
+    expect(
+      controller.judgementConfig.basis,
+      PlaybackJudgementBasis.sixteenthNote,
+    );
+    expect(controller.judgementConfig.offsetMs, 0);
 
     controller.exitChartInteraction();
-    controller.setPlaybackSoundVariant(PlaybackSoundVariant.trimmed);
-    expect(controller.playbackSoundVariant, PlaybackSoundVariant.trimmed);
+    controller.setJudgementBasis(PlaybackJudgementBasis.halfBeat);
+    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
+  });
+
+  test('the last judgement is kept for the delta readout', () {
+    controller.setJudgementEnabled(false);
+    controller.applyJudgementForTest(
+      const PlaybackJudgement(
+        grade: PlaybackJudgementGrade.great,
+        deltaMs: -12.5,
+        noteId: 7,
+        expectedSound: PlaybackSoundId.f1_2,
+        pressedSound: PlaybackSoundId.f1_2,
+      ),
+    );
+    expect(controller.latestJudgement, isNull);
+    expect(controller.lastJudgement?.grade, PlaybackJudgementGrade.great);
+    expect(controller.lastJudgement?.deltaMs, -12.5);
   });
 
   test('trimmed clips only remove leading digital silence', () {

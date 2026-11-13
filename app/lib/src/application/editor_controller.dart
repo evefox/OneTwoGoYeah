@@ -228,10 +228,13 @@ class EditorController extends ChangeNotifier {
   bool _transitionSoundsEnabled = false;
   bool _simulationEnabled = false;
   bool _judgementEnabled = true;
+  PlaybackJudgementConfig _judgementConfig = const PlaybackJudgementConfig();
+  int _judgementDisplayDurationMs = 320;
   ScreenKeypadLayout _screenKeypadLayout = ScreenKeypadLayout.numeric;
   bool _screenKeypadOpen = false;
   NativePlaybackEngine? _simulationEngine;
   PlaybackJudgement? _latestJudgement;
+  PlaybackJudgement? _lastJudgement;
   Timer? _judgementTimer;
   String? _audioFileName;
   Uint8List? _audioSourceBytes;
@@ -487,9 +490,17 @@ class EditorController extends ChangeNotifier {
   bool get transitionSoundsEnabled => _transitionSoundsEnabled;
   bool get simulationEnabled => _simulationEnabled;
   bool get judgementEnabled => _judgementEnabled;
+  PlaybackJudgementConfig get judgementConfig => _judgementConfig;
+  int get judgementDisplayDurationMs => _judgementDisplayDurationMs;
+  bool get judgementTuningEnabled =>
+      generalActionsEnabled && !isPlaying && !_isBusy;
   ScreenKeypadLayout get screenKeypadLayout => _screenKeypadLayout;
   bool get screenKeypadOpen => _screenKeypadOpen;
   PlaybackJudgement? get latestJudgement => _latestJudgement;
+
+  /// The most recent judgement, kept after the overlay fades for the tuning
+  /// menu's delta readout. It survives the 判定 display switch on purpose.
+  PlaybackJudgement? get lastJudgement => _lastJudgement;
   bool get isSimulationPlaying =>
       _playbackMode == EditorPlaybackMode.simulation;
   bool get hasAudio => _audio != null;
@@ -1508,16 +1519,27 @@ class EditorController extends ChangeNotifier {
   }
 
   void _applyJudgement(PlaybackJudgement judgement) {
+    _lastJudgement = judgement;
     if (!_judgementEnabled) {
+      notifyListeners();
       return;
     }
     _latestJudgement = judgement;
     _judgementTimer?.cancel();
-    _judgementTimer = Timer(const Duration(milliseconds: 320), () {
-      _latestJudgement = null;
-      notifyListeners();
-    });
+    _judgementTimer = Timer(
+      Duration(milliseconds: _judgementDisplayDurationMs),
+      () {
+        _latestJudgement = null;
+        notifyListeners();
+      },
+    );
     notifyListeners();
+  }
+
+  /// Feeds the judgement pipeline from tests without starting real audio.
+  @visibleForTesting
+  void applyJudgementForTest(PlaybackJudgement judgement) {
+    _applyJudgement(judgement);
   }
 
   Future<void> _stopSimulationEngine() async {
@@ -1593,7 +1615,7 @@ class EditorController extends ChangeNotifier {
           offset: _offset,
           startSeconds: start.timelineSeconds,
           endSeconds: effectiveEnd,
-          judgement: const PlaybackJudgementConfig(),
+          judgement: _judgementConfig,
         );
         final frameLimit = OtgyNative.playbackFrameLimit(
           sampleRate: engine.sampleRate,
@@ -1610,6 +1632,7 @@ class EditorController extends ChangeNotifier {
         _playbackPlayedFrames = 0;
         _playbackMode = mode;
         _latestJudgement = null;
+        _lastJudgement = null;
         _syncKeepScreenOn();
         final generation = ++_playbackGeneration;
         _playbackTimer?.cancel();
@@ -2004,6 +2027,92 @@ class EditorController extends ChangeNotifier {
       _judgementTimer?.cancel();
       _judgementTimer = null;
     }
+    notifyListeners();
+  }
+
+  /// Test-menu tuning. All values take effect at the next playback start; the
+  /// menu is disabled while playing, matching the other playback settings.
+  void setJudgementBasis(PlaybackJudgementBasis value) {
+    if (!judgementTuningEnabled || value == _judgementConfig.basis) {
+      return;
+    }
+    _judgementConfig = _judgementConfig.copyWith(basis: value);
+    notifyListeners();
+  }
+
+  void setJudgementFraction(PlaybackJudgementGrade grade, double value) {
+    if (!judgementTuningEnabled ||
+        grade == PlaybackJudgementGrade.miss ||
+        !value.isFinite) {
+      return;
+    }
+    const step = 0.0625;
+    final config = _judgementConfig;
+    final snapped = (value / step).round() * step;
+    final lower = switch (grade) {
+      PlaybackJudgementGrade.perfect => step,
+      PlaybackJudgementGrade.great => config.perfectFraction + step,
+      PlaybackJudgementGrade.cool => config.greatFraction + step,
+      PlaybackJudgementGrade.bad => config.coolFraction + step,
+      PlaybackJudgementGrade.miss => step,
+    };
+    final upper = switch (grade) {
+      PlaybackJudgementGrade.perfect => config.greatFraction - step,
+      PlaybackJudgementGrade.great => config.coolFraction - step,
+      PlaybackJudgementGrade.cool => config.badFraction - step,
+      PlaybackJudgementGrade.bad => 1.0,
+      PlaybackJudgementGrade.miss => 1.0,
+    };
+    final clamped = snapped.clamp(lower, upper).toDouble();
+    final next = switch (grade) {
+      PlaybackJudgementGrade.perfect => config.copyWith(
+        perfectFraction: clamped,
+      ),
+      PlaybackJudgementGrade.great => config.copyWith(greatFraction: clamped),
+      PlaybackJudgementGrade.cool => config.copyWith(coolFraction: clamped),
+      PlaybackJudgementGrade.bad => config.copyWith(badFraction: clamped),
+      PlaybackJudgementGrade.miss => config,
+    };
+    if (next.perfectFraction == config.perfectFraction &&
+        next.greatFraction == config.greatFraction &&
+        next.coolFraction == config.coolFraction &&
+        next.badFraction == config.badFraction) {
+      return;
+    }
+    _judgementConfig = next;
+    notifyListeners();
+  }
+
+  void setJudgementOffsetMs(double value) {
+    if (!judgementTuningEnabled || !value.isFinite) {
+      return;
+    }
+    final clamped = value.clamp(-250.0, 250.0).roundToDouble();
+    if (clamped == _judgementConfig.offsetMs) {
+      return;
+    }
+    _judgementConfig = _judgementConfig.copyWith(offsetMs: clamped);
+    notifyListeners();
+  }
+
+  void setJudgementDisplayDurationMs(int value) {
+    if (!judgementTuningEnabled) {
+      return;
+    }
+    final clamped = value.clamp(100, 1000);
+    if (clamped == _judgementDisplayDurationMs) {
+      return;
+    }
+    _judgementDisplayDurationMs = clamped;
+    notifyListeners();
+  }
+
+  void resetJudgementTuning() {
+    if (!judgementTuningEnabled) {
+      return;
+    }
+    _judgementConfig = const PlaybackJudgementConfig();
+    _judgementDisplayDurationMs = 320;
     notifyListeners();
   }
 

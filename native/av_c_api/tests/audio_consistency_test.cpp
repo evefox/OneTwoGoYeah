@@ -1030,6 +1030,60 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
   otgy_playback_pcm_destroy(nullptr);
 }
 
+void test_judgement_windows_abi() {
+  otgy_error* raw_error = nullptr;
+  const auto check_config = [&](double bpm, std::uint32_t basis,
+                                double perfect, double great, double cool,
+                                double bad) {
+    otgy_playback_judgement_windows abi{};
+    expect(otgy_playback_judgement_windows_for(
+               bpm, basis, perfect, great, cool, bad, &abi, &raw_error) ==
+               OTGY_STATUS_OK,
+           "C ABI judgement windows failed");
+    const auto direct = otgy::core::judgement_windows_ms(
+        {{bpm, 0.0},
+         static_cast<otgy::core::JudgementWindowBasis>(basis),
+         perfect,
+         great,
+         cool,
+         bad,
+         0.0});
+    expect(direct.has_value(), "direct judgement windows failed");
+    expect(same_double(abi.unit_ms, direct->unit) &&
+               same_double(abi.perfect_ms, direct->perfect) &&
+               same_double(abi.great_ms, direct->great) &&
+               same_double(abi.cool_ms, direct->cool) &&
+               same_double(abi.bad_ms, direct->bad),
+           "C ABI judgement windows differ");
+  };
+  check_config(80.0, OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE, 0.125,
+               0.25, 0.375, 0.5);
+  check_config(160.0, OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT, 0.125, 0.25,
+               0.375, 0.5);
+
+  otgy_playback_judgement_windows invalid{};
+  invalid.unit_ms = 1.0;
+  expect(otgy_playback_judgement_windows_for(
+             120.0, OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE, 0.5, 0.25,
+             0.375, 0.5, &invalid, &raw_error) == OTGY_STATUS_CORE_ERROR,
+         "C ABI invalid judgement windows status differs");
+  expect(invalid.unit_ms == 0.0 && invalid.bad_ms == 0.0,
+         "C ABI invalid judgement windows were not cleared");
+  auto error = handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(
+      error.get(), OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE,
+      static_cast<std::uint32_t>(
+          otgy::core::PlaybackEngineError::InvalidConfiguration),
+      otgy::core::playback_engine_error_message(
+          otgy::core::PlaybackEngineError::InvalidConfiguration));
+  raw_error = nullptr;
+  expect(otgy_playback_judgement_windows_for(
+             120.0, OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE, 0.125, 0.25,
+             0.375, 0.5, nullptr, &raw_error) == OTGY_STATUS_INVALID_ARGUMENT,
+         "C ABI null judgement windows status differs");
+  otgy_error_destroy(raw_error);
+}
+
 }  // namespace
 
 int main() {
@@ -1057,6 +1111,7 @@ int main() {
     test_waveforms(direct_pcm, abi_pcm.get());
     test_analysis(direct_pcm, abi_pcm.get());
     test_playback(direct_pcm, abi_pcm.get());
+    test_judgement_windows_abi();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

@@ -696,6 +696,43 @@ std::uint64_t otgy_playback_engine_get_rendered_frames(
   return state.rendered_frames;
 }
 
+otgy_status otgy_playback_judgement_windows_for(
+    double bpm, std::uint32_t basis, double perfect_fraction,
+    double great_fraction, double cool_fraction, double bad_fraction,
+    otgy_playback_judgement_windows* out_windows, otgy_error** out_error) {
+  if (out_windows != nullptr) {
+    *out_windows = {};
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_windows == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const otgy::core::JudgementConfig config{
+        {bpm, 0.0},
+        static_cast<otgy::core::JudgementWindowBasis>(basis),
+        perfect_fraction,
+        great_fraction,
+        cool_fraction,
+        bad_fraction,
+        0.0};
+    const auto windows = otgy::core::judgement_windows_ms(config);
+    if (!windows) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE,
+          static_cast<std::uint32_t>(
+              otgy::core::PlaybackEngineError::InvalidConfiguration),
+          otgy::core::playback_engine_error_message(
+              otgy::core::PlaybackEngineError::InvalidConfiguration));
+    }
+    out_windows->unit_ms = windows->unit;
+    out_windows->perfect_ms = windows->perfect;
+    out_windows->great_ms = windows->great;
+    out_windows->cool_ms = windows->cool;
+    out_windows->bad_ms = windows->bad;
+    return OTGY_STATUS_OK;
+  });
+}
+
 otgy_status otgy_coordinate_application_operation(
     std::uint32_t mode, std::uint32_t operation, std::uint32_t* out_result,
     otgy_error** out_error) {
