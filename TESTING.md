@@ -287,6 +287,14 @@ Showtime 触发顺序正确、两个数组的 `order` 合并后无重复且连�
 按 `(row, order)` 排序、非法 BPM/倍率/基准返回 `InvalidConfiguration`、空计划和
 判定完成后的会话不再产生结果。`press` 和 `advance` 在 `reset` 之后不得分配内存。
 
+实时播放引擎测试直接构造歌曲、音效库和 `ChartDraft`，按小块调用 `render`。必须
+验证无触发时逐字节等于 `render_playback_pcm`、NPC 音效在投影帧开始且跨块延续、
+按键音效只在存在待判音符时混入、正确键得到对应等级、按错键得到 Miss 但仍发声、
+无待判音符时输出与歌曲一致且不产生判定、超过 Bad 后 `advance` 产生 Miss、有效终点
+截断剩余帧并置为完成，以及播放起点落在音效内部时只保留尾部。测试还必须覆盖
+`push_trigger` / `drain_judgements` 的队列生产与消费，并证明渲染路径不依赖平台
+音频设备或墙钟时间猜测位置。
+
 节奏测试音效必须直接调用 `render_rhythm_test_playback_pcm`，精确证明只在行
 `0/16/32...` 对应帧触发所选语言的 `space_bar`，非小节行不触发，且 API 不接收
 `ChartDraft`。测试必须覆盖从小节音效中途开始时只保留尾部、正负 Offset、小数帧
