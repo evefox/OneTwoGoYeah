@@ -5,6 +5,7 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow, NSWindowDelegate {
   private var playback: PcmPlaybackOutput?
+  private var simulationPlayback: SimulationPlaybackOutput?
   private var lifecycleChannel: FlutterMethodChannel?
   private var fileChannel: FlutterMethodChannel?
   private var closeRequestPending = false
@@ -18,6 +19,9 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     playback = PcmPlaybackOutput(
+      messenger: flutterViewController.engine.binaryMessenger
+    )
+    simulationPlayback = SimulationPlaybackOutput(
       messenger: flutterViewController.engine.binaryMessenger
     )
     lifecycleChannel = FlutterMethodChannel(
@@ -350,6 +354,232 @@ private enum PlaybackError: LocalizedError {
     case .invalidArguments: return "Invalid PCM playback arguments."
     case .invalidFormat: return "Unable to create the PCM playback format."
     case .allocationFailed: return "Unable to allocate the PCM playback buffer."
+    }
+  }
+}
+
+private typealias SimulationRenderFn = @convention(c) (
+  UnsafeMutableRawPointer?, UnsafeMutablePointer<UInt8>?, UInt32
+) -> Void
+private typealias SimulationIsFinishedFn = @convention(c) (UnsafeRawPointer?) -> UInt8
+private typealias SimulationRenderedFramesFn = @convention(c) (UnsafeRawPointer?) -> UInt64
+
+private final class SimulationPlaybackOutput: NSObject {
+  private let engine = AVAudioEngine()
+  private var sourceNode: AVAudioSourceNode?
+  private var handle: UnsafeMutableRawPointer?
+  private var renderFn: SimulationRenderFn?
+  private var isFinishedFn: SimulationIsFinishedFn?
+  private var renderedFramesFn: SimulationRenderedFramesFn?
+  private var outputLatencyFrames: UInt64 = 0
+  private var playing = false
+  private var paused = false
+
+  init(messenger: FlutterBinaryMessenger) {
+    super.init()
+    let symbols = SimulationPlaybackOutput.loadSymbols()
+    renderFn = symbols?.0
+    isFinishedFn = symbols?.1
+    renderedFramesFn = symbols?.2
+    let channel = FlutterMethodChannel(
+      name: "io.onetwogoyeah/simulation-playback",
+      binaryMessenger: messenger
+    )
+    channel.setMethodCallHandler { [weak self] call, result in
+      self?.handle(call, result: result)
+    }
+  }
+
+  deinit {
+    stop()
+  }
+
+  private func handle(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    do {
+      switch call.method {
+      case "start":
+        guard
+          let arguments = call.arguments as? [String: Any],
+          let rawHandle = arguments["engineHandle"] as? NSNumber,
+          let sampleRate = arguments["sampleRate"] as? Int
+        else {
+          throw SimulationPlaybackError.invalidArguments
+        }
+        try start(
+          engineHandle: rawHandle.int64Value,
+          sampleRate: sampleRate
+        )
+        result(nil)
+      case "pause":
+        pause()
+        result(nil)
+      case "resume":
+        resume()
+        result(nil)
+      case "query":
+        result(state())
+      case "stop":
+        stop()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    } catch {
+      result(
+        FlutterError(
+          code: "simulation-playback-error",
+          message: error.localizedDescription,
+          details: nil
+        )
+      )
+    }
+  }
+
+  private func start(engineHandle: Int64, sampleRate: Int) throws {
+    stop()
+    guard
+      engineHandle != 0,
+      sampleRate > 0,
+      let newHandle = UnsafeMutableRawPointer(bitPattern: UInt(engineHandle)),
+      let render = renderFn,
+      let format = AVAudioFormat(
+        commonFormat: .pcmFormatInt16,
+        sampleRate: Double(sampleRate),
+        channels: 2,
+        interleaved: true
+      )
+    else {
+      throw SimulationPlaybackError.unavailable
+    }
+    let node = AVAudioSourceNode(format: format) {
+      _, _, frameCount, audioBufferList -> OSStatus in
+      let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+      if let data = buffers[0].mData {
+        render(
+          newHandle,
+          data.assumingMemoryBound(to: UInt8.self),
+          AVAudioFrameCount(frameCount)
+        )
+      }
+      return noErr
+    }
+    engine.attach(node)
+    engine.connect(node, to: engine.mainMixerNode, format: format)
+    try engine.start()
+    sourceNode = node
+    handle = newHandle
+    outputLatencyFrames = UInt64(
+      max(0.0, engine.outputNode.presentationLatency * Double(sampleRate))
+    )
+    playing = true
+    paused = false
+  }
+
+  private func pause() {
+    guard playing, !paused else {
+      return
+    }
+    engine.pause()
+    paused = true
+  }
+
+  private func resume() {
+    guard playing, paused else {
+      return
+    }
+    do {
+      try engine.start()
+      paused = false
+    } catch {
+    }
+  }
+
+  private func stop() {
+    playing = false
+    paused = false
+    if engine.isRunning {
+      engine.stop()
+    }
+    if let node = sourceNode {
+      engine.detach(node)
+    }
+    sourceNode = nil
+    handle = nil
+    outputLatencyFrames = 0
+  }
+
+  private func state() -> [String: Any] {
+    guard
+      let handle = handle,
+      let renderedFramesFn = renderedFramesFn,
+      let isFinishedFn = isFinishedFn
+    else {
+      return ["playedFrames": 0, "playing": false, "finished": true]
+    }
+    let rendered = renderedFramesFn(handle)
+    let played = rendered > outputLatencyFrames
+      ? rendered - outputLatencyFrames
+      : 0
+    let finished = isFinishedFn(handle) != 0
+    return [
+      "playedFrames": Int(played),
+      "playing": playing && !paused && !finished,
+      "finished": finished,
+    ]
+  }
+
+  private static func loadSymbols() -> (
+    SimulationRenderFn, SimulationIsFinishedFn, SimulationRenderedFramesFn
+  )? {
+    var candidates: [UnsafeMutableRawPointer?] = []
+    if let frameworks = Bundle.main.privateFrameworksPath {
+      candidates.append(
+        dlopen(
+          "\(frameworks)/otgy_native.framework/otgy_native",
+          RTLD_NOW | RTLD_LOCAL
+        )
+      )
+      candidates.append(
+        dlopen("\(frameworks)/libotgy_native.dylib", RTLD_NOW | RTLD_LOCAL)
+      )
+    }
+    candidates.append(dlopen(nil, RTLD_NOW))
+    for candidate in candidates {
+      guard
+        let library = candidate,
+        let render = dlsym(library, "otgy_playback_engine_render"),
+        let finished = dlsym(
+          library,
+          "otgy_playback_engine_is_finished"
+        ),
+        let frames = dlsym(
+          library,
+          "otgy_playback_engine_get_rendered_frames"
+        )
+      else {
+        continue
+      }
+      return (
+        unsafeBitCast(render, to: SimulationRenderFn.self),
+        unsafeBitCast(finished, to: SimulationIsFinishedFn.self),
+        unsafeBitCast(frames, to: SimulationRenderedFramesFn.self)
+      )
+    }
+    return nil
+  }
+}
+
+private enum SimulationPlaybackError: LocalizedError {
+  case invalidArguments
+  case unavailable
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidArguments: return "Invalid simulation playback arguments."
+    case .unavailable: return "The simulation playback engine is unavailable."
     }
   }
 }
