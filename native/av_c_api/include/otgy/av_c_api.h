@@ -61,6 +61,7 @@ typedef uint32_t otgy_error_domain;
 #define OTGY_ERROR_DOMAIN_PLAYBACK_PCM UINT32_C(30)
 #define OTGY_ERROR_DOMAIN_PLAYBACK_SOUND_BANK UINT32_C(31)
 #define OTGY_ERROR_DOMAIN_AUDIO_END UINT32_C(32)
+#define OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE UINT32_C(33)
 
 #define OTGY_ABI_ERROR_NULL_ARGUMENT UINT32_C(1)
 #define OTGY_ABI_ERROR_LENGTH_OUT_OF_RANGE UINT32_C(2)
@@ -566,6 +567,68 @@ OTGY_C_API otgy_status otgy_render_rhythm_test_playback_pcm(
     const otgy_pcm* pcm, const otgy_playback_sound_bank* sound_bank,
     otgy_rhythm_test_sound_config config, double timeline_start_seconds,
     otgy_playback_pcm** out_playback_pcm, otgy_error** out_error);
+
+typedef struct otgy_playback_engine otgy_playback_engine;
+
+#define OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE UINT32_C(0)
+#define OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT UINT32_C(1)
+
+#define OTGY_PLAYBACK_JUDGEMENT_PERFECT UINT32_C(0)
+#define OTGY_PLAYBACK_JUDGEMENT_GREAT UINT32_C(1)
+#define OTGY_PLAYBACK_JUDGEMENT_COOL UINT32_C(2)
+#define OTGY_PLAYBACK_JUDGEMENT_BAD UINT32_C(3)
+#define OTGY_PLAYBACK_JUDGEMENT_MISS UINT32_C(4)
+
+typedef struct otgy_playback_engine_config {
+  uint32_t language;
+  uint32_t dance_mode;
+  uint8_t transition_sounds_enabled;
+  uint64_t random_seed;
+  double bpm;
+  double offset_seconds;
+  double start_seconds;
+  double end_seconds;
+  uint32_t judgement_basis;
+  double judgement_perfect_fraction;
+  double judgement_great_fraction;
+  double judgement_cool_fraction;
+  double judgement_bad_fraction;
+  double judgement_offset_ms;
+} otgy_playback_engine_config;
+
+typedef struct otgy_playback_judgement {
+  uint32_t grade;
+  double delta_ms;
+  uint64_t note_id;
+  uint32_t expected_sound;
+  uint32_t pressed_sound;
+} otgy_playback_judgement;
+
+typedef struct otgy_playback_engine_state {
+  uint64_t rendered_frames;
+  double position_seconds;
+  uint8_t finished;
+} otgy_playback_engine_state;
+
+OTGY_C_API otgy_status otgy_playback_engine_create(
+    const otgy_pcm* pcm, const otgy_chart* chart,
+    const otgy_playback_sound_bank* sound_bank,
+    otgy_playback_engine_config config, otgy_playback_engine** out_engine,
+    otgy_error** out_error);
+OTGY_C_API void otgy_playback_engine_destroy(otgy_playback_engine* engine);
+OTGY_C_API uint32_t otgy_playback_engine_get_sample_rate(
+    const otgy_playback_engine* engine);
+OTGY_C_API void otgy_playback_engine_push_trigger(
+    otgy_playback_engine* engine, uint32_t sound_id);
+OTGY_C_API void otgy_playback_engine_render(
+    otgy_playback_engine* engine, uint8_t* interleaved_pcm16le,
+    uint32_t frame_count);
+OTGY_C_API void otgy_playback_engine_drain_judgements(
+    otgy_playback_engine* engine, otgy_playback_judgement* out_judgements,
+    uint32_t capacity, uint32_t* out_count);
+OTGY_C_API void otgy_playback_engine_get_state(
+    const otgy_playback_engine* engine, otgy_playback_engine_state* out_state);
+OTGY_C_API void otgy_playback_engine_reset(otgy_playback_engine* engine);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(
     uint32_t mode, uint32_t operation, uint32_t* out_result,

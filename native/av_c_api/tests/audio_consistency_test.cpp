@@ -8,6 +8,7 @@
 #include "av_core/audio/mp3_decoder.hpp"
 #include "av_core/audio/ogg_vorbis_decoder.hpp"
 #include "av_core/audio/pcm16_hash.hpp"
+#include "av_core/playback/playback_engine.hpp"
 #include "av_core/playback/playback_pcm.hpp"
 #include "av_core/playback/playback_position.hpp"
 #include "av_core/playback/playback_sound.hpp"
@@ -917,6 +918,77 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
                          direct_rhythm_pcm.pcm()->bytes().data(),
                          direct_rhythm_pcm.pcm()->bytes().size()) == 0,
          "C ABI rhythm test playback PCM bytes differ");
+
+  const auto duration_seconds =
+      static_cast<double>(direct_pcm.frame_count()) /
+      static_cast<double>(direct_pcm.sample_rate());
+  const otgy::core::PlaybackEngineConfig direct_engine_config{
+      otgy::core::PlaybackSoundLanguage::Chinese,
+      otgy::core::PlaybackDanceMode::FourKey, false, 1U, {100.0, 0.0}, 0.0,
+      duration_seconds,
+      otgy::core::default_judgement_config({100.0, 0.0})};
+  otgy::core::PlaybackEngine direct_engine;
+  expect(direct_engine.initialize(direct_pcm, empty_chart, direct_bank,
+                                  direct_engine_config) ==
+             otgy::core::PlaybackEngineError::None,
+         "direct playback engine failed");
+
+  const otgy_playback_engine_config abi_engine_config{
+      OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE, OTGY_PLAYBACK_DANCE_MODE_4K, 0U,
+      1U, 100.0, 0.0, 0.0, duration_seconds,
+      OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE, 0.125, 0.25, 0.375, 0.5,
+      0.0};
+  otgy_playback_engine* raw_engine = nullptr;
+  expect(otgy_playback_engine_create(abi_pcm, chart.get(), bank.get(),
+                                     abi_engine_config, &raw_engine,
+                                     &raw_error) == OTGY_STATUS_OK,
+         "C ABI playback engine failed");
+  auto engine = handle<otgy_playback_engine,
+                       otgy_playback_engine_destroy>(raw_engine);
+  expect(otgy_playback_engine_get_sample_rate(engine.get()) ==
+             direct_pcm.sample_rate(),
+         "C ABI playback engine sample rate differs");
+
+  const auto engine_reference =
+      otgy::core::render_playback_pcm(direct_pcm, 0.0);
+  expect(static_cast<bool>(engine_reference),
+         "direct engine reference PCM failed");
+  const auto* engine_reference_pcm = engine_reference.pcm();
+  const auto& engine_reference_bytes = engine_reference_pcm->bytes();
+  std::uint64_t rendered = 0U;
+  while (rendered < engine_reference_pcm->frame_count()) {
+    const auto remaining = engine_reference_pcm->frame_count() - rendered;
+    const auto block = static_cast<std::uint32_t>(
+        remaining < 17U ? remaining : 17U);
+    std::vector<std::uint8_t> direct_block(
+        static_cast<std::size_t>(block) * 4U);
+    direct_engine.render(direct_block.data(), block);
+    std::vector<std::uint8_t> abi_block(
+        static_cast<std::size_t>(block) * 4U);
+    otgy_playback_engine_render(engine.get(), abi_block.data(), block);
+    expect(direct_block == abi_block,
+           "C ABI playback engine block differs from core");
+    const auto byte_offset = static_cast<std::size_t>(rendered) * 4U;
+    expect(std::memcmp(direct_block.data(),
+                       engine_reference_bytes.data() + byte_offset,
+                       direct_block.size()) == 0,
+           "playback engine output differs from offline PCM");
+    rendered += block;
+  }
+  otgy_playback_engine_state engine_state{};
+  otgy_playback_engine_get_state(engine.get(), &engine_state);
+  expect(engine_state.finished != 0U &&
+             engine_state.rendered_frames ==
+                 engine_reference_pcm->frame_count(),
+         "C ABI playback engine state differs");
+  otgy_playback_judgement judgements[4]{};
+  std::uint32_t judgement_count = 0U;
+  otgy_playback_engine_drain_judgements(engine.get(), judgements, 4U,
+                                        &judgement_count);
+  expect(judgement_count == 0U,
+         "empty chart produced a judgement");
+  otgy_playback_engine_push_trigger(engine.get(),
+                                    OTGY_PLAYBACK_SOUND_F1_2);
   otgy_playback_sound_bank_destroy(nullptr);
 
   const auto direct_position = otgy::core::start_playback(

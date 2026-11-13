@@ -543,6 +543,139 @@ otgy_status otgy_render_rhythm_test_playback_pcm(
   });
 }
 
+otgy_status otgy_playback_engine_create(
+    const otgy_pcm* pcm, const otgy_chart* chart,
+    const otgy_playback_sound_bank* sound_bank,
+    otgy_playback_engine_config config, otgy_playback_engine** out_engine,
+    otgy_error** out_error) {
+  if (out_engine != nullptr) {
+    *out_engine = nullptr;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (pcm == nullptr || chart == nullptr || sound_bank == nullptr ||
+        out_engine == nullptr) {
+      return invalid_argument(out_error);
+    }
+    if (config.transition_sounds_enabled > 1U) {
+      return invalid_argument(out_error, OTGY_ABI_ERROR_INVALID_BOOLEAN,
+                              kInvalidBoolean);
+    }
+    const otgy::core::JudgementConfig judgement{
+        {config.bpm, config.offset_seconds},
+        static_cast<otgy::core::JudgementWindowBasis>(
+            config.judgement_basis),
+        config.judgement_perfect_fraction,
+        config.judgement_great_fraction,
+        config.judgement_cool_fraction,
+        config.judgement_bad_fraction,
+        config.judgement_offset_ms};
+    auto* engine = new (std::nothrow) otgy_playback_engine{};
+    if (engine == nullptr) {
+      return out_of_memory(out_error);
+    }
+    const auto error = engine->value.initialize(
+        pcm->value, chart->value, sound_bank->value,
+        {static_cast<otgy::core::PlaybackSoundLanguage>(config.language),
+         static_cast<otgy::core::PlaybackDanceMode>(config.dance_mode),
+         config.transition_sounds_enabled != 0U, config.random_seed,
+         {config.bpm, config.offset_seconds}, config.start_seconds,
+         config.end_seconds, judgement});
+    if (error != otgy::core::PlaybackEngineError::None) {
+      delete engine;
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE,
+          static_cast<std::uint32_t>(error),
+          otgy::core::playback_engine_error_message(error));
+    }
+    *out_engine = engine;
+    return OTGY_STATUS_OK;
+  });
+}
+
+void otgy_playback_engine_destroy(otgy_playback_engine* engine) {
+  delete engine;
+}
+
+std::uint32_t otgy_playback_engine_get_sample_rate(
+    const otgy_playback_engine* engine) {
+  return engine == nullptr ? 0U : engine->value.sample_rate();
+}
+
+void otgy_playback_engine_push_trigger(otgy_playback_engine* engine,
+                                       std::uint32_t sound_id) {
+  if (engine == nullptr) {
+    return;
+  }
+  engine->value.push_trigger(
+      static_cast<otgy::core::PlaybackSoundId>(sound_id));
+}
+
+void otgy_playback_engine_render(otgy_playback_engine* engine,
+                                 std::uint8_t* interleaved_pcm16le,
+                                 std::uint32_t frame_count) {
+  if (engine == nullptr || interleaved_pcm16le == nullptr ||
+      frame_count == 0U) {
+    return;
+  }
+  engine->value.render(interleaved_pcm16le, frame_count);
+}
+
+void otgy_playback_engine_drain_judgements(
+    otgy_playback_engine* engine, otgy_playback_judgement* out_judgements,
+    std::uint32_t capacity, std::uint32_t* out_count) {
+  if (out_count != nullptr) {
+    *out_count = 0U;
+  }
+  if (engine == nullptr || out_judgements == nullptr || capacity == 0U) {
+    return;
+  }
+  otgy::core::JudgementResult buffer[16]{};
+  std::uint32_t total = 0U;
+  while (total < capacity) {
+    const auto request = (capacity - total) < 16U ? (capacity - total) : 16U;
+    const auto count = engine->value.drain_judgements(buffer, request);
+    if (count == 0U) {
+      break;
+    }
+    for (std::size_t index = 0U; index < count; ++index) {
+      out_judgements[total++] = otgy_playback_judgement{
+          static_cast<std::uint32_t>(buffer[index].grade),
+          buffer[index].delta_ms,
+          buffer[index].note_id.value,
+          static_cast<std::uint32_t>(buffer[index].expected_sound),
+          static_cast<std::uint32_t>(buffer[index].pressed_sound)};
+    }
+    if (count < request) {
+      break;
+    }
+  }
+  if (out_count != nullptr) {
+    *out_count = total;
+  }
+}
+
+void otgy_playback_engine_get_state(
+    const otgy_playback_engine* engine,
+    otgy_playback_engine_state* out_state) {
+  if (out_state == nullptr) {
+    return;
+  }
+  if (engine == nullptr) {
+    *out_state = otgy_playback_engine_state{0U, 0.0, 1U};
+    return;
+  }
+  const auto state = engine->value.state();
+  *out_state = otgy_playback_engine_state{
+      state.rendered_frames, state.position_seconds,
+      static_cast<std::uint8_t>(state.finished ? 1U : 0U)};
+}
+
+void otgy_playback_engine_reset(otgy_playback_engine* engine) {
+  if (engine != nullptr) {
+    engine->value.reset();
+  }
+}
+
 otgy_status otgy_coordinate_application_operation(
     std::uint32_t mode, std::uint32_t operation, std::uint32_t* out_result,
     otgy_error** out_error) {
