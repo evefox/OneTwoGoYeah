@@ -257,6 +257,35 @@ void main() {
     expect(controller.judgementDisplayDurationMs, 320);
   });
 
+  testWidgets('the judgement offset steps one millisecond at a time', (
+    tester,
+  ) async {
+    soundTestMenuEnabled = true;
+    await pumpEditor(tester);
+
+    await tester.longPress(find.byKey(const ValueKey('usage-guide-button')));
+    await tester.pumpAndSettle();
+
+    Future<void> step(String label) async {
+      final button = find.byKey(
+        ValueKey<String>('judgement-offset-step-$label'),
+      );
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+    }
+
+    await step('+1');
+    expect(controller.judgementConfig.offsetMs, 1);
+    await step('+10');
+    expect(controller.judgementConfig.offsetMs, 11);
+    await step('-10');
+    expect(controller.judgementConfig.offsetMs, 1);
+    await step('-1');
+    expect(controller.judgementConfig.offsetMs, 0);
+  });
+
   test('judgement tuning is blocked by the selection gate', () {
     controller.enterSelectionMode();
     controller.setJudgementBasis(PlaybackJudgementBasis.sixteenthNote);

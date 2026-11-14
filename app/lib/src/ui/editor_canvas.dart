@@ -1856,9 +1856,53 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
                     value: config.offsetMs.clamp(-250.0, 250.0),
                     min: -250,
                     max: 250,
-                    divisions: 100,
+                    // 1 ms per step: a 250 ms wide drag still lands on the
+                    // exact millisecond, and the step buttons below cover
+                    // changes that are too small to drag reliably.
+                    divisions: 500,
                     label: '${config.offsetMs.round()} ms',
                     onChanged: enabled ? controller.setJudgementOffsetMs : null,
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _OffsetStepButton(
+                        label: '-10',
+                        tooltip: '判定偏移减少 10 毫秒',
+                        onPressed: enabled
+                            ? () => controller.setJudgementOffsetMs(
+                                config.offsetMs - 10,
+                              )
+                            : null,
+                      ),
+                      _OffsetStepButton(
+                        label: '-1',
+                        tooltip: '判定偏移减少 1 毫秒',
+                        onPressed: enabled
+                            ? () => controller.setJudgementOffsetMs(
+                                config.offsetMs - 1,
+                              )
+                            : null,
+                      ),
+                      _OffsetStepButton(
+                        label: '+1',
+                        tooltip: '判定偏移增加 1 毫秒',
+                        onPressed: enabled
+                            ? () => controller.setJudgementOffsetMs(
+                                config.offsetMs + 1,
+                              )
+                            : null,
+                      ),
+                      _OffsetStepButton(
+                        label: '+10',
+                        tooltip: '判定偏移增加 10 毫秒',
+                        onPressed: enabled
+                            ? () => controller.setJudgementOffsetMs(
+                                config.offsetMs + 10,
+                              )
+                            : null,
+                      ),
+                    ],
                   ),
                   Row(
                     children: [
@@ -3377,4 +3421,34 @@ String _markerSemanticLabel(ChartMarker marker) {
     _ => '舞步 ${marker.showNCount}',
   };
   return '$role $type，第 ${marker.row} 个十六分行';
+}
+
+class _OffsetStepButton extends StatelessWidget {
+  const _OffsetStepButton({
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: TextButton(
+        key: ValueKey<String>('judgement-offset-step-$label'),
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(36, 30),
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 12)),
+      ),
+    );
+  }
 }
