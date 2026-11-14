@@ -372,7 +372,8 @@ static aubio_pvoc_t * new_aubio_pvoc(uint_t win_s, uint_t hop_s)
 	/* new input output */
 	pv->dataold = new_fvec(win_s - hop_s);
 	pv->synthold = new_fvec(win_s - hop_s);
-	pv->w = new_aubio_window("hanningz", win_s);
+	static char window_type[] = "hanningz";
+	pv->w = new_aubio_window(window_type, win_s);
 
 	pv->hop_s = hop_s;
 	pv->win_s = win_s;
@@ -1043,7 +1044,7 @@ void FindOnsets(const float* samples, int samplerate, int numFrames, int numThre
 {
 	static const int windowlen = 256;
 	static const int bufsize = windowlen * 4;
-	static char* method = "complex";
+	static char method[] = "complex";
 
 	if(numThreads > 1)
 	{

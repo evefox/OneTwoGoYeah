@@ -11,6 +11,7 @@ execute_process(
   RESULT_VARIABLE direct_result
   OUTPUT_VARIABLE direct_output
   ERROR_VARIABLE direct_error
+  ENCODING UTF8
 )
 if(NOT direct_result EQUAL 0)
   message(FATAL_ERROR
@@ -41,6 +42,7 @@ execute_process(
   RESULT_VARIABLE cli_result
   OUTPUT_VARIABLE cli_output
   ERROR_VARIABLE cli_error
+  ENCODING UTF8
 )
 if(NOT cli_result EQUAL 0)
   message(FATAL_ERROR "avtool failed (${cli_result}): ${cli_error}")

@@ -3,6 +3,7 @@
 #include "internal.hpp"
 
 #include <array>
+#include <cmath>
 
 using namespace otgy::c_api;
 

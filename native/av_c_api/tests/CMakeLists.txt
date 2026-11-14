@@ -63,3 +63,18 @@ endif()
 add_test(NAME av_c_api.chart_consistency
   COMMAND otgy_c_api_chart_consistency_test
 )
+
+# Windows resolves otgy_c_api.dll from the executable directory, so each test
+# that links the shared C ABI needs a copy beside it.
+if(WIN32)
+  foreach(c_api_test
+      otgy_c_api_header_test
+      otgy_c_api_audio_consistency_test
+      otgy_c_api_chart_consistency_test)
+    add_custom_command(TARGET ${c_api_test} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:otgy_c_api>
+        $<TARGET_FILE_DIR:${c_api_test}>
+    )
+  endforeach()
+endif()

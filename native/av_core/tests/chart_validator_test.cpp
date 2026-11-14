@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -20,7 +21,7 @@ using otgy::core::ChartDraft;
 using otgy::core::ChartValidationResult;
 
 [[nodiscard]] std::vector<std::uint8_t> read_file(const std::string& path) {
-  std::ifstream input(path, std::ios::binary);
+  std::ifstream input(std::filesystem::u8path(path), std::ios::binary);
   assert(input.is_open());
   return {std::istreambuf_iterator<char>{input},
           std::istreambuf_iterator<char>{}};

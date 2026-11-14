@@ -12,6 +12,7 @@ function(assert_failure expected_result expected_error)
     RESULT_VARIABLE actual_result
     OUTPUT_VARIABLE actual_output
     ERROR_VARIABLE actual_error
+    ENCODING UTF8
   )
   if(NOT actual_result EQUAL expected_result)
     message(FATAL_ERROR
@@ -33,6 +34,7 @@ execute_process(
   RESULT_VARIABLE usage_result
   OUTPUT_VARIABLE usage_output
   ERROR_VARIABLE usage_error
+  ENCODING UTF8
 )
 if(NOT usage_result EQUAL 2)
   message(FATAL_ERROR "Decode usage error returned ${usage_result}, expected 2")
@@ -40,7 +42,7 @@ endif()
 if(NOT usage_output STREQUAL "")
   message(FATAL_ERROR "Decode usage error wrote stdout: ${usage_output}")
 endif()
-if(NOT usage_error MATCHES "^用法: avtool <命令> \[选项\]")
+if(NOT usage_error MATCHES "^用法: avtool <命令> \\[选项\\]")
   message(FATAL_ERROR "Decode usage error omitted usage text: ${usage_error}")
 endif()
 

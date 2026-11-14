@@ -24,6 +24,7 @@ function(assert_failure expected_result expected_error output)
     RESULT_VARIABLE actual_result
     OUTPUT_VARIABLE actual_output
     ERROR_VARIABLE actual_error
+    ENCODING UTF8
   )
   if(NOT actual_result EQUAL expected_result)
     message(FATAL_ERROR
@@ -47,6 +48,7 @@ execute_process(
   RESULT_VARIABLE usage_result
   OUTPUT_VARIABLE usage_output
   ERROR_VARIABLE usage_error
+  ENCODING UTF8
 )
 if(NOT usage_result EQUAL 2 OR NOT usage_output STREQUAL "" OR
    NOT usage_error MATCHES "^用法: avtool <命令> \\[选项\\]")
@@ -111,6 +113,7 @@ execute_process(
   RESULT_VARIABLE partial_end_result
   OUTPUT_VARIABLE partial_end_output
   ERROR_VARIABLE partial_end_error
+  ENCODING UTF8
 )
 if(NOT partial_end_result EQUAL 2 OR NOT partial_end_output STREQUAL "" OR
    NOT partial_end_error MATCHES "^用法: avtool <命令> \\[选项\\]")
@@ -155,6 +158,7 @@ execute_process(
   RESULT_VARIABLE existing_result
   OUTPUT_VARIABLE existing_stdout
   ERROR_VARIABLE existing_stderr
+  ENCODING UTF8
 )
 if(NOT existing_result EQUAL 3 OR NOT existing_stdout STREQUAL "" OR
    NOT existing_stderr STREQUAL
