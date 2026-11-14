@@ -1662,7 +1662,7 @@ class EditorController extends ChangeNotifier {
     }
     _setBusy(true);
     try {
-      final cursorSeconds = OtgyNative.sixteenthRowToSeconds(
+      var cursorSeconds = OtgyNative.sixteenthRowToSeconds(
         bpm: projectedBpm,
         offset: _offset,
         row: _currentRow,
@@ -1675,7 +1675,10 @@ class EditorController extends ChangeNotifier {
           .clamp(0.0, audio.durationSeconds)
           .toDouble();
       if (cursorSeconds >= effectiveEnd) {
-        return;
+        // A finished chart replays from the beginning: the spec keeps the
+        // final position while stopped but rewinds when play is pressed again.
+        _currentRow = 0;
+        cursorSeconds = 0;
       }
       final start = OtgyNative.startPlayback(
         audioDurationSeconds: audio.durationSeconds,

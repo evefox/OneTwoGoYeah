@@ -14,6 +14,7 @@ import '../infrastructure/audio_export_publisher.dart';
 import '../infrastructure/local_diagnostics.dart';
 import '../infrastructure/local_project_store.dart';
 import '../infrastructure/local_ui_preferences.dart';
+import 'draft_save_target.dart';
 import 'editor_canvas.dart';
 import 'editor_theme.dart';
 import 'editor_toolbars.dart';
@@ -848,12 +849,12 @@ class _EditorScreenState extends State<EditorScreen>
         _controller.showNotice('草稿保存失败。', error: true);
         return false;
       }
-      if (existing != null && existing.id != _controller.draftId) {
-        if (!await _confirmOverwriteDraft(targetName)) {
-          return false;
-        }
-        targetId = existing.id;
+      final saveTarget = resolveDraftSaveTarget(existing);
+      if (saveTarget.needsConfirmation &&
+          !await _confirmOverwriteDraft(targetName)) {
+        return false;
       }
+      targetId = saveTarget.existingId;
     }
     try {
       final payload = _controller.encodeFormalDraft();

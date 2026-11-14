@@ -2615,6 +2615,28 @@ void main() {
     await controller.pausePlayback();
   });
 
+  testWidgets('pressing play at the audio end rewinds to the beginning', (
+    tester,
+  ) async {
+    controller.dispose();
+    final output = _FakePlaybackOutput();
+    controller = EditorController(playbackOutput: output);
+    final audio = File(
+      '../native/av_core/tests/fixtures/mp3/generated_stereo_11025.mp3',
+    ).readAsBytesSync();
+    await controller.loadAudioBytes(audio, 'fixture.mp3');
+    final duration = controller.audioDurationSeconds!;
+    controller.moveToSongSeconds(duration);
+    expect(controller.currentRow, greaterThan(0));
+
+    await controller.togglePlayback();
+
+    expect(controller.currentRow, 0);
+    expect(controller.isPlaying, isTrue);
+    expect(output.bytes, isNotEmpty);
+    await controller.pausePlayback();
+  });
+
   test(
     'audio analysis runs through the controller background isolate',
     () async {
