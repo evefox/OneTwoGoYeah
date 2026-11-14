@@ -274,8 +274,17 @@ void PlaybackEngine::render(std::uint8_t* output,
       static_cast<double>(frames_this) / static_cast<double>(sample_rate_);
   JudgementResult misses[8]{};
   const auto miss_count = judgement_.advance(block_end_timeline, misses, 8U);
+  const auto* miss_clip =
+      miss_count > 0U
+          ? sound_bank_->find(config_.language, PlaybackSoundId::Miss)
+          : nullptr;
   for (std::size_t index = 0U; index < miss_count; ++index) {
     push_judgement(misses[index]);
+    if (miss_clip != nullptr) {
+      if (auto* voice = start_voice(*miss_clip, 0U)) {
+        mix_voice_segment(*voice, output, 0U, frames_this, sample_rate_);
+      }
+    }
   }
 
   song_frame_ += static_cast<std::int64_t>(frames_this);

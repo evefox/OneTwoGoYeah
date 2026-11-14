@@ -281,6 +281,31 @@ void test_wrong_key_plays_the_miss_sound() {
   assert(results[0].pressed_sound == wrong);
 }
 
+void test_timeout_miss_plays_the_miss_sound() {
+  const auto song = make_song(2000U);
+  const auto bank = all_note_bank(100);
+  const auto bpm = 160.0;
+  PlaybackEngine engine;
+  assert(engine.initialize(song, pair_chart(0U), bank,
+                           engine_config(bpm, 0.0, 1.0,
+                                         wide_judgement(bpm))) ==
+         PlaybackEngineError::None);
+  // 160 BPM with the wide Bad window: the row-0 note times out after 0.1875 s.
+  for (int block = 0; block < 15; ++block) {
+    const auto bytes = render(engine, 100U);
+    (void)bytes;
+    JudgementResult early[4]{};
+    assert(engine.drain_judgements(early, 4U) == 0U);
+  }
+  const auto bytes = render(engine, 100U);
+  JudgementResult results[4]{};
+  assert(engine.drain_judgements(results, 4U) == 1U);
+  assert(results[0].grade == JudgementGrade::Miss);
+  // Frame 1500 of the song is 0 on both channels; the miss clip starts there.
+  assert(sample(bytes, 0U, 0U) == kMissSample);
+  assert(sample(bytes, 0U, 1U) == kMissSample);
+}
+
 void test_no_pending_note_is_silent() {
   const auto song = make_song(8000U);
   const auto bank = all_note_bank(100);
@@ -389,6 +414,7 @@ int main() {
   test_scheduled_npc_clip_and_voice_tail();
   test_key_trigger_judges_and_plays();
   test_wrong_key_plays_the_miss_sound();
+  test_timeout_miss_plays_the_miss_sound();
   test_no_pending_note_is_silent();
   test_miss_is_emitted_after_deadline();
   test_end_truncates_and_finishes();
