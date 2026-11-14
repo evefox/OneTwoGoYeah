@@ -586,6 +586,92 @@ void test_reduced_showtime_keeps_stage_moves_and_round_trips() {
   assert(*reexport.bytes() == *exported.bytes());
 }
 
+/// A move starting inside the previous Showtime's display range but after its
+/// last SHOW-D event row belongs to the next stage. The canonical file keeps
+/// that row order, and a strict import maps the d entries to the next stage's
+/// leading moves.
+void test_showtime_stage_after_last_show_d_row_round_trips() {
+  using namespace otgy::core;
+  std::vector<ChartRoleEvent> events;
+  std::vector<ChartShowtimeStartEvent> start_events;
+  std::vector<ChartShowtimeMoveEvent> move_events;
+  std::vector<ChartDrillGroup> groups;
+  std::vector<ChartDanceMoveDrill> drills;
+  std::vector<ChartShowtime> showtimes;
+  std::uint64_t event_id = 1U;
+  std::uint64_t group_id = 1U;
+  std::uint64_t drill_id = 1U;
+  const auto add_move = [&](std::uint64_t npc_c, std::uint64_t npc_n,
+                            std::uint64_t npc_s, std::uint64_t player_c,
+                            std::uint64_t player_n, std::uint64_t player_s) {
+    const ChartDrillGroupId gid{group_id++};
+    const ChartDanceMoveDrillId did{drill_id++};
+    ChartDrillGroup group{gid, did, {}, {}};
+    const auto add = [&](ChartRole role, ChartRoleEventType type,
+                         std::uint64_t row, std::vector<ChartEventId>& rel) {
+      const ChartEventId id{event_id++};
+      events.push_back({id, row, role, type, gid, did});
+      rel.push_back(id);
+    };
+    add(ChartRole::Npc, ChartRoleEventType::BlockStart, npc_c,
+        group.npc_event_ids);
+    add(ChartRole::Npc, ChartRoleEventType::Note, npc_n, group.npc_event_ids);
+    add(ChartRole::Npc, ChartRoleEventType::MoveEnd, npc_s,
+        group.npc_event_ids);
+    add(ChartRole::Player, ChartRoleEventType::BlockStart, player_c,
+        group.player_event_ids);
+    add(ChartRole::Player, ChartRoleEventType::Note, player_n,
+        group.player_event_ids);
+    add(ChartRole::Player, ChartRoleEventType::MoveEnd, player_s,
+        group.player_event_ids);
+    groups.push_back(std::move(group));
+    drills.push_back({did, 1U, {gid}});
+    return did;
+  };
+
+  const auto move_a = add_move(0U, 2U, 4U, 6U, 8U, 10U);
+  // The first N is inside the previous SHOW-D's display range [32, 48), but
+  // after its event row.
+  const auto move_b = add_move(40U, 42U, 44U, 46U, 48U, 50U);
+  const auto move_c = add_move(64U, 66U, 68U, 70U, 72U, 74U);
+
+  const ChartEventId start_1{100U};
+  const ChartEventId d_1{101U};
+  start_events.push_back({start_1, 16U, {110U}});
+  move_events.push_back({d_1, 32U, {110U}, move_a, 1U});
+  showtimes.push_back({{110U}, start_1, {move_a}, {d_1}});
+
+  const ChartEventId start_2{200U};
+  const ChartEventId d_2{201U};
+  const ChartEventId d_3{202U};
+  start_events.push_back({start_2, 96U, {210U}});
+  move_events.push_back({d_2, 97U, {210U}, move_b, 1U});
+  move_events.push_back({d_3, 112U, {210U}, move_c, 1U});
+  showtimes.push_back({{210U}, start_2, {move_b, move_c}, {d_2, d_3}});
+
+  const ChartDraft draft{std::move(events), std::move(start_events),
+                         std::move(move_events), std::move(groups),
+                         std::move(drills), std::move(showtimes)};
+  const auto validation = validate_finished_chart(draft);
+  assert(validation.is_finished());
+  const auto exported = export_finished_chart_to_slk(
+      *validation.finished_chart());
+  assert(exported);
+  const auto reimport = import_finished_slk(
+      exported.bytes()->data(), exported.bytes()->size());
+  assert(reimport);
+  const auto& semantics = reimport.document()->semantics();
+  assert(semantics.showtimes().size() == 2U);
+  assert(semantics.showtimes()[0U].stage.drills().size() == 1U);
+  assert(semantics.showtimes()[0U].show_d_rows.size() == 1U);
+  assert(semantics.showtimes()[1U].stage.drills().size() == 2U);
+  assert(semantics.showtimes()[1U].show_d_rows.size() == 2U);
+  const auto reexport = export_finished_chart_to_slk(
+      finished_from_bytes(*exported.bytes()));
+  assert(reexport);
+  assert(*reexport.bytes() == *exported.bytes());
+}
+
 void test_export_error_messages() {
   for (unsigned int raw = 0U;
        raw <= static_cast<unsigned int>(
@@ -614,6 +700,7 @@ int main() {
   test_range_fields_and_format_anchor_boundaries();
   test_showtime_less_drills_export_and_round_trip();
   test_reduced_showtime_keeps_stage_moves_and_round_trips();
+  test_showtime_stage_after_last_show_d_row_round_trips();
   test_export_error_messages();
   return 0;
 }

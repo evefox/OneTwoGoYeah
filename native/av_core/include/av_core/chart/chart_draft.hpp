@@ -130,4 +130,11 @@ class ChartDraft final {
 [[nodiscard]] std::optional<std::uint64_t> dance_move_drill_first_row(
     const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept;
 
+/// First N row bound to the drill through its groups, or nullopt when the drill
+/// has no N events. A block start is not part of the dance move itself, so a
+/// move whose NPC-C sits in the previous Showtime's open half measure is still
+/// attributed to the next stage.
+[[nodiscard]] std::optional<std::uint64_t> dance_move_drill_first_note_row(
+    const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept;
+
 }  // namespace otgy::core

@@ -1520,19 +1520,18 @@ struct CompleteDrill final {
 [[nodiscard]] std::vector<CompleteDrill> collect_complete_drills(
     const MutableDraft& draft, const std::vector<ChartMarker>& markers,
     std::uint64_t showtime_start_row) {
+  // Stage membership follows SLK row order: every complete move after the
+  // previous Showtime's last SHOW-D belongs to the stage before this SHOW-C.
+  // The display range is only a visual hint; a move starting in its last open
+  // half measure is therefore a candidate for this Showtime.
   bool has_previous_showtime_move = false;
-  std::uint64_t previous_showtime_range_end = 0U;
+  std::uint64_t previous_showtime_move_row = 0U;
   for (const auto& marker : markers) {
     if (marker.row >= showtime_start_row) {
       break;
     }
     if (marker.type == ChartMarkerType::ShowtimeMove) {
-      const auto range_start = marker.row - marker.row % 16U;
-      const auto duration = marker.show_n_count <= 6U ? 16U : 32U;
-      previous_showtime_range_end =
-          range_start > std::numeric_limits<std::uint64_t>::max() - duration
-              ? std::numeric_limits<std::uint64_t>::max()
-              : range_start + duration;
+      previous_showtime_move_row = marker.row;
       has_previous_showtime_move = true;
     }
   }
@@ -1543,7 +1542,7 @@ struct CompleteDrill final {
     if (!complete_drill(draft, drill, candidate) ||
         candidate.last_row >= showtime_start_row ||
         (has_previous_showtime_move &&
-         candidate.first_note_row < previous_showtime_range_end)) {
+         candidate.first_note_row <= previous_showtime_move_row)) {
       continue;
     }
     result.push_back(candidate);
@@ -1732,8 +1731,9 @@ struct CompleteDrill final {
 /// The recorded moves must stay a contiguous run of the complete moves in their
 /// stage. A new complete move inserted between two recorded moves breaks the
 /// positional SHOW-D association, so the Showtime is cleared with that edit.
-/// Moves inserted before the first recorded move only shift the candidate list
-/// and keep the Showtime, as does any move left after the recorded run.
+/// This structural check is also used by the load repair, which keeps a stored
+/// layout that a later rule can only extend; edit commits additionally require
+/// the recorded run to be the stage prefix (showtime_moves_match_stage_prefix).
 [[nodiscard]] bool showtime_moves_remain_contiguous(
     const MutableDraft& draft, const ChartShowtime& showtime,
     std::uint64_t start_row) {
@@ -1834,6 +1834,73 @@ struct CompleteDrill final {
   return false;
 }
 
+struct StageDrill final {
+  const ChartDanceMoveDrill* drill;
+  std::uint64_t first_note_row;
+};
+
+/// Complete moves in the stage before this SHOW-C: everything after the
+/// previous Showtime's last SHOW-D event row, ordered by first N. The display
+/// range is only a visual hint and does not decide stage membership.
+[[nodiscard]] std::vector<StageDrill> showtime_stage_drills(
+    const MutableDraft& draft, std::uint64_t start_row) {
+  bool has_previous_showtime_move = false;
+  std::uint64_t previous_showtime_move_row = 0U;
+  for (const auto& move : draft.showtime_move_events) {
+    if (move.row >= start_row) {
+      continue;
+    }
+    if (!has_previous_showtime_move ||
+        move.row > previous_showtime_move_row) {
+      previous_showtime_move_row = move.row;
+      has_previous_showtime_move = true;
+    }
+  }
+  std::vector<StageDrill> stage;
+  for (const auto& drill : draft.dance_move_drills) {
+    CompleteDrill complete{};
+    if (!complete_drill(draft, drill, complete) ||
+        complete.last_row >= start_row ||
+        (has_previous_showtime_move &&
+         complete.first_note_row <= previous_showtime_move_row)) {
+      continue;
+    }
+    stage.push_back({&drill, complete.first_note_row});
+  }
+  std::sort(stage.begin(), stage.end(),
+            [](const StageDrill& left, const StageDrill& right) {
+              return left.first_note_row != right.first_note_row
+                         ? left.first_note_row < right.first_note_row
+                         : left.drill->id.value < right.drill->id.value;
+            });
+  return stage;
+}
+
+/// The recorded moves must be the leading complete moves of this Showtime's
+/// stage. The stage starts after the previous Showtime's last SHOW-D row, so a
+/// move completed in that Showtime's open half measure becomes a leading
+/// candidate; an existing Showtime that does not record it is no longer a valid
+/// prefix.
+[[nodiscard]] bool showtime_moves_match_stage_prefix(
+    const MutableDraft& draft, const ChartShowtime& showtime,
+    std::uint64_t start_row) {
+  if (showtime.dance_move_drill_ids.empty()) {
+    return true;
+  }
+  const auto stage = showtime_stage_drills(draft, start_row);
+  if (showtime.dance_move_drill_ids.size() > stage.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < showtime.dance_move_drill_ids.size();
+       ++index) {
+    if (stage[index].drill->id.value !=
+        showtime.dance_move_drill_ids[index].value) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Every dance move the Showtime records is still the leading prefix of the
 /// moves its current content would offer. A shorter prefix is legal: an
 /// imported Showtime may carry fewer move markers than dance moves.
@@ -1853,8 +1920,9 @@ struct CompleteDrill final {
   return true;
 }
 
-/// Drops every stale Showtime together with its start marker and all of its
-/// move markers, so that one edit never leaves Showtime markers behind.
+/// Drops every structurally stale Showtime together with its start marker and
+/// all of its move markers, so that one edit never leaves Showtime markers
+/// behind.
 void prune_stale_showtimes(MutableDraft& draft) {
   std::size_t index = 0U;
   while (index < draft.showtimes.size()) {
@@ -1882,6 +1950,103 @@ void prune_stale_showtimes(MutableDraft& draft) {
         draft.showtime_move_events.end());
     draft.showtimes.erase(draft.showtimes.begin() +
                           static_cast<std::ptrdiff_t>(index));
+  }
+}
+
+/// Clears a Showtime whose recorded moves are no longer the stage prefix
+/// because this edit added or completed a move before the first recorded move.
+/// A prefix mismatch caused only by removing an earlier Showtime is kept: the
+/// chart is an incomplete draft and re-creating that Showtime restores the
+/// boundary.
+void prune_leading_inserted_showtimes(MutableDraft& draft,
+                                      const ChartDraft& previous) {
+  if (draft.showtimes.empty()) {
+    return;
+  }
+  struct Pending final {
+    std::uint64_t showtime_id;
+    std::vector<ChartDanceMoveDrillId> leading;
+  };
+  std::vector<Pending> pending;
+  for (const auto& showtime : draft.showtimes) {
+    if (showtime.dance_move_drill_ids.empty()) {
+      continue;
+    }
+    const auto* start =
+        find_showtime_start_event(draft, showtime.start_event_id);
+    if (start == nullptr ||
+        showtime_moves_match_stage_prefix(draft, showtime, start->row)) {
+      continue;
+    }
+    const auto stage = showtime_stage_drills(draft, start->row);
+    std::size_t recorded_index = stage.size();
+    for (std::size_t index = 0U; index < stage.size(); ++index) {
+      if (stage[index].drill->id.value ==
+          showtime.dance_move_drill_ids.front().value) {
+        recorded_index = index;
+        break;
+      }
+    }
+    if (recorded_index == 0U || recorded_index == stage.size()) {
+      continue;
+    }
+    Pending item{showtime.id.value, {}};
+    item.leading.reserve(recorded_index);
+    for (std::size_t index = 0U; index < recorded_index; ++index) {
+      item.leading.push_back(stage[index].drill->id);
+    }
+    pending.push_back(std::move(item));
+  }
+  if (pending.empty()) {
+    return;
+  }
+  const MutableDraft old_draft{previous};
+  std::vector<std::uint64_t> drop;
+  for (const auto& item : pending) {
+    bool inserted = false;
+    for (const auto drill_id : item.leading) {
+      const ChartDanceMoveDrill* old_drill = nullptr;
+      for (const auto& drill : old_draft.dance_move_drills) {
+        if (drill.id.value == drill_id.value) {
+          old_drill = &drill;
+          break;
+        }
+      }
+      CompleteDrill complete{};
+      if (old_drill == nullptr ||
+          !complete_drill(old_draft, *old_drill, complete)) {
+        inserted = true;
+        break;
+      }
+    }
+    if (inserted) {
+      drop.push_back(item.showtime_id);
+    }
+  }
+  for (const auto showtime_id : drop) {
+    const auto belongs = [showtime_id](ChartShowtimeId id) {
+      return id.value == showtime_id;
+    };
+    draft.showtime_start_events.erase(
+        std::remove_if(draft.showtime_start_events.begin(),
+                       draft.showtime_start_events.end(),
+                       [&belongs](const ChartShowtimeStartEvent& event) {
+                         return belongs(event.showtime_id);
+                       }),
+        draft.showtime_start_events.end());
+    draft.showtime_move_events.erase(
+        std::remove_if(draft.showtime_move_events.begin(),
+                       draft.showtime_move_events.end(),
+                       [&belongs](const ChartShowtimeMoveEvent& event) {
+                         return belongs(event.showtime_id);
+                       }),
+        draft.showtime_move_events.end());
+    draft.showtimes.erase(
+        std::remove_if(draft.showtimes.begin(), draft.showtimes.end(),
+                       [&belongs](const ChartShowtime& showtime) {
+                         return belongs(showtime.id);
+                       }),
+        draft.showtimes.end());
   }
 }
 
@@ -2312,11 +2477,14 @@ ChartEditResult ChartEditor::commit(ChartDraft draft, ChartEditResult result,
                                     std::uint64_t next_id,
                                     bool id_available) noexcept {
   try {
+    MutableDraft candidate{std::move(draft)};
+    prune_leading_inserted_showtimes(candidate, draft_);
+    ChartDraft finished = std::move(candidate).finish();
     undo_.push_back(draft_);
+    draft_ = std::move(finished);
   } catch (const std::bad_alloc&) {
     return {ChartEditCode::AllocationFailure, false, {0U}};
   }
-  draft_ = std::move(draft);
   redo_.clear();
   next_id_ = next_id;
   id_available_ = id_available;

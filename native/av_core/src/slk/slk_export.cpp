@@ -245,9 +245,10 @@ struct EncodedRow final {
   std::sort(drills.begin(), drills.end(),
             [&draft](const ChartDanceMoveDrill* left,
                      const ChartDanceMoveDrill* right) {
-              const auto left_row = dance_move_drill_first_row(draft, left->id);
+              const auto left_row =
+                  dance_move_drill_first_note_row(draft, left->id);
               const auto right_row =
-                  dance_move_drill_first_row(draft, right->id);
+                  dance_move_drill_first_note_row(draft, right->id);
               const auto left_value =
                   left_row.has_value()
                       ? *left_row
@@ -294,14 +295,17 @@ struct EncodedRow final {
     }
     // A Showtime may reference fewer moves than its stage holds. The unshown
     // moves stay in the same ordinary stage, so they are written between the
-    // recorded moves and this stage's SHOW-C.
+    // recorded moves and this stage's SHOW-C. The stage begins after the
+    // previous Showtime's last SHOW-D event row; display ranges do not decide
+    // stage membership.
     for (std::size_t index = 0U; index < drills.size(); ++index) {
       if (emitted[index]) {
         continue;
       }
-      const auto first_row = dance_move_drill_first_row(draft, drills[index]->id);
-      if (!first_row.has_value() || *first_row >= start->row ||
-          (has_stage_begin && *first_row <= stage_begin) ||
+      const auto first_note_row =
+          dance_move_drill_first_note_row(draft, drills[index]->id);
+      if (!first_note_row.has_value() || *first_note_row >= start->row ||
+          (has_stage_begin && *first_note_row <= stage_begin) ||
           is_recorded(showtime, drills[index]->id)) {
         continue;
       }

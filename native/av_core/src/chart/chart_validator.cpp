@@ -220,23 +220,24 @@ void diagnose_ordered_event(const Event* event, bool& has_previous,
 
 struct UnownedDrill final {
   const ChartDanceMoveDrill* drill;
-  std::uint64_t first_row;
+  std::uint64_t first_note_row;
 };
 
 [[nodiscard]] std::vector<UnownedDrill> drills_in_row_order(
     const ChartDraft& draft) {
   std::vector<UnownedDrill> result;
   for (const auto& drill : draft.dance_move_drills()) {
-    const auto first_row = dance_move_drill_first_row(draft, drill.id);
-    if (!first_row.has_value()) {
+    const auto first_note_row =
+        dance_move_drill_first_note_row(draft, drill.id);
+    if (!first_note_row.has_value()) {
       continue;
     }
-    result.push_back({&drill, *first_row});
+    result.push_back({&drill, *first_note_row});
   }
   std::sort(result.begin(), result.end(),
             [](const UnownedDrill& left, const UnownedDrill& right) {
-              return left.first_row != right.first_row
-                         ? left.first_row < right.first_row
+              return left.first_note_row != right.first_note_row
+                         ? left.first_note_row < right.first_note_row
                          : left.drill->id.value < right.drill->id.value;
             });
   return result;
@@ -300,8 +301,9 @@ void diagnose_finished_event_layout(const ChartDraft& draft,
   for (const auto& entry : ordered_showtimes) {
     std::vector<std::size_t> stage;
     for (std::size_t index = 0U; index < drills.size(); ++index) {
-      if (emitted[index] || drills[index].first_row >= entry.start_row ||
-          (has_stage_begin && drills[index].first_row <= stage_begin)) {
+      if (emitted[index] ||
+          drills[index].first_note_row >= entry.start_row ||
+          (has_stage_begin && drills[index].first_note_row <= stage_begin)) {
         continue;
       }
       stage.push_back(index);

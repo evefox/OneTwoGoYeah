@@ -121,8 +121,13 @@ bool chart_drafts_equal(const ChartDraft& left,
   return true;
 }
 
-std::optional<std::uint64_t> dance_move_drill_first_row(
-    const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept {
+namespace {
+
+enum class FirstRowKind { AnyEvent, NoteOnly };
+
+std::optional<std::uint64_t> drill_first_row(const ChartDraft& draft,
+                                             ChartDanceMoveDrillId id,
+                                             FirstRowKind kind) noexcept {
   const ChartDanceMoveDrill* target = nullptr;
   for (const auto& drill : draft.dance_move_drills()) {
     if (drill.id.value == id.value) {
@@ -145,9 +150,14 @@ std::optional<std::uint64_t> dance_move_drill_first_row(
     if (group == nullptr) {
       continue;
     }
-    const auto include = [&draft, &first_row](const ChartEventId event_id) {
+    const auto include = [&draft, &first_row, kind](
+                             const ChartEventId event_id) {
       for (const auto& event : draft.role_events()) {
         if (event.id.value == event_id.value) {
+          if (kind == FirstRowKind::NoteOnly &&
+              event.type != ChartRoleEventType::Note) {
+            return;
+          }
           if (!first_row.has_value() || event.row < *first_row) {
             first_row = event.row;
           }
@@ -163,6 +173,18 @@ std::optional<std::uint64_t> dance_move_drill_first_row(
     }
   }
   return first_row;
+}
+
+}  // namespace
+
+std::optional<std::uint64_t> dance_move_drill_first_row(
+    const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept {
+  return drill_first_row(draft, id, FirstRowKind::AnyEvent);
+}
+
+std::optional<std::uint64_t> dance_move_drill_first_note_row(
+    const ChartDraft& draft, ChartDanceMoveDrillId id) noexcept {
+  return drill_first_row(draft, id, FirstRowKind::NoteOnly);
 }
 
 }  // namespace otgy::core

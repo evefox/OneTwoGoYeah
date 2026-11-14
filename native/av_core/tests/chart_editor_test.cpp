@@ -2425,8 +2425,9 @@ void test_stale_showtime_pruning() {
     assert(editor.draft().showtimes().size() == 1U);
   }
 
-  // (e) A move inserted before the first recorded move only shifts the
-  // candidate list, so the Showtime stays and only continuing it is refused.
+  // (e) A move completed before the first recorded move becomes a leading
+  // candidate. The recorded moves are no longer the stage prefix, so the
+  // Showtime is cleared with that edit and must be placed again.
   {
     ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
     add_dance_move(editor, 24U);
@@ -2434,16 +2435,11 @@ void test_stale_showtime_pruning() {
     assert(editor.click(ChartColumn::Showtime, 96U));
     assert(editor.draft().showtime_move_events().size() == 2U);
     add_dance_move(editor, 0U);
+    assert(editor.draft().showtimes().empty());
+    assert(editor.draft().showtime_start_events().empty());
+    assert(editor.draft().showtime_move_events().empty());
+    assert(editor.undo());
     assert(editor.draft().showtimes().size() == 1U);
-    assert(editor.draft().showtime_move_events().size() == 2U);
-    const auto before = editor.draft();
-    const auto history = editor.undo_count();
-
-    const auto refused = editor.click(ChartColumn::Showtime, 128U);
-    assert(refused.code == ChartEditCode::ShowtimeContentStale);
-    assert(!refused.changed);
-    assert(editor.undo_count() == history);
-    assert(otgy::core::chart_drafts_equal(editor.draft(), before));
   }
 
   // (f) An imported Showtime may carry fewer move markers than dance moves.
@@ -2927,13 +2923,11 @@ void test_empty_click_auto_end_splits_trailing_groups() {
   assert(otgy::core::chart_drafts_equal(editor.draft(), before));
 }
 
-/// A malformed draft that is already stored must be normalized when loaded:
-/// visible NPC ends define the moves, not the old drill relation. A stale
-/// Showtime is rebuilt from the repaired complete moves at its original row.
-/// The next Showtime starts after the previous Showtime's last display range,
-/// not after its SHOW-D anchor row. A complete move inside that range must not
-/// become a candidate, while a move starting exactly at rangeEnd must.
-void test_showtime_completion_uses_previous_range_end() {
+/// A Showtime's stage starts after the previous Showtime's last SHOW-D event
+/// row, not after its display range end. A complete move starting in the last
+/// open half measure is therefore a candidate for the next Showtime, and the
+/// recorded moves must be the stage prefix.
+void test_showtime_completion_uses_previous_show_d_row() {
   std::vector<ChartRoleEvent> events;
   std::vector<ChartDrillGroup> groups;
   std::vector<ChartDanceMoveDrill> drills;
@@ -2979,7 +2973,7 @@ void test_showtime_completion_uses_previous_range_end() {
 
   const ChartEventId previous_start{500U};
   starts.push_back({previous_start, 16U, {501U}});
-  moves.push_back({{502U}, 64U, {501U}, {100U}, 7U});
+  moves.push_back({{502U}, 64U, {501U}, {100U}, 1U});
   showtimes.push_back(
       {{501U}, previous_start, {{100U}}, {{502U}}});
 
@@ -2997,16 +2991,16 @@ void test_showtime_completion_uses_previous_range_end() {
         return false;
       });
   assert(next != result.end());
-  assert(next->dance_move_drill_ids.size() == 1U);
-  assert(next->dance_move_drill_ids.front().value == 300U);
+  assert(next->dance_move_drill_ids.size() == 2U);
+  assert(next->dance_move_drill_ids[0U].value == 200U);
+  assert(next->dance_move_drill_ids[1U].value == 300U);
 }
 
-/// The previous-stage boundary is decided by the first N of a dance move, not
-/// by its NPC-C block start. The final half measure of the last SHOW-D is the
-/// only place where the next stage's NPC-C may sit inside the display range,
-/// so a move whose NPC-C is there and whose first N starts exactly at rangeEnd
-/// must still be a candidate for the next Showtime.
-void test_showtime_completion_ignores_block_start_for_previous_range() {
+/// The stage boundary is the previous Showtime's last SHOW-D event row. A move
+/// starting inside that SHOW-D's display range is still a candidate, whether its
+/// NPC-C sits before or in the final open half measure; the NPC-C row does not
+/// decide stage membership.
+void test_showtime_completion_ignores_display_range_boundary() {
   std::vector<ChartRoleEvent> events;
   std::vector<ChartDrillGroup> groups;
   std::vector<ChartDanceMoveDrill> drills;
@@ -3047,17 +3041,17 @@ void test_showtime_completion_ignores_block_start_for_previous_range() {
     drills.push_back({drill_id, 1U, {group_id}});
   };
 
-  // Previous Showtime: its SHOW-D has seven N and covers [64, 96).
+  // Previous Showtime: its SHOW-D has one N.
   add_move({10U}, {100U}, 0U, 2U, 4U, 6U, 8U, 10U);
-  // A move whose first N starts inside the display range is not a candidate.
+  // A move whose first N starts inside the display range is a candidate.
   add_move({20U}, {200U}, 70U, 72U, 76U, 78U, 80U, 84U);
-  // NPC-C sits in the allowed final open half measure [88, 96); the move
-  // itself starts exactly at rangeEnd.
+  // The next move's NPC-C sits in the allowed final open half measure; its
+  // first N is beyond the range, and it is also a candidate.
   add_move({30U}, {300U}, 88U, 96U, 100U, 102U, 110U, 114U);
 
   const ChartEventId previous_start{500U};
   starts.push_back({previous_start, 16U, {501U}});
-  moves.push_back({{502U}, 64U, {501U}, {100U}, 7U});
+  moves.push_back({{502U}, 64U, {501U}, {100U}, 1U});
   showtimes.push_back({{501U}, previous_start, {{100U}}, {{502U}}});
 
   ChartEditor editor{ChartDraft{events, starts, moves, groups, drills,
@@ -3074,8 +3068,9 @@ void test_showtime_completion_ignores_block_start_for_previous_range() {
         return false;
       });
   assert(next != result.end());
-  assert(next->dance_move_drill_ids.size() == 1U);
-  assert(next->dance_move_drill_ids.front().value == 300U);
+  assert(next->dance_move_drill_ids.size() == 2U);
+  assert(next->dance_move_drill_ids[0U].value == 200U);
+  assert(next->dance_move_drill_ids[1U].value == 300U);
 }
 
 /// Deleting an NPC-S must not merge across another drill's visible NPC-S. The
@@ -4023,8 +4018,8 @@ int main() {
   test_showtime_conflicts_position_and_retained_start();
   test_showtime_manual_position_boundaries();
   test_showtime_final_open_range_exceptions();
-  test_showtime_completion_uses_previous_range_end();
-  test_showtime_completion_ignores_block_start_for_previous_range();
+  test_showtime_completion_uses_previous_show_d_row();
+  test_showtime_completion_ignores_display_range_boundary();
   test_earlier_showtime_is_inserted_in_row_order();
   test_stale_showtime_pruning();
   test_split_dance_move_regenerates_showtime();
