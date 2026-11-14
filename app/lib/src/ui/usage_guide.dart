@@ -1,14 +1,28 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'editor_keymap.dart';
 import 'editor_theme.dart';
 import 'usage_guide_content.dart';
 
 /// Full-screen, read-only help. The first page is a five-image swipe carousel;
 /// swiping down (or the bottom pill) opens three vertical help entries. Detail
 /// pages return to the help page and never touch the editor state.
+///
+/// The shortcut detail page is the one exception to "read-only" on desktop:
+/// rows for [EditorShortcutAction] values open a capture dialog and report the
+/// new keymap through [onKeymapChanged]. Rebinding is an input preference only;
+/// no page here sends a domain command or touches the draft.
 class UsageGuideScreen extends StatefulWidget {
-  const UsageGuideScreen({super.key});
+  const UsageGuideScreen({
+    super.key,
+    required this.keymap,
+    required this.onKeymapChanged,
+  });
+
+  final EditorKeymap keymap;
+  final ValueChanged<EditorKeymap> onKeymapChanged;
 
   @override
   State<UsageGuideScreen> createState() => _UsageGuideScreenState();
@@ -20,16 +34,39 @@ class _UsageGuideScreenState extends State<UsageGuideScreen> {
   int _imageIndex = 0;
   int _verticalIndex = 0;
   int? _detailIndex;
+  late EditorKeymap _keymap = widget.keymap;
 
   bool get _mobile =>
       defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.android;
+
+  TargetPlatform get _platform => defaultTargetPlatform;
 
   @override
   void dispose() {
     _imageController.dispose();
     _verticalController.dispose();
     super.dispose();
+  }
+
+  void _applyKeymap(EditorKeymap next) {
+    setState(() => _keymap = next);
+    widget.onKeymapChanged(next);
+  }
+
+  Future<void> _editShortcut(EditorShortcutAction action) async {
+    final result = await showDialog<List<ShortcutBinding>>(
+      context: context,
+      builder: (context) => _ShortcutCaptureDialog(
+        action: action,
+        keymap: _keymap,
+        platform: _platform,
+      ),
+    );
+    if (result == null || !mounted) {
+      return;
+    }
+    _applyKeymap(_keymap.withBindings(action, result));
   }
 
   @override
@@ -321,6 +358,13 @@ class _UsageGuideScreenState extends State<UsageGuideScreen> {
                             ),
                             child: _BlockView(
                               block: topic.blocks[blockIndex],
+                              keymap: _keymap,
+                              platform: _platform,
+                              mobile: _mobile,
+                              onEditAction: _editShortcut,
+                              onResetKeymap: () => _applyKeymap(
+                                EditorKeymap.defaults(_platform),
+                              ),
                             ),
                           ),
                       ],
@@ -530,9 +574,21 @@ class _TopicCard extends StatelessWidget {
 }
 
 class _BlockView extends StatelessWidget {
-  const _BlockView({required this.block});
+  const _BlockView({
+    required this.block,
+    required this.keymap,
+    required this.platform,
+    required this.mobile,
+    required this.onEditAction,
+    required this.onResetKeymap,
+  });
 
   final UsageGuideBlock block;
+  final EditorKeymap keymap;
+  final TargetPlatform platform;
+  final bool mobile;
+  final ValueChanged<EditorShortcutAction> onEditAction;
+  final VoidCallback onResetKeymap;
 
   @override
   Widget build(BuildContext context) {
@@ -622,51 +678,402 @@ class _BlockView extends StatelessWidget {
             ),
         ],
       ),
-      GuideShortcuts(:final rows) => Container(
-        decoration: BoxDecoration(
-          color: EditorColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: EditorColors.border),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (shortcut, description) in rows)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 250,
-                      child: Text(
-                        shortcut,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: EditorColors.text,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        description,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.5,
-                          color: EditorColors.textMuted,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
+      GuideShortcuts() => _ShortcutTable(
+        keymap: keymap,
+        platform: platform,
+        mobile: mobile,
+        onEditAction: onEditAction,
+        onResetKeymap: onResetKeymap,
       ),
     };
+  }
+}
+
+/// Keyboard and gesture table. Desktop players see the live keymap plus the
+/// fixed mouse rows; mobile players see touch rows only, so neither platform
+/// has to read instructions it cannot use.
+class _ShortcutTable extends StatelessWidget {
+  const _ShortcutTable({
+    required this.keymap,
+    required this.platform,
+    required this.mobile,
+    required this.onEditAction,
+    required this.onResetKeymap,
+  });
+
+  final EditorKeymap keymap;
+  final TargetPlatform platform;
+  final bool mobile;
+  final ValueChanged<EditorShortcutAction> onEditAction;
+  final VoidCallback onResetKeymap;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[
+      if (!mobile)
+        for (final action in EditorShortcutAction.values)
+          _ShortcutRow(
+            key: ValueKey('shortcut-row-${action.id}'),
+            keys: formatShortcutBindings(keymap.bindingsFor(action), platform),
+            description: action.label,
+            editable: true,
+            onTap: () => onEditAction(action),
+          ),
+      if (!mobile)
+        for (final (keys, description) in desktopFixedShortcutRows(platform))
+          _ShortcutRow(keys: keys, description: description),
+      if (mobile)
+        for (final (keys, description) in mobileShortcutGestureRows)
+          _ShortcutRow(keys: keys, description: description),
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: EditorColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: EditorColors.border),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var index = 0; index < rows.length; index++) ...[
+            rows[index],
+            if (index != rows.length - 1)
+              Divider(
+                height: 1,
+                color: EditorColors.border.withValues(alpha: 0.5),
+              ),
+          ],
+          if (!mobile) ...[
+            const Divider(height: 20, color: EditorColors.border),
+            Text(
+              '点击键盘行可以改成自己的组合；Backspace 清除绑定，Esc、Enter、复制和剪切保持固定。',
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.5,
+                color: EditorColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('shortcut-reset-all'),
+                onPressed: keymap.isDefaultFor(platform) ? null : onResetKeymap,
+                style: TextButton.styleFrom(
+                  foregroundColor: EditorColors.accent,
+                ),
+                icon: const Icon(Icons.restart_alt, size: 18),
+                label: const Text('恢复默认快捷键'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ShortcutRow extends StatelessWidget {
+  const _ShortcutRow({
+    super.key,
+    required this.keys,
+    required this.description,
+    this.editable = false,
+    this.onTap,
+  });
+
+  final String keys;
+  final String description;
+  final bool editable;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  keys,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    height: 1.4,
+                    color: EditorColors.text,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    height: 1.45,
+                    color: EditorColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (editable)
+            const Padding(
+              padding: EdgeInsets.only(left: 12, top: 1),
+              child: Icon(
+                Icons.edit_outlined,
+                size: 18,
+                color: EditorColors.accent,
+              ),
+            ),
+        ],
+      ),
+    );
+    if (!editable) {
+      return content;
+    }
+    return Semantics(
+      button: true,
+      label: '$description，当前 $keys，点击修改',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: content,
+      ),
+    );
+  }
+}
+
+/// Captures one new chord. The dialog owns no editor state: it returns the new
+/// binding list, or null when the player cancels.
+class _ShortcutCaptureDialog extends StatefulWidget {
+  const _ShortcutCaptureDialog({
+    required this.action,
+    required this.keymap,
+    required this.platform,
+  });
+
+  final EditorShortcutAction action;
+  final EditorKeymap keymap;
+  final TargetPlatform platform;
+
+  @override
+  State<_ShortcutCaptureDialog> createState() => _ShortcutCaptureDialogState();
+}
+
+class _ShortcutCaptureDialogState extends State<_ShortcutCaptureDialog> {
+  final FocusNode _focusNode = FocusNode(debugLabel: '快捷键捕获');
+  ShortcutBinding? _pending;
+  bool _unbind = false;
+  String? _error;
+
+  List<ShortcutBinding> get _current =>
+      widget.keymap.bindingsFor(widget.action);
+
+  List<ShortcutBinding> get _defaults =>
+      defaultEditorShortcutBindings(widget.platform)[widget.action] ??
+      const <ShortcutBinding>[];
+
+  bool get _matchesDefaults {
+    final defaults = _defaults;
+    if (defaults.length != _current.length) {
+      return false;
+    }
+    for (var index = 0; index < defaults.length; index++) {
+      if (!defaults[index].hasSameChord(_current[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool get _canApply => _unbind || (_pending != null && _error == null);
+
+  String get _previewText {
+    if (_unbind) {
+      return '未绑定';
+    }
+    final pending = _pending;
+    if (pending != null) {
+      return formatShortcutBinding(pending, widget.platform);
+    }
+    return formatShortcutBindings(_current, widget.platform);
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.escape) {
+      Navigator.of(context).maybePop();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.backspace ||
+        key == LogicalKeyboardKey.delete) {
+      setState(() {
+        _pending = null;
+        _unbind = true;
+        _error = null;
+      });
+      return KeyEventResult.handled;
+    }
+    if (isModifierOnlyKey(key)) {
+      // Modifier-only presses never become a binding; repaint so the preview
+      // can show that the modifier is being held.
+      setState(() {});
+      return KeyEventResult.handled;
+    }
+    final keyboard = HardwareKeyboard.instance;
+    final binding = ShortcutBinding(
+      keyId: key.keyId,
+      control: keyboard.isControlPressed,
+      meta: keyboard.isMetaPressed,
+      shift: keyboard.isShiftPressed,
+      alt: keyboard.isAltPressed,
+    );
+    final conflict = widget.keymap.conflictingAction(widget.action, binding);
+    final String? error;
+    if (isReservedShortcut(binding)) {
+      error = 'Esc、Enter、复制和剪切使用固定组合';
+    } else if (conflict != null) {
+      error = '该组合已用于「${conflict.label}」';
+    } else {
+      error = null;
+    }
+    setState(() {
+      _pending = binding;
+      _unbind = false;
+      _error = error;
+    });
+    return KeyEventResult.handled;
+  }
+
+  void _apply() {
+    if (_unbind) {
+      Navigator.of(context).pop(<ShortcutBinding>[]);
+      return;
+    }
+    final pending = _pending;
+    if (pending == null || _error != null) {
+      return;
+    }
+    Navigator.of(context).pop(<ShortcutBinding>[pending]);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const ValueKey('shortcut-capture-dialog'),
+      backgroundColor: EditorColors.surfaceRaised,
+      title: const Text(
+        '修改快捷键',
+        style: TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.w600,
+          color: EditorColors.text,
+        ),
+      ),
+      content: Focus(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: _handleKey,
+        child: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.action.label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: EditorColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Semantics(
+                liveRegion: true,
+                child: Container(
+                  key: const ValueKey('shortcut-capture-preview'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 18,
+                  ),
+                  decoration: BoxDecoration(
+                    color: EditorColors.canvas,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _error != null
+                          ? EditorColors.danger
+                          : EditorColors.accent.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Text(
+                    _previewText,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: _error != null
+                          ? EditorColors.danger
+                          : EditorColors.text,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _error ?? (_unbind ? '应用后该操作没有快捷键' : '按下新的组合键'),
+                key: const ValueKey('shortcut-capture-hint'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: _error != null
+                      ? EditorColors.danger
+                      : EditorColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Esc 取消，Backspace 清除绑定。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: EditorColors.textMuted),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          key: const ValueKey('shortcut-capture-default'),
+          onPressed: _matchesDefaults
+              ? null
+              : () => Navigator.of(context).pop(_defaults),
+          child: const Text('恢复默认'),
+        ),
+        TextButton(
+          key: const ValueKey('shortcut-capture-cancel'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          key: const ValueKey('shortcut-capture-apply'),
+          onPressed: _canApply ? _apply : null,
+          child: const Text('应用'),
+        ),
+      ],
+    );
   }
 }

@@ -2,11 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:one_two_go_yeah/main.dart';
 import 'package:one_two_go_yeah/src/application/editor_controller.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_project_store.dart';
 import 'package:one_two_go_yeah/src/infrastructure/local_ui_preferences.dart';
+import 'package:one_two_go_yeah/src/ui/editor_keymap.dart';
 import 'package:one_two_go_yeah/src/ui/usage_guide_content.dart';
 import 'package:otgy_native/otgy_native.dart';
 
@@ -54,6 +56,14 @@ void main() {
 
   Future<void> openGuide(WidgetTester tester) async {
     await tester.tap(find.byKey(const ValueKey('usage-guide-button')));
+    await settle(tester);
+  }
+
+  Future<void> openShortcutTopic(WidgetTester tester) async {
+    await openGuide(tester);
+    await tester.tap(find.byKey(const ValueKey('usage-guide-bottom-toggle')));
+    await settle(tester);
+    await tester.tap(find.byKey(const ValueKey('usage-guide-topic-1')));
     await settle(tester);
   }
 
@@ -294,5 +304,160 @@ void main() {
     await pumpEditor(tester, preferences: LocalUiPreferences.inMemory());
 
     expect(find.byKey(const ValueKey('usage-guide-hint')), findsNothing);
+  });
+
+  testWidgets('desktop shortcut page lists desktop controls only', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    try {
+      await pumpEditor(tester);
+      await openShortcutTopic(tester);
+
+      expect(
+        find.byKey(const ValueKey('shortcut-row-playPause')),
+        findsOneWidget,
+      );
+      expect(find.text('⌘Z 或 ⌃Z'), findsOneWidget);
+      expect(find.text('鼠标中键'), findsOneWidget);
+      expect(find.text('单指拖动'), findsNothing);
+      expect(find.text('双指捏合'), findsNothing);
+      expect(find.text('长按'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('mobile shortcut page lists touch controls only', (tester) async {
+    await pumpEditor(tester);
+    await openShortcutTopic(tester);
+
+    expect(find.text('单指拖动'), findsOneWidget);
+    expect(find.text('双指捏合'), findsOneWidget);
+    expect(find.byKey(const ValueKey('shortcut-row-playPause')), findsNothing);
+    expect(find.text('鼠标中键'), findsNothing);
+    expect(find.byKey(const ValueKey('shortcut-reset-all')), findsNothing);
+  });
+
+  testWidgets('rebinding a shortcut updates the list and the preferences', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    final preferences = LocalUiPreferences.inMemory();
+    try {
+      await pumpEditor(tester, preferences: preferences);
+      await openShortcutTopic(tester);
+
+      await tester.tap(find.byKey(const ValueKey('shortcut-row-undo')));
+      await settle(tester);
+      expect(
+        find.byKey(const ValueKey('shortcut-capture-dialog')),
+        findsOneWidget,
+      );
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+      expect(find.text('Ctrl + F9'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('shortcut-capture-apply')));
+      await settle(tester);
+
+      expect(find.text('Ctrl + F9'), findsOneWidget);
+      expect(find.text('Ctrl + Z'), findsNothing);
+      final stored =
+          preferences.shortcuts!['bindings']! as Map<String, Object?>;
+      expect(stored['undo'], [
+        {'key': LogicalKeyboardKey.f9.keyId, 'ctrl': true},
+      ]);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('a conflicting chord is rejected before applying', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    try {
+      await pumpEditor(tester);
+      await openShortcutTopic(tester);
+
+      await tester.tap(find.byKey(const ValueKey('shortcut-row-undo')));
+      await settle(tester);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyY);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+
+      expect(find.text('该组合已用于「重做」'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('shortcut-capture-apply')),
+            )
+            .onPressed,
+        isNull,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('restore defaults puts the listed shortcuts back', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    final custom = EditorKeymap.defaults(TargetPlatform.windows).withBindings(
+      EditorShortcutAction.zoomIn,
+      [ShortcutBinding(keyId: LogicalKeyboardKey.f9.keyId)],
+    );
+    try {
+      await pumpEditor(
+        tester,
+        preferences: LocalUiPreferences.inMemory(shortcuts: custom.toJson()),
+      );
+      await openShortcutTopic(tester);
+
+      expect(find.text('F9'), findsOneWidget);
+      final reset = find.byKey(const ValueKey('shortcut-reset-all'));
+      await tester.ensureVisible(reset);
+      await tester.pump();
+      await tester.tap(reset);
+      await settle(tester);
+      expect(find.text('小键盘 +'), findsOneWidget);
+      expect(find.text('F9'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('a rebound zoom key dispatches the same zoom command', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    final keymap = EditorKeymap.defaults(TargetPlatform.windows).withBindings(
+      EditorShortcutAction.zoomIn,
+      [ShortcutBinding(keyId: LogicalKeyboardKey.f9.keyId)],
+    );
+    try {
+      await pumpEditor(
+        tester,
+        preferences: LocalUiPreferences.inMemory(shortcuts: keymap.toJson()),
+      );
+      final before = controller.zoom;
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.f9);
+      await tester.pump();
+      expect(controller.zoom, before + 0.25);
+
+      // The replaced default no longer fires.
+      await tester.sendKeyEvent(LogicalKeyboardKey.numpadAdd);
+      await tester.pump();
+      expect(controller.zoom, before + 0.25);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 }

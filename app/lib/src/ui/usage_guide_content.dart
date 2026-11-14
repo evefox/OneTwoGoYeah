@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'editor_keymap.dart';
+
 /// One image in the help carousel. The image already contains its title,
 /// direct labels and straight leader lines, so the Flutter layer only shows
 /// the picture.
@@ -53,10 +55,32 @@ final class GuideSteps extends UsageGuideBlock {
 }
 
 final class GuideShortcuts extends UsageGuideBlock {
-  const GuideShortcuts(this.rows);
-
-  final List<(String, String)> rows;
+  const GuideShortcuts();
 }
+
+/// Gesture and fixed-control rows for a desktop player. Rebindable keyboard
+/// actions are rendered from the live keymap above these rows, so this list
+/// only holds combinations the editor never remaps.
+List<(String, String)> desktopFixedShortcutRows(TargetPlatform platform) {
+  final primary = primaryModifierLabel(platform);
+  return [
+    ('$primary + C', '复制选中的舞步（选择模式）'),
+    ('$primary + X', '剪切选中的舞步（选择模式）'),
+    ('Esc', '退出选择或粘贴'),
+    ('滚轮', '移动时间线'),
+    ('$primary + 滚轮', '调整 Zoom'),
+    ('Ctrl + Alt + 滚轮', '调整 Scale'),
+    ('鼠标中键', '跳到最近的吸附行'),
+  ];
+}
+
+/// Touch rows for a mobile player. Desktop-only keyboard and mouse rows are
+/// deliberately absent; the desktop list omits these in the same way.
+const mobileShortcutGestureRows = <(String, String)>[
+  ('单指拖动', '移动时间线'),
+  ('双指捏合', '调整 Zoom'),
+  ('长按', '进入选择模式'),
+];
 
 /// Six slides: a whole-interface overview, four area slides, and a gesture
 /// slide for the blank editing grid. Desktop and mobile use separate
@@ -119,22 +143,7 @@ const usageGuideTopics = <UsageGuideTopic>[
   UsageGuideTopic(
     title: '快捷键与手势',
     icon: Icons.keyboard_outlined,
-    blocks: [
-      GuideShortcuts([
-        ('空格', '播放 / 暂停'),
-        ('滚轮', '移动时间线'),
-        ('Ctrl / Command + 滚轮', '调整 Zoom'),
-        ('Ctrl + Alt + 滚轮', '调整 Scale'),
-        ('鼠标中键', '跳到最近的吸附行'),
-        ('Command + / - / 0', 'Zoom 增减 / 重置'),
-        ('Ctrl / Command + Z', '撤销'),
-        ('Ctrl / Command + Shift + Z', '重做'),
-        ('Esc', '退出选择或粘贴'),
-        ('单指拖动（移动端）', '移动时间线'),
-        ('双指捏合（移动端）', '调整 Zoom'),
-        ('长按（两端）', '进入选择模式'),
-      ]),
-    ],
+    blocks: [GuideShortcuts()],
   ),
   UsageGuideTopic(
     title: '常见问题',

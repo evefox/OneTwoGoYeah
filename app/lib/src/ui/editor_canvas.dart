@@ -10,6 +10,7 @@ import 'package:otgy_native/otgy_native.dart';
 
 import '../application/editor_controller.dart';
 import '../infrastructure/local_ui_preferences.dart';
+import 'editor_keymap.dart';
 import 'editor_theme.dart';
 import 'judgement_analysis_dialog.dart';
 import 'usage_guide.dart';
@@ -464,6 +465,7 @@ class _EditorCanvasState extends State<EditorCanvas>
   int? _pastePreviewSyncedRevision;
   bool _guideHintPending = false;
   Duration _guideHintDuration = const Duration(seconds: 5);
+  late EditorKeymap _keymap;
 
   bool get _mobile =>
       defaultTargetPlatform == TargetPlatform.iOS ||
@@ -479,6 +481,10 @@ class _EditorCanvasState extends State<EditorCanvas>
     widget.controller.addListener(_handleControllerChanged);
     _handleControllerChanged();
     final preferences = widget.preferences;
+    _keymap = EditorKeymap.fromJson(
+      preferences?.shortcuts,
+      defaultTargetPlatform,
+    );
     final firstLaunch = preferences != null && !preferences.guideHintSeen;
     _guideHintDuration = firstLaunch
         ? const Duration(minutes: 2)
@@ -524,6 +530,17 @@ class _EditorCanvasState extends State<EditorCanvas>
     setState(() => _guideHintPending = false);
     if (preferences != null) {
       unawaited(preferences.markGuideHintSeen());
+    }
+  }
+
+  /// Applies a keymap edited in the usage guide. The keymap is an input
+  /// preference: it only changes which chord reaches an existing controller
+  /// command and is persisted beside the help-reminder flag.
+  void _applyKeymap(EditorKeymap keymap) {
+    setState(() => _keymap = keymap);
+    final preferences = widget.preferences;
+    if (preferences != null) {
+      unawaited(preferences.saveShortcuts(keymap.toJson()));
     }
   }
 
@@ -1016,6 +1033,33 @@ class _EditorCanvasState extends State<EditorCanvas>
     unawaited(widget.controller.setZoom(widget.controller.zoom + delta));
   }
 
+  /// Every rebindable chord dispatches the same controller command the fixed
+  /// defaults used. The canvas never inspects the key itself.
+  Map<ShortcutActivator, VoidCallback> _buildShortcutBindings() {
+    final bindings = <ShortcutActivator, VoidCallback>{};
+    void add(EditorShortcutAction action, VoidCallback callback) {
+      for (final binding in _keymap.bindingsFor(action)) {
+        final activator = binding.toActivator();
+        if (activator != null) {
+          bindings[activator] = callback;
+        }
+      }
+    }
+
+    add(EditorShortcutAction.undo, widget.controller.undo);
+    add(EditorShortcutAction.redo, widget.controller.redo);
+    add(EditorShortcutAction.zoomIn, () => _zoomBy(0.25));
+    add(EditorShortcutAction.zoomOut, () => _zoomBy(-0.25));
+    add(
+      EditorShortcutAction.zoomReset,
+      () => unawaited(widget.controller.setZoom(10)),
+    );
+    if (!widget.controller.isSimulationPlaying) {
+      add(EditorShortcutAction.playPause, widget.controller.togglePlayback);
+    }
+    return bindings;
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -1129,43 +1173,7 @@ class _EditorCanvasState extends State<EditorCanvas>
           );
         }
 
-        final shortcutBindings = <ShortcutActivator, VoidCallback>{
-          const SingleActivator(LogicalKeyboardKey.keyZ, control: true):
-              widget.controller.undo,
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            control: true,
-            shift: true,
-          ): widget.controller.redo,
-          const SingleActivator(LogicalKeyboardKey.keyZ, meta: true):
-              widget.controller.undo,
-          const SingleActivator(
-            LogicalKeyboardKey.keyZ,
-            meta: true,
-            shift: true,
-          ): widget.controller.redo,
-          if (!widget.controller.isSimulationPlaying)
-            const SingleActivator(LogicalKeyboardKey.space):
-                widget.controller.togglePlayback,
-        };
-        if (_macOS) {
-          shortcutBindings.addAll({
-            const SingleActivator(LogicalKeyboardKey.equal, meta: true): () =>
-                _zoomBy(0.25),
-            const SingleActivator(
-              LogicalKeyboardKey.equal,
-              meta: true,
-              shift: true,
-            ): () =>
-                _zoomBy(0.25),
-            const SingleActivator(LogicalKeyboardKey.add, meta: true): () =>
-                _zoomBy(0.25),
-            const SingleActivator(LogicalKeyboardKey.minus, meta: true): () =>
-                _zoomBy(-0.25),
-            const SingleActivator(LogicalKeyboardKey.digit0, meta: true): () =>
-                unawaited(widget.controller.setZoom(10)),
-          });
-        }
+        final shortcutBindings = _buildShortcutBindings();
 
         return CallbackShortcuts(
           bindings: shortcutBindings,
@@ -1366,6 +1374,8 @@ class _EditorCanvasState extends State<EditorCanvas>
                     child: _NavigationRail(
                       controller: widget.controller,
                       navigation: navigation,
+                      keymap: _keymap,
+                      onKeymapChanged: _applyKeymap,
                       showGuideHint: _guideHintPending,
                       guideHintDuration: _guideHintDuration,
                       onGuideHintShown: _handleGuideHintShown,
@@ -1381,6 +1391,8 @@ class _EditorCanvasState extends State<EditorCanvas>
                       child: _NavigationRail(
                         controller: widget.controller,
                         navigation: navigation,
+                        keymap: _keymap,
+                        onKeymapChanged: _applyKeymap,
                         showGuideHint: _guideHintPending,
                         guideHintDuration: _guideHintDuration,
                         onGuideHintShown: _handleGuideHintShown,
@@ -1469,6 +1481,8 @@ class _NavigationRail extends StatefulWidget {
   const _NavigationRail({
     required this.controller,
     required this.navigation,
+    required this.keymap,
+    required this.onKeymapChanged,
     required this.showGuideHint,
     required this.guideHintDuration,
     required this.onGuideHintShown,
@@ -1476,6 +1490,8 @@ class _NavigationRail extends StatefulWidget {
 
   final EditorController controller;
   final TimelineNavigation navigation;
+  final EditorKeymap keymap;
+  final ValueChanged<EditorKeymap> onKeymapChanged;
   final bool showGuideHint;
   final Duration guideHintDuration;
   final VoidCallback onGuideHintShown;
@@ -1487,12 +1503,16 @@ class _NavigationRail extends StatefulWidget {
 class _UsageGuideButton extends StatefulWidget {
   const _UsageGuideButton({
     required this.controller,
+    required this.keymap,
+    required this.onKeymapChanged,
     required this.showHint,
     required this.hintDuration,
     required this.onHintShown,
   });
 
   final EditorController controller;
+  final EditorKeymap keymap;
+  final ValueChanged<EditorKeymap> onKeymapChanged;
   final bool showHint;
   final Duration hintDuration;
   final VoidCallback onHintShown;
@@ -1590,7 +1610,10 @@ class _UsageGuideButtonState extends State<_UsageGuideButton> {
       PageRouteBuilder<void>(
         opaque: true,
         pageBuilder: (context, animation, secondaryAnimation) =>
-            const UsageGuideScreen(),
+            UsageGuideScreen(
+              keymap: widget.keymap,
+              onKeymapChanged: widget.onKeymapChanged,
+            ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) =>
             FadeTransition(opacity: animation, child: child),
         transitionDuration: const Duration(milliseconds: 180),
@@ -2306,6 +2329,8 @@ class _NavigationRailState extends State<_NavigationRail> {
           children: [
             _UsageGuideButton(
               controller: controller,
+              keymap: widget.keymap,
+              onKeymapChanged: widget.onKeymapChanged,
               showHint: widget.showGuideHint,
               hintDuration: widget.guideHintDuration,
               onHintShown: widget.onGuideHintShown,
