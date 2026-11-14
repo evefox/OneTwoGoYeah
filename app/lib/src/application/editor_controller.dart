@@ -1670,6 +1670,7 @@ class EditorController extends ChangeNotifier {
           startSeconds: start.timelineSeconds,
           endSeconds: effectiveEnd,
           judgement: _judgementConfig,
+          judgementEnabled: _judgementEnabled,
         );
         final frameLimit = OtgyNative.playbackFrameLimit(
           sampleRate: engine.sampleRate,
@@ -2085,7 +2086,7 @@ class EditorController extends ChangeNotifier {
   }
 
   void setJudgementEnabled(bool value) {
-    if (value == _judgementEnabled) {
+    if (isPlaying || _isBusy || value == _judgementEnabled) {
       return;
     }
     _judgementEnabled = value;

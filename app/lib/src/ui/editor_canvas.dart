@@ -2516,7 +2516,11 @@ class _NavigationRailState extends State<_NavigationRail> {
                             dense: true,
                             title: const Text('判定'),
                             value: controller.judgementEnabled,
-                            onChanged: controller.setJudgementEnabled,
+                            onChanged:
+                                controller.generalActionsEnabled &&
+                                    !controller.isBusy
+                                ? controller.setJudgementEnabled
+                                : null,
                           ),
                         ],
                       ],

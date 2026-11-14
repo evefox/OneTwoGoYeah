@@ -1290,6 +1290,7 @@ final class NativeAudio {
     required double startSeconds,
     required double endSeconds,
     PlaybackJudgementConfig judgement = const PlaybackJudgementConfig(),
+    bool judgementEnabled = true,
   }) {
     return using((arena) {
       final output = arena<Pointer<native.otgy_playback_engine>>();
@@ -1308,7 +1309,8 @@ final class NativeAudio {
         ..ref.judgement_great_fraction = judgement.greatFraction
         ..ref.judgement_cool_fraction = judgement.coolFraction
         ..ref.judgement_bad_fraction = judgement.badFraction
-        ..ref.judgement_offset_ms = judgement.offsetMs;
+        ..ref.judgement_offset_ms = judgement.offsetMs
+        ..ref.judgement_enabled = judgementEnabled ? 1 : 0;
       Pointer<native.otgy_chart> chart = nullptr;
       try {
         chart = editor._copyChart(error);

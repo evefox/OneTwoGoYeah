@@ -1021,11 +1021,13 @@ reset 之后不再分配。窗口由权威 BPM 和显式基准计算；应用默
 
 模拟播放引擎 `PlaybackEngine` 在同一 `PlaybackPlan` 上按块渲染。`initialize` 构建
 计划、过滤玩家拥有的切换音、把 NPC/SHOW 行投影到采样帧并按 `(frame, order)` 排序，
-然后重置判定会话；这一步允许分配。`render`、`push_trigger` 和 `drain_judgements`
+判定开启时重置判定会话；这一步允许分配。`render`、`push_trigger` 和 `drain_judgements`
 在初始化后不再分配。`render` 先写入歌曲块，再混合跨块继续的 voice、当前块内的
 NPC/SHOW 触发，然后从无锁队列取出按键事件：按键时间戳按 native 稳定时钟映射到当前
 块的歌曲时间，`press` 返回结果时把正确键音效或 Miss 反馈音作为新 voice 混入并回传判定；没有待判
-音符时不发声。块末用 `advance` 把超过 Bad 的音符记为 Miss。输出为交错 stereo
+音符时不发声。块末用 `advance` 把超过 Bad 的音符记为 Miss。判定开关关闭时，引擎不重置
+判定会话；按键直接在块首混入其映射音效，不计算按键歌曲时间、不匹配或消费音符，也不
+执行 `advance`，因此不产生判定结果或 Miss 音效。输出为交错 stereo
 PCM16LE，到达有效终点后剩余帧写静音并置为完成。voice 表、按键队列和判定队列都是
 固定容量，按键和判定分别使用单生产者/单消费者无锁环形队列。平台适配层只按块调用
 渲染并消费判定，不解释谱面或判定规则。C ABI 提供引擎创建/销毁、按键入队、按块
@@ -1041,8 +1043,8 @@ Flutter 播放状态使用 `Idle`、谱面预听、节奏测试和模拟游戏�
 PCM16LE 与判定结果，不能区分或重新实现混音模式。
 
 模拟模式的判定开关、判定基准、四档比例、校准 Offset 和文字显示时长都是 Flutter
-会话状态，创建引擎时一次性传给 `PlaybackEngineConfig`；引擎运行中不读取或修改这些
-值。`PlaybackJudgement` 的等级与带符号时间差同时驱动判定文字和测试菜单的上次判定
+会话状态，创建引擎时一次性传给 `PlaybackEngineConfig`；其中判定开关同时决定引擎是否
+进入自由发声路径。引擎运行中不读取或修改这些值，播放中不能切换。`PlaybackJudgement` 的等级与带符号时间差同时驱动判定文字和测试菜单的上次判定
 读数，Flutter 不根据时间差重新分级。测试菜单的毫秒预览通过 C ABI 只读函数获取。
 
 Flutter 把普通播放的核心缓冲交给 Android `AudioTrack`、Apple `AVAudioEngine` 或
@@ -1114,7 +1116,7 @@ UI 格式与存储相互独立：
 `OTGY_APPLICATION_OPERATION_CHART_INTERACTION_ACTIVE = 5`。
 函数签名、结构布局和所有权均不改变，因此该追加不提升 ABI 版本。后续判定结果在末尾
 追加 `note_seconds` 和 `press_seconds` 改变了 `otgy_playback_judgement` 的布局，
-`OTGY_C_API_VERSION` 提升为 `4`；判定结果随后又追加诊断字段 `queue_delay_ms`，动态库 `VERSION 4.0.0` 与 `SOVERSION 4` 同步更新。
+`OTGY_C_API_VERSION` 提升为 `4`；判定结果随后又追加诊断字段 `queue_delay_ms`，动态库 `VERSION 4.0.0` 与 `SOVERSION 4` 同步更新。引擎配置随后在末尾追加 `judgement_enabled` 并改变结构布局，`OTGY_C_API_VERSION` 提升为 `5`，动态库 `VERSION 5.0.0` 与 `SOVERSION 5` 同步更新。
 
 `otgy_pcm`、波形、分析数组、字节、音频导出快照/输出、谱面、编辑器、校验结果、
 成品谱面和 SLK 文档均为不透明拥有句柄。每类句柄只有一个匹配销毁函数，销毁函数

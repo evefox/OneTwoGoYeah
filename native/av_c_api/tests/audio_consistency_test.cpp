@@ -926,7 +926,7 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
       otgy::core::PlaybackSoundLanguage::Chinese,
       otgy::core::PlaybackDanceMode::FourKey, false, 1U, {100.0, 0.0}, 0.0,
       duration_seconds,
-      otgy::core::default_judgement_config({100.0, 0.0})};
+      otgy::core::default_judgement_config({100.0, 0.0}), true};
   otgy::core::PlaybackEngine direct_engine;
   expect(direct_engine.initialize(direct_pcm, empty_chart, direct_bank,
                                   direct_engine_config) ==
@@ -937,7 +937,7 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
       OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE, OTGY_PLAYBACK_DANCE_MODE_4K, 0U,
       1U, 100.0, 0.0, 0.0, duration_seconds,
       OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE, 0.125, 0.25, 0.375, 0.5,
-      0.0};
+      0.0, 1U};
   otgy_playback_engine* raw_engine = nullptr;
   expect(otgy_playback_engine_create(abi_pcm, chart.get(), bank.get(),
                                      abi_engine_config, &raw_engine,
@@ -987,6 +987,47 @@ void test_playback(const otgy::core::Pcm16& direct_pcm,
                                         &judgement_count);
   expect(judgement_count == 0U,
          "empty chart produced a judgement");
+
+  const otgy_playback_engine_config free_engine_config{
+      OTGY_PLAYBACK_SOUND_LANGUAGE_CHINESE, OTGY_PLAYBACK_DANCE_MODE_4K, 0U,
+      1U, 100.0, 0.0, 0.0, duration_seconds,
+      OTGY_PLAYBACK_JUDGEMENT_BASIS_SIXTEENTH_NOTE, 0.125, 0.25, 0.375, 0.5,
+      0.0, 0U};
+  otgy_playback_engine* raw_free_engine = nullptr;
+  expect(otgy_playback_engine_create(abi_pcm, chart.get(), bank.get(),
+                                     free_engine_config, &raw_free_engine,
+                                     &raw_error) == OTGY_STATUS_OK,
+         "C ABI free-play engine failed");
+  auto free_engine = handle<otgy_playback_engine,
+                            otgy_playback_engine_destroy>(raw_free_engine);
+  otgy_playback_engine_push_trigger(free_engine.get(),
+                                    OTGY_PLAYBACK_SOUND_SPACE_BAR);
+  std::vector<std::uint8_t> free_block(17U * 4U);
+  otgy_playback_engine_render(free_engine.get(), free_block.data(), 17U);
+  // The empty chart has no pending note, so the press must still sound when
+  // the judgement switch is off.
+  expect(std::memcmp(free_block.data(), engine_reference_bytes.data(),
+                     free_block.size()) != 0,
+         "C ABI free-play press was silent");
+  otgy_playback_judgement free_judgements[1]{};
+  std::uint32_t free_judgement_count = 0U;
+  otgy_playback_engine_drain_judgements(
+      free_engine.get(), free_judgements, 1U, &free_judgement_count);
+  expect(free_judgement_count == 0U,
+         "C ABI free-play press produced a judgement");
+
+  auto invalid_free_config = free_engine_config;
+  invalid_free_config.judgement_enabled = 2U;
+  otgy_playback_engine* invalid_engine = nullptr;
+  expect(otgy_playback_engine_create(abi_pcm, chart.get(), bank.get(),
+                                     invalid_free_config, &invalid_engine,
+                                     &raw_error) ==
+             OTGY_STATUS_INVALID_ARGUMENT &&
+             invalid_engine == nullptr,
+         "C ABI invalid judgement switch was accepted");
+  otgy_error_destroy(raw_error);
+  raw_error = nullptr;
+
   otgy_playback_engine_push_trigger(engine.get(),
                                     OTGY_PLAYBACK_SOUND_F1_2);
   otgy_playback_sound_bank_destroy(nullptr);

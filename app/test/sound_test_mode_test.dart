@@ -320,6 +320,14 @@ void main() {
     expect(controller.judgementLog.last.noteId, 204);
   });
 
+  test('the judgement switch defaults to on and toggles manually', () {
+    expect(controller.judgementEnabled, isTrue);
+    controller.setJudgementEnabled(false);
+    expect(controller.judgementEnabled, isFalse);
+    controller.setJudgementEnabled(true);
+    expect(controller.judgementEnabled, isTrue);
+  });
+
   test('the last judgement is kept for the delta readout', () {
     controller.setJudgementEnabled(false);
     controller.applyJudgementForTest(

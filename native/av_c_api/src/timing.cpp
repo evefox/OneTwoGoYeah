@@ -556,7 +556,8 @@ otgy_status otgy_playback_engine_create(
         out_engine == nullptr) {
       return invalid_argument(out_error);
     }
-    if (config.transition_sounds_enabled > 1U) {
+    if (config.transition_sounds_enabled > 1U ||
+        config.judgement_enabled > 1U) {
       return invalid_argument(out_error, OTGY_ABI_ERROR_INVALID_BOOLEAN,
                               kInvalidBoolean);
     }
@@ -579,7 +580,8 @@ otgy_status otgy_playback_engine_create(
          static_cast<otgy::core::PlaybackDanceMode>(config.dance_mode),
          config.transition_sounds_enabled != 0U, config.random_seed,
          {config.bpm, config.offset_seconds}, config.start_seconds,
-         config.end_seconds, judgement});
+         config.end_seconds, judgement,
+         config.judgement_enabled != 0U});
     if (error != otgy::core::PlaybackEngineError::None) {
       delete engine;
       return core_error(

@@ -120,12 +120,14 @@ PlaybackEngineError PlaybackEngine::initialize(
 
     auto judgement_config = config.judgement;
     judgement_config.timing = config.timing;
-    const auto judgement_error = judgement_.reset(plan_, judgement_config);
-    if (judgement_error == JudgementError::InvalidConfiguration) {
-      return PlaybackEngineError::InvalidConfiguration;
-    }
-    if (judgement_error == JudgementError::AllocationFailure) {
-      return PlaybackEngineError::AllocationFailure;
+    if (config.judgement_enabled) {
+      const auto judgement_error = judgement_.reset(plan_, judgement_config);
+      if (judgement_error == JudgementError::InvalidConfiguration) {
+        return PlaybackEngineError::InvalidConfiguration;
+      }
+      if (judgement_error == JudgementError::AllocationFailure) {
+        return PlaybackEngineError::AllocationFailure;
+      }
     }
 
     song_ = &song;
@@ -241,6 +243,16 @@ void PlaybackEngine::render(std::uint8_t* output,
   const auto key_head = key_head_.load(std::memory_order_acquire);
   while (key_tail != key_head) {
     const auto& event = key_events_[key_tail % kKeyCapacity];
+    if (!config_.judgement_enabled) {
+      const auto* clip = sound_bank_->find(config_.language, event.sound);
+      if (clip != nullptr) {
+        if (auto* voice = start_voice(*clip, 0U)) {
+          mix_voice_segment(*voice, output, 0U, frames_this, sample_rate_);
+        }
+      }
+      ++key_tail;
+      continue;
+    }
     const auto delta =
         std::chrono::duration<double>(event.time - now).count();
     auto input_seconds = block_start_timeline + delta;
@@ -269,20 +281,22 @@ void PlaybackEngine::render(std::uint8_t* output,
   }
   key_tail_.store(key_tail, std::memory_order_release);
 
-  const auto block_end_timeline =
-      block_start_timeline +
-      static_cast<double>(frames_this) / static_cast<double>(sample_rate_);
-  JudgementResult misses[8]{};
-  const auto miss_count = judgement_.advance(block_end_timeline, misses, 8U);
-  const auto* miss_clip =
-      miss_count > 0U
-          ? sound_bank_->find(config_.language, PlaybackSoundId::Miss)
-          : nullptr;
-  for (std::size_t index = 0U; index < miss_count; ++index) {
-    push_judgement(misses[index]);
-    if (miss_clip != nullptr) {
-      if (auto* voice = start_voice(*miss_clip, 0U)) {
-        mix_voice_segment(*voice, output, 0U, frames_this, sample_rate_);
+  if (config_.judgement_enabled) {
+    const auto block_end_timeline =
+        block_start_timeline +
+        static_cast<double>(frames_this) / static_cast<double>(sample_rate_);
+    JudgementResult misses[8]{};
+    const auto miss_count = judgement_.advance(block_end_timeline, misses, 8U);
+    const auto* miss_clip =
+        miss_count > 0U
+            ? sound_bank_->find(config_.language, PlaybackSoundId::Miss)
+            : nullptr;
+    for (std::size_t index = 0U; index < miss_count; ++index) {
+      push_judgement(misses[index]);
+      if (miss_clip != nullptr) {
+        if (auto* voice = start_voice(*miss_clip, 0U)) {
+          mix_voice_segment(*voice, output, 0U, frames_this, sample_rate_);
+        }
       }
     }
   }

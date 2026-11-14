@@ -27,6 +27,9 @@ struct PlaybackEngineConfig final {
   double start_seconds;
   double end_seconds;
   JudgementConfig judgement;
+  /// When false, presses are a free soundboard: the pressed sound always
+  /// plays, no note is matched or consumed, and no Miss is produced.
+  bool judgement_enabled;
 };
 
 enum class PlaybackEngineError : std::uint8_t {

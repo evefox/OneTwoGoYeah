@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define OTGY_C_API_VERSION UINT32_C(4)
+#define OTGY_C_API_VERSION UINT32_C(5)
 
 typedef uint32_t otgy_status;
 #define OTGY_STATUS_OK UINT32_C(0)
@@ -602,6 +602,7 @@ typedef struct otgy_playback_engine_config {
   double judgement_cool_fraction;
   double judgement_bad_fraction;
   double judgement_offset_ms;
+  uint8_t judgement_enabled;
 } otgy_playback_engine_config;
 
 typedef struct otgy_playback_judgement {

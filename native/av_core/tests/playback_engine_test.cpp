@@ -129,7 +129,8 @@ JudgementConfig wide_judgement(double bpm) {
 
 PlaybackEngineConfig engine_config(double bpm, double start_seconds,
                                    double end_seconds,
-                                   JudgementConfig judgement) {
+                                   JudgementConfig judgement,
+                                   bool judgement_enabled = true) {
   return PlaybackEngineConfig{PlaybackSoundLanguage::Chinese,
                               PlaybackDanceMode::EightKey,
                               false,
@@ -137,7 +138,8 @@ PlaybackEngineConfig engine_config(double bpm, double start_seconds,
                               {bpm, 0.0},
                               start_seconds,
                               end_seconds,
-                              judgement};
+                              judgement,
+                              judgement_enabled};
 }
 
 std::vector<std::uint8_t> render(PlaybackEngine& engine,
@@ -367,6 +369,83 @@ void test_miss_is_emitted_after_deadline() {
   assert(saw_expected_note);
 }
 
+void test_judgement_disabled_plays_any_press_without_a_pending_note() {
+  const auto song = make_song(8000U);
+  const auto bank = all_note_bank(100);
+  const auto bpm = 160.0;
+  // The only note sits at row 16 (1.5 s), far outside the first block.
+  PlaybackEngine engine;
+  assert(engine.initialize(song, pair_chart(16U), bank,
+                           engine_config(bpm, 0.0, 1.0, wide_judgement(bpm),
+                                         false)) ==
+         PlaybackEngineError::None);
+  engine.push_trigger(PlaybackSoundId::F1_2);
+  const auto bytes = render(engine, 100U);
+  // No judgement window is consulted: the pressed clip starts immediately.
+  assert(sample(bytes, 0U, 0U) == 100);
+  assert(sample(bytes, 0U, 1U) == 100);
+  assert(sample(bytes, 1U, 0U) == 101);
+  assert(sample(bytes, 1U, 1U) == 99);
+  JudgementResult results[4]{};
+  assert(engine.drain_judgements(results, 4U) == 0U);
+}
+
+void test_judgement_disabled_wrong_key_plays_the_pressed_sound() {
+  const auto song = make_song(8000U);
+  const auto bank = all_note_bank(100);
+  const auto bpm = 160.0;
+  const auto chart = pair_chart(0U);
+  PlaybackPlan plan;
+  assert(otgy::core::build_playback_plan(
+             chart,
+             {PlaybackSoundLanguage::Chinese, PlaybackDanceMode::EightKey,
+              false, 42U, {bpm, 0.0}},
+             plan) == otgy::core::PlaybackPlanError::None);
+  const auto expected = plan.player_notes[0].expected_sound;
+  const auto wrong = expected == PlaybackSoundId::F1_2
+                         ? PlaybackSoundId::F1_4
+                         : PlaybackSoundId::F1_2;
+
+  PlaybackEngine engine;
+  assert(engine.initialize(song, chart, bank,
+                           engine_config(bpm, 0.0, 1.0, wide_judgement(bpm),
+                                         false)) ==
+         PlaybackEngineError::None);
+  engine.push_trigger(wrong);
+  const auto bytes = render(engine, 100U);
+  // The NPC note and the pressed clip both sound; the Miss clip would make
+  // this 100 + kMissSample instead.
+  assert(sample(bytes, 0U, 0U) == 200);
+  assert(sample(bytes, 0U, 1U) == 200);
+  JudgementResult results[4]{};
+  assert(engine.drain_judgements(results, 4U) == 0U);
+}
+
+void test_judgement_disabled_never_emits_miss() {
+  const auto song = make_song(8000U);
+  const auto bank = all_note_bank(100);
+  const auto bpm = 160.0;
+  PlaybackEngine engine;
+  assert(engine.initialize(song, pair_chart(0U), bank,
+                           engine_config(bpm, 0.0, 1.0, wide_judgement(bpm),
+                                         false)) ==
+         PlaybackEngineError::None);
+  bool saw_miss_sample = false;
+  for (std::size_t block = 0U; block < 80U; ++block) {
+    const auto bytes = render(engine, 100U);
+    for (std::size_t frame = 0U; frame < 100U; ++frame) {
+      if (sample(bytes, frame, 0U) == kMissSample ||
+          sample(bytes, frame, 1U) == kMissSample) {
+        saw_miss_sample = true;
+      }
+    }
+    JudgementResult results[8]{};
+    assert(engine.drain_judgements(results, 8U) == 0U);
+  }
+  // The note times out at 187.5 ms, but free play neither grades nor sounds.
+  assert(!saw_miss_sample);
+}
+
 void test_end_truncates_and_finishes() {
   const auto song = make_song(100U);
   PlaybackSoundBank bank(std::vector<PlaybackSoundClip>{});
@@ -417,6 +496,9 @@ int main() {
   test_timeout_miss_plays_the_miss_sound();
   test_no_pending_note_is_silent();
   test_miss_is_emitted_after_deadline();
+  test_judgement_disabled_plays_any_press_without_a_pending_note();
+  test_judgement_disabled_wrong_key_plays_the_pressed_sound();
+  test_judgement_disabled_never_emits_miss();
   test_end_truncates_and_finishes();
   test_prestart_clip_keeps_tail();
   return 0;

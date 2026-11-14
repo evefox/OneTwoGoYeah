@@ -2537,6 +2537,9 @@ final class otgy_playback_engine_config extends ffi.Struct {
 
   @ffi.Double()
   external double judgement_offset_ms;
+
+  @ffi.Uint8()
+  external int judgement_enabled;
 }
 
 final class otgy_playback_judgement extends ffi.Struct {
@@ -2798,7 +2801,7 @@ final class otgy_slk_position extends ffi.Struct {
   external int total_sixteenth;
 }
 
-const int OTGY_C_API_VERSION = 4;
+const int OTGY_C_API_VERSION = 5;
 
 const int OTGY_STATUS_OK = 0;
 
