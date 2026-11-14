@@ -2,6 +2,9 @@
 
 #include "internal.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 using namespace otgy::c_api;
 
 namespace {
@@ -734,6 +737,99 @@ otgy_status otgy_playback_judgement_windows_for(
     out_windows->great_ms = windows->great;
     out_windows->cool_ms = windows->cool;
     out_windows->bad_ms = windows->bad;
+    return OTGY_STATUS_OK;
+  });
+}
+
+otgy_status otgy_analyse_judgements(
+    const otgy_judgement_sample* samples, std::uint32_t sample_count,
+    std::uint32_t auto_miss_count, double bpm, std::uint32_t basis,
+    double perfect_fraction, double great_fraction, double cool_fraction,
+    double bad_fraction, double current_offset_ms,
+    otgy_judgement_analysis* out_analysis, otgy_error** out_error) {
+  if (out_analysis != nullptr) {
+    *out_analysis = {};
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (out_analysis == nullptr ||
+        (samples == nullptr && sample_count != 0U) ||
+        !std::isfinite(current_offset_ms)) {
+      return invalid_argument(out_error);
+    }
+    const otgy::core::JudgementConfig config{
+        {bpm, 0.0},
+        static_cast<otgy::core::JudgementWindowBasis>(basis),
+        perfect_fraction,
+        great_fraction,
+        cool_fraction,
+        bad_fraction,
+        current_offset_ms};
+    if (!otgy::core::judgement_windows_ms(config)) {
+      return core_error(
+          out_error, OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE,
+          static_cast<std::uint32_t>(
+              otgy::core::PlaybackEngineError::InvalidConfiguration),
+          otgy::core::playback_engine_error_message(
+              otgy::core::PlaybackEngineError::InvalidConfiguration));
+    }
+    static_assert(otgy::core::kJudgementAnalysisHistogramBins ==
+                      OTGY_JUDGEMENT_ANALYSIS_HISTOGRAM_BINS,
+                  "judgement analysis histogram size must match the C ABI");
+    std::vector<otgy::core::JudgementSample> converted;
+    converted.reserve(sample_count);
+    for (std::uint32_t index = 0U; index < sample_count; ++index) {
+      converted.push_back({samples[index].note_seconds,
+                           samples[index].press_seconds,
+                           samples[index].correct_key != 0U});
+    }
+    const auto result = otgy::core::analyse_judgements(
+        converted.data(), converted.size(), auto_miss_count, config);
+    const auto count32 = [](std::size_t value) {
+      return static_cast<std::uint32_t>(
+          std::min<std::size_t>(value,
+                                std::numeric_limits<std::uint32_t>::max()));
+    };
+    out_analysis->sample_count = count32(result.sample_count);
+    out_analysis->correct_key_count = count32(result.correct_key_count);
+    out_analysis->wrong_key_count = count32(result.wrong_key_count);
+    out_analysis->auto_miss_count = count32(result.auto_miss_count);
+    out_analysis->perfect_count = count32(result.grade_counts[0]);
+    out_analysis->great_count = count32(result.grade_counts[1]);
+    out_analysis->cool_count = count32(result.grade_counts[2]);
+    out_analysis->bad_count = count32(result.grade_counts[3]);
+    out_analysis->miss_count = count32(result.grade_counts[4]);
+    out_analysis->predicted_perfect_count =
+        count32(result.predicted_grade_counts[0]);
+    out_analysis->predicted_great_count =
+        count32(result.predicted_grade_counts[1]);
+    out_analysis->predicted_cool_count =
+        count32(result.predicted_grade_counts[2]);
+    out_analysis->predicted_bad_count =
+        count32(result.predicted_grade_counts[3]);
+    out_analysis->predicted_miss_count =
+        count32(result.predicted_grade_counts[4]);
+    out_analysis->mean_ms = result.mean_ms;
+    out_analysis->median_ms = result.median_ms;
+    out_analysis->stddev_ms = result.stddev_ms;
+    out_analysis->perfect_ms = result.perfect_ms;
+    out_analysis->great_ms = result.great_ms;
+    out_analysis->cool_ms = result.cool_ms;
+    out_analysis->bad_ms = result.bad_ms;
+    out_analysis->current_offset_ms = result.current_offset_ms;
+    out_analysis->best_perfect_offset_ms = result.best_perfect_offset_ms;
+    out_analysis->best_perfect_count = count32(result.best_perfect_count);
+    out_analysis->best_perfect_low_ms = result.best_perfect_low_ms;
+    out_analysis->best_perfect_high_ms = result.best_perfect_high_ms;
+    out_analysis->histogram_min_ms =
+        otgy::core::kJudgementAnalysisHistogramMinMs;
+    out_analysis->histogram_step_ms =
+        otgy::core::kJudgementAnalysisHistogramStepMs;
+    out_analysis->histogram_count =
+        static_cast<std::uint32_t>(result.histogram_counts.size());
+    for (std::size_t index = 0U; index < result.histogram_counts.size();
+         ++index) {
+      out_analysis->histogram[index] = result.histogram_counts[index];
+    }
     return OTGY_STATUS_OK;
   });
 }

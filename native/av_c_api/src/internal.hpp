@@ -15,6 +15,7 @@
 #include "av_core/chart/chart_validator.hpp"
 #include "av_core/coordination/operation_gate.hpp"
 #include "av_core/playback/playback_engine.hpp"
+#include "av_core/playback/playback_judgement_analysis.hpp"
 #include "av_core/playback/playback_position.hpp"
 #include "av_core/playback/playback_pcm.hpp"
 #include "av_core/playback/playback_sound.hpp"

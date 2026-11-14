@@ -1156,6 +1156,71 @@ void test_judgement_windows_abi() {
   otgy_error_destroy(raw_error);
 }
 
+void test_judgement_analysis_abi() {
+  const otgy_judgement_sample samples[3]{
+      {1.0, 1.030, 1U},
+      {2.0, 1.970, 1U},
+      {3.0, 3.0, 0U},
+  };
+  otgy_judgement_analysis analysis{};
+  otgy_error* raw_error = nullptr;
+  expect(otgy_analyse_judgements(
+             samples, 3U, 2U, 160.0,
+             OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT, 0.125, 0.25, 0.375,
+             0.5, 0.0, &analysis, &raw_error) == OTGY_STATUS_OK,
+         "C ABI judgement analysis failed");
+  expect(analysis.sample_count == 3U && analysis.correct_key_count == 2U &&
+             analysis.wrong_key_count == 1U && analysis.auto_miss_count == 2U,
+         "C ABI judgement analysis counts differ");
+  expect(std::fabs(analysis.perfect_ms - 23.4375) < 1e-9,
+         "C ABI judgement analysis windows differ");
+  // At offset 0 both correct presses are Great; the wrong key and the two
+  // timed-out notes are Miss.
+  expect(analysis.great_count == 2U && analysis.miss_count == 3U,
+         "C ABI judgement analysis grades differ");
+  expect(analysis.best_perfect_count == 1U &&
+             std::fabs(analysis.best_perfect_offset_ms) < 1e-9,
+         "C ABI judgement analysis recommendation differs");
+  expect(analysis.histogram_count == OTGY_JUDGEMENT_ANALYSIS_HISTOGRAM_BINS &&
+             analysis.histogram[270] == 1U &&
+             analysis.histogram[300] == 1U &&
+             analysis.histogram[330] == 1U,
+         "C ABI judgement analysis histogram differs");
+
+  analysis = {};
+  expect(otgy_analyse_judgements(
+             nullptr, 0U, 0U, 160.0,
+             OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT, 0.125, 0.25, 0.375,
+             0.5, 0.0, &analysis, &raw_error) == OTGY_STATUS_OK &&
+             analysis.sample_count == 0U &&
+             analysis.best_perfect_count == 0U,
+         "C ABI empty judgement analysis differs");
+
+  analysis = {};
+  expect(otgy_analyse_judgements(
+             nullptr, 1U, 0U, 160.0,
+             OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT, 0.125, 0.25, 0.375,
+             0.5, 0.0, &analysis, &raw_error) ==
+             OTGY_STATUS_INVALID_ARGUMENT,
+         "C ABI missing judgement samples were accepted");
+  otgy_error_destroy(raw_error);
+  raw_error = nullptr;
+
+  analysis = {};
+  expect(otgy_analyse_judgements(
+             samples, 3U, 0U, 0.0,
+             OTGY_PLAYBACK_JUDGEMENT_BASIS_HALF_BEAT, 0.125, 0.25, 0.375,
+             0.5, 0.0, &analysis, &raw_error) == OTGY_STATUS_CORE_ERROR,
+         "C ABI invalid judgement analysis bpm was accepted");
+  auto analysis_error =
+      handle<otgy_error, otgy_error_destroy>(raw_error);
+  expect_error(analysis_error.get(), OTGY_ERROR_DOMAIN_PLAYBACK_ENGINE,
+               static_cast<std::uint32_t>(
+                   otgy::core::PlaybackEngineError::InvalidConfiguration),
+               otgy::core::playback_engine_error_message(
+                   otgy::core::PlaybackEngineError::InvalidConfiguration));
+}
+
 }  // namespace
 
 int main() {
@@ -1185,6 +1250,7 @@ int main() {
     test_playback(direct_pcm, abi_pcm.get());
     test_pcm_resample_abi(abi_pcm.get());
     test_judgement_windows_abi();
+    test_judgement_analysis_abi();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

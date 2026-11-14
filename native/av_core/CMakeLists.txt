@@ -21,6 +21,7 @@ add_library(av_core STATIC
   src/playback/playback_pcm.cpp
   src/playback/playback_engine.cpp
   src/playback/playback_judgement.cpp
+  src/playback/playback_judgement_analysis.cpp
   src/playback/playback_plan.cpp
   src/playback/playback_sound.cpp
   src/project/project_serialization.cpp

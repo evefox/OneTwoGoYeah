@@ -108,6 +108,12 @@ void main() {
           .onPressed,
       isNull,
     );
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('judgement-analysis')))
+          .onPressed,
+      isNull,
+    );
 
     await tester.tap(find.text('1/16 音符'));
     await tester.pump();
@@ -299,6 +305,95 @@ void main() {
       controller.judgementConfig.basis,
       PlaybackJudgementBasis.sixteenthNote,
     );
+  });
+
+  testWidgets('the test menu opens the one-run judgement analysis', (
+    tester,
+  ) async {
+    soundTestMenuEnabled = true;
+    for (var index = 0; index < 5; index++) {
+      controller.applyJudgementForTest(
+        PlaybackJudgement(
+          grade: PlaybackJudgementGrade.great,
+          deltaMs: 40,
+          noteId: index,
+          expectedSound: PlaybackSoundId.f1_4,
+          pressedSound: PlaybackSoundId.f1_4,
+          noteSeconds: 1.0 + index,
+          pressSeconds: 1.04 + index,
+        ),
+      );
+    }
+    await pumpEditor(tester);
+    await tester.longPress(find.byKey(const ValueKey('usage-guide-button')));
+    await tester.pumpAndSettle();
+
+    final button = find.byKey(const ValueKey('judgement-analysis'));
+    expect(tester.widget<TextButton>(button).onPressed, isNotNull);
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('judgement-analysis-dialog')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('预测 P'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('judgement-analysis-apply')),
+    );
+    await tester.pumpAndSettle();
+    expect(controller.judgementConfig.offsetMs, 40);
+  });
+
+  test('the judgement analysis recommends the press mean', () {
+    for (var index = 0; index < 8; index++) {
+      controller.applyJudgementForTest(
+        PlaybackJudgement(
+          grade: PlaybackJudgementGrade.great,
+          deltaMs: 40,
+          noteId: index,
+          expectedSound: PlaybackSoundId.f1_4,
+          pressedSound: PlaybackSoundId.f1_4,
+          noteSeconds: 10.0 + index,
+          pressSeconds: 10.04 + index,
+        ),
+      );
+    }
+    controller.applyJudgementForTest(
+      const PlaybackJudgement(
+        grade: PlaybackJudgementGrade.miss,
+        deltaMs: 0,
+        noteId: 99,
+        expectedSound: PlaybackSoundId.f1_4,
+        pressedSound: PlaybackSoundId.f1_4,
+        noteSeconds: 20,
+        pressSeconds: 20.2,
+      ),
+    );
+    final analysis = controller.computeJudgementAnalysis();
+    expect(analysis, isNotNull);
+    expect(analysis!.sampleCount, 8);
+    expect(analysis.correctKeyCount, 8);
+    expect(analysis.wrongKeyCount, 0);
+    expect(analysis.autoMissCount, 1);
+    expect(
+      analysis.perfectCount +
+          analysis.greatCount +
+          analysis.coolCount +
+          analysis.badCount,
+      8,
+    );
+    expect(analysis.missCount, 1);
+    expect(analysis.bestPerfectOffsetMs, 40);
+    expect(analysis.bestPerfectCount, 8);
+    expect(analysis.predictedPerfectCount, 8);
+    expect(analysis.predictedMissCount, 1);
+    expect(analysis.histogram.length, 601);
+    // 10.04 s - 10.0 s lands on either side of the 40 ms bin edge in binary
+    // floating point, so accept the two adjacent buckets.
+    expect(analysis.histogram[339] + analysis.histogram[340], 8);
   });
 
   test('the judgement log keeps only the newest 200 entries', () {

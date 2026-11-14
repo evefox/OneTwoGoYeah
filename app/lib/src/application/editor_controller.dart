@@ -246,7 +246,13 @@ class EditorController extends ChangeNotifier {
   int _simulationLatencyMs = 0;
   int _simulationBufferFrames = 0;
   static const int _judgementLogLimit = 200;
+  static const int _judgementSampleLimit = 10000;
   final List<PlaybackJudgement> _judgementLog = <PlaybackJudgement>[];
+  final List<PlaybackJudgementSample> _judgementSamples =
+      <PlaybackJudgementSample>[];
+  int _judgementAutoMissCount = 0;
+  double? _judgementRunBpm;
+  PlaybackJudgementConfig? _judgementRunConfig;
   Timer? _judgementTimer;
   String? _audioFileName;
   Uint8List? _audioSourceBytes;
@@ -531,6 +537,28 @@ class EditorController extends ChangeNotifier {
   /// Bounded per-session judgement history for the test menu diagnostics.
   List<PlaybackJudgement> get judgementLog =>
       List<PlaybackJudgement>.unmodifiable(_judgementLog);
+
+  /// Matched presses available for the one-run analysis screen.
+  int get judgementSampleCount => _judgementSamples.length;
+
+  /// The BPM and config the analysed run actually used. They survive later
+  /// BPM edits so the analysis stays tied to its own run.
+  double get judgementRunBpm => _judgementRunBpm ?? projectedBpm;
+  PlaybackJudgementConfig get judgementRunConfig =>
+      _judgementRunConfig ?? _judgementConfig;
+
+  /// Analyses the current run. Returns null when nothing was matched.
+  PlaybackJudgementAnalysis? computeJudgementAnalysis() {
+    if (_judgementSamples.isEmpty) {
+      return null;
+    }
+    return NativePlaybackEngine.analyse(
+      samples: _judgementSamples,
+      autoMissCount: _judgementAutoMissCount,
+      bpm: judgementRunBpm,
+      config: judgementRunConfig,
+    );
+  }
 
   /// Platform-reported output latency for the current simulation session.
   int get simulationLatencyMs => _simulationLatencyMs;
@@ -1558,6 +1586,20 @@ class EditorController extends ChangeNotifier {
     if (_judgementLog.length > _judgementLogLimit) {
       _judgementLog.removeRange(0, _judgementLog.length - _judgementLogLimit);
     }
+    final autoMiss =
+        judgement.grade == PlaybackJudgementGrade.miss &&
+        judgement.pressedSound == judgement.expectedSound;
+    if (autoMiss) {
+      _judgementAutoMissCount++;
+    } else if (_judgementSamples.length < _judgementSampleLimit) {
+      _judgementSamples.add(
+        PlaybackJudgementSample(
+          noteSeconds: judgement.noteSeconds,
+          pressSeconds: judgement.pressSeconds,
+          correctKey: judgement.pressedSound == judgement.expectedSound,
+        ),
+      );
+    }
     if (!_judgementEnabled) {
       notifyListeners();
       return;
@@ -1694,6 +1736,10 @@ class EditorController extends ChangeNotifier {
         _latestJudgement = null;
         _lastJudgement = null;
         _judgementLog.clear();
+        _judgementSamples.clear();
+        _judgementAutoMissCount = 0;
+        _judgementRunBpm = projectedBpm;
+        _judgementRunConfig = _judgementConfig;
         _simulationLatencyMs = 0;
         _simulationBufferFrames = 0;
         _syncKeepScreenOn();

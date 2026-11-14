@@ -69,6 +69,7 @@ final _coreSources = <String>[
   'playback/playback_pcm.cpp',
   'playback/playback_engine.cpp',
   'playback/playback_judgement.cpp',
+  'playback/playback_judgement_analysis.cpp',
   'playback/playback_plan.cpp',
   'playback/playback_sound.cpp',
   'project/project_serialization.cpp',

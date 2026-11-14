@@ -566,6 +566,88 @@ final class PlaybackJudgementWindows {
   final double badMs;
 }
 
+/// One matched press of a simulation run, in song timeline seconds.
+final class PlaybackJudgementSample {
+  const PlaybackJudgementSample({
+    required this.noteSeconds,
+    required this.pressSeconds,
+    required this.correctKey,
+  });
+
+  final double noteSeconds;
+  final double pressSeconds;
+  final bool correctKey;
+}
+
+/// One-run judgement summary produced by the shared core. Grade counts use
+/// the current offset; prediction counts use [bestPerfectOffsetMs].
+final class PlaybackJudgementAnalysis {
+  const PlaybackJudgementAnalysis({
+    required this.sampleCount,
+    required this.correctKeyCount,
+    required this.wrongKeyCount,
+    required this.autoMissCount,
+    required this.perfectCount,
+    required this.greatCount,
+    required this.coolCount,
+    required this.badCount,
+    required this.missCount,
+    required this.predictedPerfectCount,
+    required this.predictedGreatCount,
+    required this.predictedCoolCount,
+    required this.predictedBadCount,
+    required this.predictedMissCount,
+    required this.meanMs,
+    required this.medianMs,
+    required this.stddevMs,
+    required this.perfectMs,
+    required this.greatMs,
+    required this.coolMs,
+    required this.badMs,
+    required this.currentOffsetMs,
+    required this.bestPerfectOffsetMs,
+    required this.bestPerfectCount,
+    required this.bestPerfectLowMs,
+    required this.bestPerfectHighMs,
+    required this.histogramMinMs,
+    required this.histogramStepMs,
+    required this.histogram,
+  });
+
+  final int sampleCount;
+  final int correctKeyCount;
+  final int wrongKeyCount;
+  final int autoMissCount;
+  final int perfectCount;
+  final int greatCount;
+  final int coolCount;
+  final int badCount;
+  final int missCount;
+  final int predictedPerfectCount;
+  final int predictedGreatCount;
+  final int predictedCoolCount;
+  final int predictedBadCount;
+  final int predictedMissCount;
+  final double meanMs;
+  final double medianMs;
+  final double stddevMs;
+  final double perfectMs;
+  final double greatMs;
+  final double coolMs;
+  final double badMs;
+  final double currentOffsetMs;
+  final double bestPerfectOffsetMs;
+  final int bestPerfectCount;
+  final double bestPerfectLowMs;
+  final double bestPerfectHighMs;
+  final double histogramMinMs;
+  final double histogramStepMs;
+
+  /// Signed raw delta counts, one millisecond per bucket, starting at
+  /// [histogramMinMs]. The core owns the width; treat the list as read-only.
+  final List<int> histogram;
+}
+
 enum PlaybackSoundLanguage { chinese, english }
 
 enum PlaybackDanceMode { fourKey, eightKey }
@@ -701,6 +783,89 @@ final class NativePlaybackEngine {
           greatMs: output.ref.great_ms,
           coolMs: output.ref.cool_ms,
           badMs: output.ref.bad_ms,
+        );
+      } finally {
+        _destroyError(error);
+      }
+    });
+  }
+
+  /// Analyses one simulation run. The core derives the timings from the
+  /// note/press timelines, so the samples are independent of the offset that
+  /// graded them.
+  static PlaybackJudgementAnalysis analyse({
+    required List<PlaybackJudgementSample> samples,
+    required int autoMissCount,
+    required double bpm,
+    required PlaybackJudgementConfig config,
+  }) {
+    return using((arena) {
+      final output = arena<native.otgy_judgement_analysis>();
+      final error = arena<Pointer<native.otgy_error>>();
+      Pointer<native.otgy_judgement_sample> nativeSamples = nullptr;
+      if (samples.isNotEmpty) {
+        nativeSamples = arena<native.otgy_judgement_sample>(samples.length);
+        for (var index = 0; index < samples.length; index++) {
+          final sample = samples[index];
+          nativeSamples[index]
+            ..note_seconds = sample.noteSeconds
+            ..press_seconds = sample.pressSeconds
+            ..correct_key = sample.correctKey ? 1 : 0;
+        }
+      }
+      try {
+        _checkStatus(
+          native.otgy_analyse_judgements(
+            nativeSamples,
+            samples.length,
+            autoMissCount,
+            bpm,
+            config.basis.index,
+            config.perfectFraction,
+            config.greatFraction,
+            config.coolFraction,
+            config.badFraction,
+            config.offsetMs,
+            output,
+            error,
+          ),
+          error,
+        );
+        final ref = output.ref;
+        return PlaybackJudgementAnalysis(
+          sampleCount: ref.sample_count,
+          correctKeyCount: ref.correct_key_count,
+          wrongKeyCount: ref.wrong_key_count,
+          autoMissCount: ref.auto_miss_count,
+          perfectCount: ref.perfect_count,
+          greatCount: ref.great_count,
+          coolCount: ref.cool_count,
+          badCount: ref.bad_count,
+          missCount: ref.miss_count,
+          predictedPerfectCount: ref.predicted_perfect_count,
+          predictedGreatCount: ref.predicted_great_count,
+          predictedCoolCount: ref.predicted_cool_count,
+          predictedBadCount: ref.predicted_bad_count,
+          predictedMissCount: ref.predicted_miss_count,
+          meanMs: ref.mean_ms,
+          medianMs: ref.median_ms,
+          stddevMs: ref.stddev_ms,
+          perfectMs: ref.perfect_ms,
+          greatMs: ref.great_ms,
+          coolMs: ref.cool_ms,
+          badMs: ref.bad_ms,
+          currentOffsetMs: ref.current_offset_ms,
+          bestPerfectOffsetMs: ref.best_perfect_offset_ms,
+          bestPerfectCount: ref.best_perfect_count,
+          bestPerfectLowMs: ref.best_perfect_low_ms,
+          bestPerfectHighMs: ref.best_perfect_high_ms,
+          histogramMinMs: ref.histogram_min_ms,
+          histogramStepMs: ref.histogram_step_ms,
+          histogram: List<int>.generate(
+            ref.histogram_count,
+            (index) => ref.histogram[index],
+            growable: false,
+          ),
         );
       } finally {
         _destroyError(error);

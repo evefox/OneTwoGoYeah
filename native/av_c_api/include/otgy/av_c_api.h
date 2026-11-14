@@ -630,6 +630,47 @@ typedef struct otgy_playback_judgement_windows {
   double bad_ms;
 } otgy_playback_judgement_windows;
 
+#define OTGY_JUDGEMENT_ANALYSIS_HISTOGRAM_BINS UINT32_C(601)
+
+typedef struct otgy_judgement_sample {
+  double note_seconds;
+  double press_seconds;
+  uint8_t correct_key;
+} otgy_judgement_sample;
+
+typedef struct otgy_judgement_analysis {
+  uint32_t sample_count;
+  uint32_t correct_key_count;
+  uint32_t wrong_key_count;
+  uint32_t auto_miss_count;
+  uint32_t perfect_count;
+  uint32_t great_count;
+  uint32_t cool_count;
+  uint32_t bad_count;
+  uint32_t miss_count;
+  uint32_t predicted_perfect_count;
+  uint32_t predicted_great_count;
+  uint32_t predicted_cool_count;
+  uint32_t predicted_bad_count;
+  uint32_t predicted_miss_count;
+  double mean_ms;
+  double median_ms;
+  double stddev_ms;
+  double perfect_ms;
+  double great_ms;
+  double cool_ms;
+  double bad_ms;
+  double current_offset_ms;
+  double best_perfect_offset_ms;
+  uint32_t best_perfect_count;
+  double best_perfect_low_ms;
+  double best_perfect_high_ms;
+  double histogram_min_ms;
+  double histogram_step_ms;
+  uint32_t histogram_count;
+  uint32_t histogram[OTGY_JUDGEMENT_ANALYSIS_HISTOGRAM_BINS];
+} otgy_judgement_analysis;
+
 OTGY_C_API otgy_status otgy_playback_engine_create(
     const otgy_pcm* pcm, const otgy_chart* chart,
     const otgy_playback_sound_bank* sound_bank,
@@ -660,6 +701,16 @@ OTGY_C_API otgy_status otgy_playback_judgement_windows_for(
     double bpm, uint32_t basis, double perfect_fraction,
     double great_fraction, double cool_fraction, double bad_fraction,
     otgy_playback_judgement_windows* out_windows, otgy_error** out_error);
+
+/// Analyses one simulation run's matched presses and suggests the offset that
+/// maximises the Perfect count. The current offset is only used to report the
+/// run's grade counts; timings are derived from the note/press timelines.
+OTGY_C_API otgy_status otgy_analyse_judgements(
+    const otgy_judgement_sample* samples, uint32_t sample_count,
+    uint32_t auto_miss_count, double bpm, uint32_t basis,
+    double perfect_fraction, double great_fraction, double cool_fraction,
+    double bad_fraction, double current_offset_ms,
+    otgy_judgement_analysis* out_analysis, otgy_error** out_error);
 
 OTGY_C_API otgy_status otgy_coordinate_application_operation(
     uint32_t mode, uint32_t operation, uint32_t* out_result,

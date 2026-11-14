@@ -1363,6 +1363,40 @@ external int otgy_playback_judgement_windows_for(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+/// Analyses one simulation run's matched presses and suggests the offset that
+/// maximises the Perfect count. The current offset is only used to report the
+/// run's grade counts; timings are derived from the note/press timelines.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_judgement_sample>,
+    ffi.Uint32,
+    ffi.Uint32,
+    ffi.Double,
+    ffi.Uint32,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Pointer<otgy_judgement_analysis>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_analyse_judgements(
+  ffi.Pointer<otgy_judgement_sample> samples,
+  int sample_count,
+  int auto_miss_count,
+  double bpm,
+  int basis,
+  double perfect_fraction,
+  double great_fraction,
+  double cool_fraction,
+  double bad_fraction,
+  double current_offset_ms,
+  ffi.Pointer<otgy_judgement_analysis> out_analysis,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     ffi.Uint32,
@@ -2596,6 +2630,109 @@ final class otgy_playback_judgement_windows extends ffi.Struct {
   external double bad_ms;
 }
 
+final class otgy_judgement_sample extends ffi.Struct {
+  @ffi.Double()
+  external double note_seconds;
+
+  @ffi.Double()
+  external double press_seconds;
+
+  @ffi.Uint8()
+  external int correct_key;
+}
+
+final class otgy_judgement_analysis extends ffi.Struct {
+  @ffi.Uint32()
+  external int sample_count;
+
+  @ffi.Uint32()
+  external int correct_key_count;
+
+  @ffi.Uint32()
+  external int wrong_key_count;
+
+  @ffi.Uint32()
+  external int auto_miss_count;
+
+  @ffi.Uint32()
+  external int perfect_count;
+
+  @ffi.Uint32()
+  external int great_count;
+
+  @ffi.Uint32()
+  external int cool_count;
+
+  @ffi.Uint32()
+  external int bad_count;
+
+  @ffi.Uint32()
+  external int miss_count;
+
+  @ffi.Uint32()
+  external int predicted_perfect_count;
+
+  @ffi.Uint32()
+  external int predicted_great_count;
+
+  @ffi.Uint32()
+  external int predicted_cool_count;
+
+  @ffi.Uint32()
+  external int predicted_bad_count;
+
+  @ffi.Uint32()
+  external int predicted_miss_count;
+
+  @ffi.Double()
+  external double mean_ms;
+
+  @ffi.Double()
+  external double median_ms;
+
+  @ffi.Double()
+  external double stddev_ms;
+
+  @ffi.Double()
+  external double perfect_ms;
+
+  @ffi.Double()
+  external double great_ms;
+
+  @ffi.Double()
+  external double cool_ms;
+
+  @ffi.Double()
+  external double bad_ms;
+
+  @ffi.Double()
+  external double current_offset_ms;
+
+  @ffi.Double()
+  external double best_perfect_offset_ms;
+
+  @ffi.Uint32()
+  external int best_perfect_count;
+
+  @ffi.Double()
+  external double best_perfect_low_ms;
+
+  @ffi.Double()
+  external double best_perfect_high_ms;
+
+  @ffi.Double()
+  external double histogram_min_ms;
+
+  @ffi.Double()
+  external double histogram_step_ms;
+
+  @ffi.Uint32()
+  external int histogram_count;
+
+  @ffi.Array.multi([601])
+  external ffi.Array<ffi.Uint32> histogram;
+}
+
 final class otgy_chart_marker extends ffi.Struct {
   @ffi.Uint64()
   external int id;
@@ -3016,6 +3153,8 @@ const int OTGY_PLAYBACK_JUDGEMENT_COOL = 2;
 const int OTGY_PLAYBACK_JUDGEMENT_BAD = 3;
 
 const int OTGY_PLAYBACK_JUDGEMENT_MISS = 4;
+
+const int OTGY_JUDGEMENT_ANALYSIS_HISTOGRAM_BINS = 601;
 
 const int OTGY_APPLICATION_MODE_IDLE = 0;
 

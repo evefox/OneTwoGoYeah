@@ -11,6 +11,7 @@ import 'package:otgy_native/otgy_native.dart';
 import '../application/editor_controller.dart';
 import '../infrastructure/local_ui_preferences.dart';
 import 'editor_theme.dart';
+import 'judgement_analysis_dialog.dart';
 import 'usage_guide.dart';
 
 const double editorCursorViewportFraction = 0.25;
@@ -1947,15 +1948,27 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
                       ),
                     ],
                   ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton(
-                      key: const ValueKey('judgement-log-copy'),
-                      onPressed: controller.judgementLog.isEmpty
-                          ? null
-                          : () => _copyJudgementLog(context, windows),
-                      child: const Text('复制判定日志'),
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        key: const ValueKey('judgement-log-copy'),
+                        onPressed: controller.judgementLog.isEmpty
+                            ? null
+                            : () => _copyJudgementLog(context, windows),
+                        child: const Text('复制判定日志'),
+                      ),
+                      TextButton(
+                        key: const ValueKey('judgement-analysis'),
+                        onPressed: controller.judgementSampleCount == 0
+                            ? null
+                            : () => showJudgementAnalysisDialog(
+                                context,
+                                controller: controller,
+                              ),
+                        child: const Text('判定分析'),
+                      ),
+                    ],
                   ),
                   Text(
                     '设备输出：延迟 ${controller.simulationLatencyMs} ms · '
