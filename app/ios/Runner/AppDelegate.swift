@@ -434,7 +434,7 @@ private enum DocumentSaveError: LocalizedError {
 }
 
 private final class PcmPlaybackOutput: NSObject {
-  private let engine = AVAudioEngine()
+  private var engine = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private var buffer: AVAudioPCMBuffer?
   private var totalFrames: AVAudioFramePosition = 0
@@ -453,8 +453,20 @@ private final class PcmPlaybackOutput: NSObject {
     }
     NotificationCenter.default.addObserver(
       self,
-      selector: #selector(interrupted),
+      selector: #selector(interrupted(_:)),
       name: AVAudioSession.interruptionNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(routeChanged(_:)),
+      name: AVAudioSession.routeChangeNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(mediaServicesReset),
+      name: AVAudioSession.mediaServicesWereResetNotification,
       object: nil
     )
   }
@@ -502,8 +514,7 @@ private final class PcmPlaybackOutput: NSObject {
       data: data
     )
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.playback, mode: .default)
-    try session.setActive(true)
+    try activateSession(session)
     engine.attach(player)
     engine.connect(player, to: engine.mainMixerNode, format: nextBuffer.format)
     try engine.start()
@@ -542,11 +553,63 @@ private final class PcmPlaybackOutput: NSObject {
     player.stop()
     engine.stop()
     buffer = nil
+    deactivateSession()
     return ["playedFrames": playedFrames, "playing": false]
   }
 
-  @objc private func interrupted() {
-    _ = pause()
+  @objc private func interrupted(_ notification: Notification) {
+    guard
+      let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+      let type = AVAudioSession.InterruptionType(rawValue: raw)
+    else {
+      _ = pause()
+      return
+    }
+    // A call or another app taking the session must pause playback. The
+    // interruption-ended notification only tells us the session is available
+    // again; the app never resumes on its own.
+    if type == .began {
+      _ = pause()
+    }
+  }
+
+  @objc private func routeChanged(_ notification: Notification) {
+    guard
+      let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+      let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+    else {
+      return
+    }
+    if reason == .oldDeviceUnavailable {
+      _ = pause()
+    }
+  }
+
+  @objc private func mediaServicesReset() {
+    // The system rebuilt its audio services; every engine and player is dead.
+    dispose()
+    engine = AVAudioEngine()
+  }
+
+  private func activateSession(_ session: AVAudioSession) throws {
+    try session.setCategory(.playback, mode: .default)
+    do {
+      try session.setActive(true)
+    } catch {
+      // An interruption can leave the session deactivated; deactivate and
+      // retry once so a fresh start after a call can reclaim the output.
+      try? session.setActive(false)
+      try session.setActive(true)
+    }
+  }
+
+  private func deactivateSession() {
+    // Always hand the session back explicitly so a paused or backgrounded
+    // app cannot keep other media apps muted.
+    try? AVAudioSession.sharedInstance().setActive(
+      false,
+      options: .notifyOthersOnDeactivation
+    )
   }
 
   private func dispose() {
@@ -560,7 +623,7 @@ private final class PcmPlaybackOutput: NSObject {
     totalFrames = 0
     playedFrames = 0
     playing = false
-    try? AVAudioSession.sharedInstance().setActive(false)
+    deactivateSession()
   }
 }
 
@@ -622,7 +685,7 @@ private typealias SimulationIsFinishedFn = @convention(c) (UnsafeRawPointer?) ->
 private typealias SimulationRenderedFramesFn = @convention(c) (UnsafeRawPointer?) -> UInt64
 
 private final class SimulationPlaybackOutput: NSObject {
-  private let engine = AVAudioEngine()
+  private var engine = AVAudioEngine()
   private var sourceNode: AVAudioSourceNode?
   private var handle: UnsafeMutableRawPointer?
   private var renderFn: SimulationRenderFn?
@@ -645,10 +708,29 @@ private final class SimulationPlaybackOutput: NSObject {
     channel.setMethodCallHandler { [weak self] call, result in
       self?.handle(call, result: result)
     }
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(interrupted(_:)),
+      name: AVAudioSession.interruptionNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(routeChanged(_:)),
+      name: AVAudioSession.routeChangeNotification,
+      object: nil
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(mediaServicesReset),
+      name: AVAudioSession.mediaServicesWereResetNotification,
+      object: nil
+    )
   }
 
   deinit {
     stop()
+    NotificationCenter.default.removeObserver(self)
   }
 
   private func handle(
@@ -726,9 +808,8 @@ private final class SimulationPlaybackOutput: NSObject {
     engine.attach(node)
     engine.connect(node, to: engine.mainMixerNode, format: format)
     let session = AVAudioSession.sharedInstance()
-    try session.setCategory(.playback, mode: .default)
+    try activateSession(session)
     try session.setPreferredIOBufferDuration(0.005)
-    try session.setActive(true)
     try engine.start()
     sourceNode = node
     handle = newHandle
@@ -745,6 +826,7 @@ private final class SimulationPlaybackOutput: NSObject {
     }
     engine.pause()
     paused = true
+    deactivateSession()
   }
 
   private func resume() {
@@ -752,9 +834,11 @@ private final class SimulationPlaybackOutput: NSObject {
       return
     }
     do {
+      try activateSession(AVAudioSession.sharedInstance())
       try engine.start()
       paused = false
     } catch {
+      // Keep reporting paused so the next start can rebuild the output.
     }
   }
 
@@ -770,7 +854,57 @@ private final class SimulationPlaybackOutput: NSObject {
     sourceNode = nil
     handle = nil
     outputLatencyFrames = 0
-    try? AVAudioSession.sharedInstance().setActive(false)
+    deactivateSession()
+  }
+
+  @objc private func interrupted(_ notification: Notification) {
+    guard
+      let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+      let type = AVAudioSession.InterruptionType(rawValue: raw)
+    else {
+      pause()
+      return
+    }
+    // Calls and other apps take the session away. Pause immediately so the
+    // UI stops reporting playback, and never resume on the app's own.
+    if type == .began {
+      pause()
+    }
+  }
+
+  @objc private func routeChanged(_ notification: Notification) {
+    guard
+      let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+      let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+    else {
+      return
+    }
+    if reason == .oldDeviceUnavailable {
+      pause()
+    }
+  }
+
+  @objc private func mediaServicesReset() {
+    stop()
+    engine = AVAudioEngine()
+  }
+
+  private func activateSession(_ session: AVAudioSession) throws {
+    try session.setCategory(.playback, mode: .default)
+    do {
+      try session.setActive(true)
+    } catch {
+      // A finished interruption can leave the session deactivated; retry once.
+      try? session.setActive(false)
+      try session.setActive(true)
+    }
+  }
+
+  private func deactivateSession() {
+    try? AVAudioSession.sharedInstance().setActive(
+      false,
+      options: .notifyOthersOnDeactivation
+    )
   }
 
   private func state() -> [String: Any] {
@@ -788,7 +922,7 @@ private final class SimulationPlaybackOutput: NSObject {
     let finished = isFinishedFn(handle) != 0
     return [
       "playedFrames": Int(played),
-      "playing": playing && !paused && !finished,
+      "playing": playing && !paused && !finished && engine.isRunning,
       "finished": finished,
       "latencyMs": Int(
         (max(0.0, engine.outputNode.presentationLatency) * 1000).rounded()
