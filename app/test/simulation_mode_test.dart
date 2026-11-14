@@ -253,13 +253,14 @@ void main() {
       ),
     );
 
+    final rotation = find.byKey(const ValueKey('arrow-keypad-rotation'));
     expect(find.byKey(const ValueKey('screen-keypad-flip')), findsOneWidget);
-    expect(tester.widget<RotatedBox>(find.byType(RotatedBox)).quarterTurns, 1);
+    expect(tester.widget<RotatedBox>(rotation).quarterTurns, 1);
 
     await tester.tap(find.byKey(const ValueKey('screen-keypad-flip')));
     await tester.pump();
     expect(controller.arrowKeypadFlipped, isTrue);
-    expect(tester.widget<RotatedBox>(find.byType(RotatedBox)).quarterTurns, 3);
+    expect(tester.widget<RotatedBox>(rotation).quarterTurns, 3);
 
     controller.toggleScreenKeypadLayout();
     await tester.pump();

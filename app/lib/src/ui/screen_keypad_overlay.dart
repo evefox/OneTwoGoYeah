@@ -130,6 +130,7 @@ class _ArrowLayout extends StatelessWidget {
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: RotatedBox(
+          key: const ValueKey('arrow-keypad-rotation'),
           quarterTurns: controller.arrowKeypadFlipped ? 3 : 1,
           child: SizedBox(
             width: 720,
@@ -259,7 +260,12 @@ class _FlipButton extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: controller.toggleArrowKeypadFlip,
-            child: const Icon(Icons.flip, size: 22),
+            // The arrow frame is rotated for landscape; turn the glyph back
+            // so its mirror axis matches the direction the layout flips.
+            child: const RotatedBox(
+              quarterTurns: 1,
+              child: Icon(Icons.flip, size: 22),
+            ),
           ),
         ),
       ),
