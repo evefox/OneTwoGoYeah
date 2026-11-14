@@ -240,6 +240,33 @@ void main() {
     );
   });
 
+  testWidgets('only the arrow keypad offers a 180-degree flip', (tester) async {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    controller.setSimulationEnabled(true);
+    controller.setScreenKeypadLayout(ScreenKeypadLayout.arrows);
+    controller.openScreenKeypad();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('screen-keypad-flip')), findsOneWidget);
+    expect(tester.widget<RotatedBox>(find.byType(RotatedBox)).quarterTurns, 1);
+
+    await tester.tap(find.byKey(const ValueKey('screen-keypad-flip')));
+    await tester.pump();
+    expect(controller.arrowKeypadFlipped, isTrue);
+    expect(tester.widget<RotatedBox>(find.byType(RotatedBox)).quarterTurns, 3);
+
+    controller.toggleScreenKeypadLayout();
+    await tester.pump();
+    expect(controller.screenKeypadLayout, ScreenKeypadLayout.numeric);
+    expect(find.byKey(const ValueKey('screen-keypad-flip')), findsNothing);
+  });
+
   testWidgets('arrow overlay renders Ctrl, arrows and 0', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));

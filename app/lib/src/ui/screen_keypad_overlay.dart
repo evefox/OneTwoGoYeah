@@ -71,17 +71,24 @@ class _NumericLayout extends StatelessWidget {
           top: viewPadding.top + 32,
           left: 0,
           right: 0,
-          child: Center(child: _PlayButton(controller: controller)),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PlayButton(controller: controller),
+                if (controller.playbackDanceMode ==
+                    PlaybackDanceMode.fourKey) ...[
+                  const SizedBox(width: 10),
+                  _LayoutSwitchButton(controller: controller),
+                ],
+              ],
+            ),
+          ),
         ),
         Positioned(
           top: viewPadding.top + 10,
           right: 12,
           child: _CloseButton(controller: controller),
-        ),
-        Positioned(
-          top: viewPadding.top + 10,
-          right: 62,
-          child: _LayoutSwitchButton(controller: controller),
         ),
         if (judgement != null)
           Positioned(
@@ -123,7 +130,7 @@ class _ArrowLayout extends StatelessWidget {
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: RotatedBox(
-          quarterTurns: 1,
+          quarterTurns: controller.arrowKeypadFlipped ? 3 : 1,
           child: SizedBox(
             width: 720,
             height: 320,
@@ -132,17 +139,24 @@ class _ArrowLayout extends StatelessWidget {
                 Positioned(
                   top: 12,
                   left: 14,
-                  child: _PlayButton(controller: controller),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _PlayButton(controller: controller),
+                      if (controller.playbackDanceMode ==
+                          PlaybackDanceMode.fourKey) ...[
+                        const SizedBox(width: 10),
+                        _LayoutSwitchButton(controller: controller),
+                        const SizedBox(width: 10),
+                        _FlipButton(controller: controller),
+                      ],
+                    ],
+                  ),
                 ),
                 Positioned(
                   top: 14,
                   right: 14,
                   child: _CloseButton(controller: controller),
-                ),
-                Positioned(
-                  top: 14,
-                  right: 64,
-                  child: _LayoutSwitchButton(controller: controller),
                 ),
                 if (judgement != null)
                   Positioned(
@@ -225,6 +239,34 @@ class _CloseButton extends StatelessWidget {
   }
 }
 
+class _FlipButton extends StatelessWidget {
+  const _FlipButton({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '翻转方向键布局',
+      child: SizedBox(
+        key: const ValueKey('screen-keypad-flip'),
+        width: 40,
+        height: 40,
+        child: Material(
+          color: EditorColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(10),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: controller.toggleArrowKeypadFlip,
+            child: const Icon(Icons.flip, size: 22),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LayoutSwitchButton extends StatelessWidget {
   const _LayoutSwitchButton({required this.controller});
 
@@ -249,7 +291,7 @@ class _LayoutSwitchButton extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: controller.toggleScreenKeypadLayout,
-            child: const Icon(Icons.flip_camera_ios, size: 22),
+            child: const Icon(Icons.sync, size: 24),
           ),
         ),
       ),

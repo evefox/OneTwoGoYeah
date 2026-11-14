@@ -237,6 +237,7 @@ class EditorController extends ChangeNotifier {
   PlaybackJudgementConfig _judgementConfig = const PlaybackJudgementConfig();
   int _judgementDisplayDurationMs = 320;
   ScreenKeypadLayout _screenKeypadLayout = ScreenKeypadLayout.numeric;
+  bool _arrowKeypadFlipped = false;
   bool _screenKeypadOpen = false;
   NativePlaybackEngine? _simulationEngine;
   NativeAudio? _simulationResampledAudio;
@@ -519,6 +520,7 @@ class EditorController extends ChangeNotifier {
   bool get judgementTuningEnabled =>
       generalActionsEnabled && !isPlaying && !_isBusy;
   ScreenKeypadLayout get screenKeypadLayout => _screenKeypadLayout;
+  bool get arrowKeypadFlipped => _arrowKeypadFlipped;
   bool get screenKeypadOpen => _screenKeypadOpen;
   PlaybackJudgement? get latestJudgement => _latestJudgement;
 
@@ -2193,6 +2195,18 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _screenKeypadLayout = value;
+    notifyListeners();
+  }
+
+  /// Flips the arrow keypad 180 degrees so the player can hold the phone in
+  /// either landscape direction. Only the arrow layout offers this.
+  void toggleArrowKeypadFlip() {
+    if (!_simulationEnabled ||
+        _screenKeypadLayout != ScreenKeypadLayout.arrows ||
+        _playbackDanceMode == PlaybackDanceMode.eightKey) {
+      return;
+    }
+    _arrowKeypadFlipped = !_arrowKeypadFlipped;
     notifyListeners();
   }
 
