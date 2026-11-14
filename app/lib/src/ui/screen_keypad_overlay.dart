@@ -104,10 +104,9 @@ class _NumericLayout extends StatelessWidget {
           bottom: bottomMargin,
           child: Align(
             alignment: Alignment.bottomCenter,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: _NumericKeypad(controller: controller, trigger: trigger),
-            ),
+            // The keypad sizes itself to the available box: gaps compress
+            // first, caps shrink only when the gaps are exhausted.
+            child: _NumericKeypad(controller: controller, trigger: trigger),
           ),
         ),
       ],
@@ -127,53 +126,58 @@ class _ArrowLayout extends StatelessWidget {
         ? controller.latestJudgement
         : null;
     return Center(
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: RotatedBox(
-          key: const ValueKey('arrow-keypad-rotation'),
-          quarterTurns: controller.arrowKeypadFlipped ? 3 : 1,
-          child: SizedBox(
-            width: 720,
-            height: 320,
-            child: Stack(
-              children: [
-                Positioned(
-                  top: 12,
-                  left: 14,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _PlayButton(controller: controller),
-                      if (controller.playbackDanceMode ==
-                          PlaybackDanceMode.fourKey) ...[
-                        const SizedBox(width: 10),
-                        _LayoutSwitchButton(controller: controller),
-                        const SizedBox(width: 10),
-                        _FlipButton(controller: controller),
-                      ],
-                    ],
-                  ),
-                ),
-                Positioned(
-                  top: 14,
-                  right: 14,
-                  child: _CloseButton(controller: controller),
-                ),
-                if (judgement != null)
+      child: RotatedBox(
+        key: const ValueKey('arrow-keypad-rotation'),
+        quarterTurns: controller.arrowKeypadFlipped ? 3 : 1,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // The rotated frame may not exceed the space the device gives us;
+            // the keypad itself squeezes its gaps before shrinking its caps.
+            final width = math.min(720.0, constraints.maxWidth);
+            final height = math.min(320.0, constraints.maxHeight);
+            return SizedBox(
+              width: width,
+              height: height,
+              child: Stack(
+                children: [
                   Positioned(
                     top: 12,
-                    left: 70,
-                    right: 70,
-                    child: IgnorePointer(
-                      child: _JudgementText(judgement: judgement),
+                    left: 14,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _PlayButton(controller: controller),
+                        if (controller.playbackDanceMode ==
+                            PlaybackDanceMode.fourKey) ...[
+                          const SizedBox(width: 10),
+                          _LayoutSwitchButton(controller: controller),
+                          const SizedBox(width: 10),
+                          _FlipButton(controller: controller),
+                        ],
+                      ],
                     ),
                   ),
-                Center(
-                  child: _ArrowKeys(controller: controller, trigger: trigger),
-                ),
-              ],
-            ),
-          ),
+                  Positioned(
+                    top: 14,
+                    right: 14,
+                    child: _CloseButton(controller: controller),
+                  ),
+                  if (judgement != null)
+                    Positioned(
+                      top: 12,
+                      left: 70,
+                      right: 70,
+                      child: IgnorePointer(
+                        child: _JudgementText(judgement: judgement),
+                      ),
+                    ),
+                  Center(
+                    child: _ArrowKeys(controller: controller, trigger: trigger),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -335,17 +339,64 @@ class _JudgementText extends StatelessWidget {
   }
 }
 
+/// A standard full-size keyboard has a 19.05 mm key pitch with an 18 mm cap
+/// and about 1 mm between caps. In Flutter's density-independent units that
+/// is a 120 dp pitch: a 113 dp cap with a 7 dp gap.
+///
+/// The caps never grow. When the device cannot hold the keypad, the gaps
+/// collapse first (down to [minGap]) and only then do the caps shrink, so a
+/// small screen keeps thumb-sized keys for as long as possible.
+class _KeyMetrics {
+  const _KeyMetrics({required this.cap, required this.gap});
+
+  static const capLimit = 113.0;
+  static const maxGap = 7.0;
+  static const minGap = 3.0;
+
+  final double cap;
+  final double gap;
+
+  static _KeyMetrics fitGrid(
+    BoxConstraints constraints, {
+    required int columns,
+    required int rows,
+  }) {
+    final gridWidth = capLimit * columns + maxGap * (columns - 1);
+    final gridHeight = capLimit * rows + maxGap * (rows - 1);
+    final maxWidth = constraints.maxWidth.isFinite
+        ? constraints.maxWidth
+        : gridWidth;
+    final maxHeight = constraints.maxHeight.isFinite
+        ? constraints.maxHeight
+        : gridHeight;
+    if (gridWidth <= maxWidth && gridHeight <= maxHeight) {
+      return const _KeyMetrics(cap: capLimit, gap: maxGap);
+    }
+    // Squeeze the gaps before touching the caps.
+    final gapByWidth = (maxWidth - capLimit * columns) / (columns - 1);
+    final gapByHeight = (maxHeight - capLimit * rows) / (rows - 1);
+    final gap = math
+        .min(maxGap, math.min(gapByWidth, gapByHeight))
+        .clamp(minGap, maxGap)
+        .toDouble();
+    if (capLimit * columns + gap * (columns - 1) <= maxWidth &&
+        capLimit * rows + gap * (rows - 1) <= maxHeight) {
+      return _KeyMetrics(cap: capLimit, gap: gap);
+    }
+    // The gaps are exhausted; scale everything down as a last resort.
+    final scale = math
+        .min(
+          maxWidth / (capLimit * columns + minGap * (columns - 1)),
+          maxHeight / (capLimit * rows + minGap * (rows - 1)),
+        )
+        .clamp(0.0, 1.0)
+        .toDouble();
+    return _KeyMetrics(cap: capLimit * scale, gap: minGap * scale);
+  }
+}
+
 class _NumericKeypad extends StatelessWidget {
   const _NumericKeypad({required this.controller, required this.trigger});
-
-  /// A standard keyboard key is a 19.05 mm pitch with an 18 mm cap and about
-  /// 1 mm between caps. In Flutter's density-independent units that is
-  /// roughly 108 dp per cap with a 7 dp gap, so the keypad matches a real
-  /// keyboard instead of scaling with the device. `FittedBox.scaleDown` only
-  /// shrinks it on screens that are physically too narrow to hold it.
-  static const _keyWidth = 108.0;
-  static const _keyHeight = 108.0;
-  static const _gap = 7.0;
 
   final EditorController controller;
   final ValueChanged<PlaybackSoundId> trigger;
@@ -357,63 +408,167 @@ class _NumericKeypad extends StatelessWidget {
     return number == 2 || number == 4 || number == 6 || number == 8;
   }
 
-  Widget _key(
-    String label,
-    PlaybackSoundId sound, {
-    int? number,
-    bool wide = false,
-  }) {
-    final enabled = number == null || _enabled(number);
-    return _KeySurface(
-      label: label,
-      width: wide ? _keyWidth * 3 + _gap * 2 : _keyWidth,
-      height: _keyHeight,
-      enabled: enabled,
-      fontSize: 34,
-      onTap: enabled ? () => trigger(sound) : null,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _key('7', PlaybackSoundId.f1_7, number: 7),
-            const SizedBox(width: _gap),
-            _key('8', PlaybackSoundId.f1_8, number: 8),
-            const SizedBox(width: _gap),
-            _key('9', PlaybackSoundId.f1_9, number: 9),
-          ],
-        ),
-        const SizedBox(height: _gap),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _key('4', PlaybackSoundId.f1_4, number: 4),
-            const SizedBox(width: _gap),
-            _key('5', PlaybackSoundId.f1Yeah),
-            const SizedBox(width: _gap),
-            _key('6', PlaybackSoundId.f1_6, number: 6),
-          ],
-        ),
-        const SizedBox(height: _gap),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _key('1', PlaybackSoundId.f1_1, number: 1),
-            const SizedBox(width: _gap),
-            _key('2', PlaybackSoundId.f1_2, number: 2),
-            const SizedBox(width: _gap),
-            _key('3', PlaybackSoundId.f1_3, number: 3),
-          ],
-        ),
-        const SizedBox(height: _gap),
-        _key('0', PlaybackSoundId.f1Go, wide: true),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final metrics = _KeyMetrics.fitGrid(
+          constraints,
+          columns: 3,
+          rows: 4,
+        );
+        final keyWidth = metrics.cap;
+        final keyHeight = metrics.cap;
+        final gap = metrics.gap;
+
+        Widget key(
+          String label,
+          PlaybackSoundId sound, {
+          int? number,
+          bool wide = false,
+        }) {
+          final enabled = number == null || _enabled(number);
+          return _KeySurface(
+            label: label,
+            width: wide ? keyWidth * 3 + gap * 2 : keyWidth,
+            height: keyHeight,
+            enabled: enabled,
+            fontSize: 34,
+            onTap: enabled ? () => trigger(sound) : null,
+          );
+        }
+
+        return SizedBox(
+          width: keyWidth * 3 + gap * 2,
+          height: keyHeight * 4 + gap * 3,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  key('7', PlaybackSoundId.f1_7, number: 7),
+                  SizedBox(width: gap),
+                  key('8', PlaybackSoundId.f1_8, number: 8),
+                  SizedBox(width: gap),
+                  key('9', PlaybackSoundId.f1_9, number: 9),
+                ],
+              ),
+              SizedBox(height: gap),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  key('4', PlaybackSoundId.f1_4, number: 4),
+                  SizedBox(width: gap),
+                  key('5', PlaybackSoundId.f1Yeah),
+                  SizedBox(width: gap),
+                  key('6', PlaybackSoundId.f1_6, number: 6),
+                ],
+              ),
+              SizedBox(height: gap),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  key('1', PlaybackSoundId.f1_1, number: 1),
+                  SizedBox(width: gap),
+                  key('2', PlaybackSoundId.f1_2, number: 2),
+                  SizedBox(width: gap),
+                  key('3', PlaybackSoundId.f1_3, number: 3),
+                ],
+              ),
+              SizedBox(height: gap),
+              key('0', PlaybackSoundId.f1Go, wide: true),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ArrowMetrics {
+  const _ArrowMetrics({
+    required this.cap,
+    required this.wide,
+    required this.gap,
+    required this.clusterGap,
+  });
+
+  static const capLimit = 113.0;
+  static const wideLimit = 150.0; // 1.25u, like a full-size Ctrl key.
+  static const maxGap = 7.0;
+  static const minGap = 3.0;
+
+  /// Dead space that separates the arrow cluster from Ctrl and 0, the way a
+  /// full-size keyboard keeps the inverted-T away from its neighbours.
+  static const maxClusterGap = 18.0;
+  static const minClusterGap = 6.0;
+
+  final double cap;
+  final double wide;
+  final double gap;
+  final double clusterGap;
+
+  double get width => wide * 2 + cap * 3 + gap * 2 + clusterGap * 2;
+  double get height => cap * 2 + gap;
+
+  static _ArrowMetrics fit(BoxConstraints constraints) {
+    final fullWidth =
+        wideLimit * 2 + capLimit * 3 + maxGap * 2 + maxClusterGap * 2;
+    final fullHeight = capLimit * 2 + maxGap;
+    final maxWidth = constraints.maxWidth.isFinite
+        ? constraints.maxWidth
+        : fullWidth;
+    final maxHeight = constraints.maxHeight.isFinite
+        ? constraints.maxHeight
+        : fullHeight;
+    final base = wideLimit * 2 + capLimit * 3;
+
+    double widthWith(double g, double cluster) => base + g * 2 + cluster * 2;
+
+    if (widthWith(maxGap, maxClusterGap) <= maxWidth &&
+        fullHeight <= maxHeight) {
+      return const _ArrowMetrics(
+        cap: capLimit,
+        wide: wideLimit,
+        gap: maxGap,
+        clusterGap: maxClusterGap,
+      );
+    }
+
+    // Prefer squeezing the cluster dead space, then the key gaps, and only
+    // then shrink the caps.
+    var gap = maxGap;
+    var clusterGap = maxClusterGap;
+    if (widthWith(gap, clusterGap) > maxWidth) {
+      clusterGap = ((maxWidth - base - gap * 2) / 2)
+          .clamp(minClusterGap, maxClusterGap)
+          .toDouble();
+    }
+    if (widthWith(gap, clusterGap) > maxWidth) {
+      gap = ((maxWidth - base - clusterGap * 2) / 2)
+          .clamp(minGap, maxGap)
+          .toDouble();
+    }
+    if (capLimit * 2 + gap > maxHeight) {
+      gap = (maxHeight - capLimit * 2).clamp(minGap, gap).toDouble();
+    }
+
+    final neededWidth = widthWith(gap, clusterGap);
+    final neededHeight = capLimit * 2 + gap;
+    var scale = 1.0;
+    if (neededWidth > maxWidth) {
+      scale = math.min(scale, maxWidth / neededWidth);
+    }
+    if (neededHeight > maxHeight) {
+      scale = math.min(scale, maxHeight / neededHeight);
+    }
+    scale = scale.clamp(0.0, 1.0).toDouble();
+    return _ArrowMetrics(
+      cap: capLimit * scale,
+      wide: wideLimit * scale,
+      gap: gap * scale,
+      clusterGap: clusterGap * scale,
     );
   }
 }
@@ -421,86 +576,87 @@ class _NumericKeypad extends StatelessWidget {
 class _ArrowKeys extends StatelessWidget {
   const _ArrowKeys({required this.controller, required this.trigger});
 
-  static const _key = 108.0;
-  static const _wideKey = 140.0;
-  static const _gap = 7.0;
-
   final EditorController controller;
   final ValueChanged<PlaybackSoundId> trigger;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 632,
-      height: 223,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 262,
-            top: 0,
-            child: _KeySurface(
-              label: '↑',
-              width: _key,
-              height: _key,
-              enabled: true,
-              fontSize: 40,
-              onTap: () => trigger(PlaybackSoundId.f1_8),
-            ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final m = _ArrowMetrics.fit(constraints);
+        return SizedBox(
+          width: m.width,
+          height: m.height,
+          child: Stack(
+            children: [
+              Positioned(
+                left: m.wide + m.clusterGap + m.cap + m.gap,
+                top: 0,
+                child: _KeySurface(
+                  label: '↑',
+                  width: m.cap,
+                  height: m.cap,
+                  enabled: true,
+                  fontSize: 40,
+                  onTap: () => trigger(PlaybackSoundId.f1_8),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                top: m.cap + m.gap,
+                child: Row(
+                  children: [
+                    _KeySurface(
+                      label: 'Ctrl',
+                      width: m.wide,
+                      height: m.cap,
+                      enabled: true,
+                      fontSize: 20,
+                      onTap: () => trigger(PlaybackSoundId.f1Go),
+                    ),
+                    SizedBox(width: m.clusterGap),
+                    _KeySurface(
+                      label: '←',
+                      width: m.cap,
+                      height: m.cap,
+                      enabled: true,
+                      fontSize: 40,
+                      onTap: () => trigger(PlaybackSoundId.f1_4),
+                    ),
+                    SizedBox(width: m.gap),
+                    _KeySurface(
+                      label: '↓',
+                      width: m.cap,
+                      height: m.cap,
+                      enabled: true,
+                      fontSize: 40,
+                      onTap: () => trigger(PlaybackSoundId.f1_2),
+                    ),
+                    SizedBox(width: m.gap),
+                    _KeySurface(
+                      label: '→',
+                      width: m.cap,
+                      height: m.cap,
+                      enabled: true,
+                      fontSize: 40,
+                      onTap: () => trigger(PlaybackSoundId.f1_6),
+                    ),
+                    SizedBox(width: m.clusterGap),
+                    _KeySurface(
+                      label: '0',
+                      width: m.wide,
+                      height: m.cap,
+                      enabled: true,
+                      fontSize: 36,
+                      onTap: () => trigger(PlaybackSoundId.f1Yeah),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          Positioned(
-            left: 0,
-            top: _key + _gap,
-            child: Row(
-              children: [
-                _KeySurface(
-                  label: 'Ctrl',
-                  width: _wideKey,
-                  height: _key,
-                  enabled: true,
-                  fontSize: 20,
-                  onTap: () => trigger(PlaybackSoundId.f1Go),
-                ),
-                const SizedBox(width: _gap),
-                _KeySurface(
-                  label: '←',
-                  width: _key,
-                  height: _key,
-                  enabled: true,
-                  fontSize: 40,
-                  onTap: () => trigger(PlaybackSoundId.f1_4),
-                ),
-                const SizedBox(width: _gap),
-                _KeySurface(
-                  label: '↓',
-                  width: _key,
-                  height: _key,
-                  enabled: true,
-                  fontSize: 40,
-                  onTap: () => trigger(PlaybackSoundId.f1_2),
-                ),
-                const SizedBox(width: _gap),
-                _KeySurface(
-                  label: '→',
-                  width: _key,
-                  height: _key,
-                  enabled: true,
-                  fontSize: 40,
-                  onTap: () => trigger(PlaybackSoundId.f1_6),
-                ),
-                const SizedBox(width: _gap),
-                _KeySurface(
-                  label: '0',
-                  width: _wideKey,
-                  height: _key,
-                  enabled: true,
-                  fontSize: 36,
-                  onTap: () => trigger(PlaybackSoundId.f1Yeah),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

@@ -151,14 +151,42 @@ void main() {
       ),
     );
 
-    // 18 mm keycap with a 1 mm gap: about 108 dp at normal phone density.
+    // 18 mm keycap with a 1 mm gap: a 19.05 mm pitch, about 113 dp here.
     expect(
       tester.getSize(find.byKey(const ValueKey('screen-keypad-key-7'))),
-      const Size(108, 108),
+      const Size(113, 113),
     );
     expect(
       tester.getSize(find.byKey(const ValueKey('screen-keypad-key-0'))),
-      const Size(338, 108),
+      const Size(353, 113),
+    );
+  });
+
+  testWidgets('a narrow screen squeezes key gaps before the caps', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(370, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    controller.setSimulationEnabled(true);
+    controller.openScreenKeypad();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
+      ),
+    );
+
+    // 370 dp leaves 346 dp for the pad: the caps stay at 113 dp while the
+    // gap shrinks from 7 to 3.5 dp, so the wide 0 key is 346 dp wide.
+    expect(
+      tester.getSize(find.byKey(const ValueKey('screen-keypad-key-7'))),
+      const Size(113, 113),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('screen-keypad-key-0'))),
+      const Size(346, 113),
     );
   });
 
@@ -291,7 +319,7 @@ void main() {
     expect(find.text('0'), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const ValueKey('screen-keypad-key-↑'))),
-      const Size(108, 108),
+      const Size(113, 113),
     );
   });
 }
