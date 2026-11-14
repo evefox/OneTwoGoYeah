@@ -109,7 +109,7 @@ Android releases target 64-bit ARM phones only. The script builds with
 `--target-platform android-arm64`, verifies the APK contains nothing but
 `arm64-v8a` native libraries, and copies it to
 `build/releases/OneTwoGoYeah-<version>-arm64.apk` (for example
-`OneTwoGoYeah-1.2.0-arm64.apk`) while printing its SHA-256. It accepts only
+`OneTwoGoYeah-1.2.1-arm64.apk`) while printing its SHA-256. It accepts only
 `--dry-run`; every other argument is rejected. The intermediate Flutter output
 remains at `app/build/app/outputs/flutter-apk/app-release.apk`. armeabi-v7a and
 x86_64 packages are not produced; build one by hand only when a specific
