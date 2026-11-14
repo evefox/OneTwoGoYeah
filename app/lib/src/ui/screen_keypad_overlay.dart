@@ -78,6 +78,11 @@ class _NumericLayout extends StatelessWidget {
           right: 12,
           child: _CloseButton(controller: controller),
         ),
+        Positioned(
+          top: viewPadding.top + 10,
+          right: 62,
+          child: _LayoutSwitchButton(controller: controller),
+        ),
         if (judgement != null)
           Positioned(
             top: height * 0.25 - 34,
@@ -133,6 +138,11 @@ class _ArrowLayout extends StatelessWidget {
                   top: 14,
                   right: 14,
                   child: _CloseButton(controller: controller),
+                ),
+                Positioned(
+                  top: 14,
+                  right: 64,
+                  child: _LayoutSwitchButton(controller: controller),
                 ),
                 if (judgement != null)
                   Positioned(
@@ -208,6 +218,38 @@ class _CloseButton extends StatelessWidget {
           child: InkWell(
             onTap: () => controller.closeScreenKeypad(),
             child: const Icon(Icons.close, size: 22),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LayoutSwitchButton extends StatelessWidget {
+  const _LayoutSwitchButton({required this.controller});
+
+  final EditorController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.playbackDanceMode != PlaybackDanceMode.fourKey) {
+      return const SizedBox.shrink();
+    }
+    final arrows = controller.screenKeypadLayout == ScreenKeypadLayout.arrows;
+    return Semantics(
+      button: true,
+      label: arrows ? '切换到数字键盘' : '切换到方向键键盘',
+      child: SizedBox(
+        key: const ValueKey('screen-keypad-layout-switch'),
+        width: 40,
+        height: 40,
+        child: Material(
+          color: EditorColors.surfaceRaised,
+          borderRadius: BorderRadius.circular(10),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: controller.toggleScreenKeypadLayout,
+            child: const Icon(Icons.flip_camera_ios, size: 22),
           ),
         ),
       ),

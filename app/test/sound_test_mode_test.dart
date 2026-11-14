@@ -109,9 +109,12 @@ void main() {
       isNull,
     );
 
-    await tester.tap(find.text('半拍'));
+    await tester.tap(find.text('1/16 音符'));
     await tester.pump();
-    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
+    expect(
+      controller.judgementConfig.basis,
+      PlaybackJudgementBasis.sixteenthNote,
+    );
 
     await tester.tap(find.text('复制参数'));
     await tester.pump();
@@ -217,7 +220,7 @@ void main() {
 
   test('judgement tuning keeps windows ordered and resets to defaults', () {
     final config = controller.judgementConfig;
-    expect(config.basis, PlaybackJudgementBasis.sixteenthNote);
+    expect(config.basis, PlaybackJudgementBasis.halfBeat);
     expect(config.perfectFraction, 0.125);
     expect(config.greatFraction, 0.25);
     expect(config.coolFraction, 0.375);
@@ -225,8 +228,11 @@ void main() {
     expect(config.offsetMs, 0);
     expect(controller.judgementDisplayDurationMs, 320);
 
-    controller.setJudgementBasis(PlaybackJudgementBasis.halfBeat);
-    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
+    controller.setJudgementBasis(PlaybackJudgementBasis.sixteenthNote);
+    expect(
+      controller.judgementConfig.basis,
+      PlaybackJudgementBasis.sixteenthNote,
+    );
 
     // A Perfect window cannot cross into Great.
     controller.setJudgementFraction(PlaybackJudgementGrade.perfect, 0.5);
@@ -244,10 +250,7 @@ void main() {
     expect(controller.judgementDisplayDurationMs, 1000);
 
     controller.resetJudgementTuning();
-    expect(
-      controller.judgementConfig.basis,
-      PlaybackJudgementBasis.sixteenthNote,
-    );
+    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
     expect(controller.judgementConfig.perfectFraction, 0.125);
     expect(controller.judgementConfig.badFraction, 0.5);
     expect(controller.judgementConfig.offsetMs, 0);
@@ -256,17 +259,17 @@ void main() {
 
   test('judgement tuning is blocked by the selection gate', () {
     controller.enterSelectionMode();
-    controller.setJudgementBasis(PlaybackJudgementBasis.halfBeat);
+    controller.setJudgementBasis(PlaybackJudgementBasis.sixteenthNote);
     controller.setJudgementOffsetMs(40);
+    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
+    expect(controller.judgementConfig.offsetMs, 0);
+
+    controller.exitChartInteraction();
+    controller.setJudgementBasis(PlaybackJudgementBasis.sixteenthNote);
     expect(
       controller.judgementConfig.basis,
       PlaybackJudgementBasis.sixteenthNote,
     );
-    expect(controller.judgementConfig.offsetMs, 0);
-
-    controller.exitChartInteraction();
-    controller.setJudgementBasis(PlaybackJudgementBasis.halfBeat);
-    expect(controller.judgementConfig.basis, PlaybackJudgementBasis.halfBeat);
   });
 
   test('the judgement log keeps only the newest 200 entries', () {

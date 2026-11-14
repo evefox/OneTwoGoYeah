@@ -1008,7 +1008,7 @@ NPC/SHOW 以及玩家切换音；`player_notes` 保存有配对音效的 `PLY-N/
 
 `JudgementSession` 是模拟播放的判定核心。`reset` 复制并按 `(row, order)` 排序
 `player_notes`，用共享时序换算预计算每个音符的歌曲秒数；`press` 和 `advance` 在
-reset 之后不再分配。窗口由权威 BPM 和显式基准计算：1/16 音符基准的单位为
+reset 之后不再分配。窗口由权威 BPM 和显式基准计算；应用默认使用半拍基准。1/16 音符基准的单位为
 `60000 / BPM / 4`，半拍基准为 `60000 / BPM / 2`；四档窗口是该单位的显式正数倍率，
 必须严格递增。一次按键匹配 Bad 窗口内最近的未判音符，距离相同时取较早的音符；
 窗口内按错键判 Miss、消费该音符并触发 `PlaybackSoundId::Miss` 反馈音；超过 Bad

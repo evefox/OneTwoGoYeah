@@ -2474,41 +2474,6 @@ class _NavigationRailState extends State<_NavigationRail> {
                             value: controller.judgementEnabled,
                             onChanged: controller.setJudgementEnabled,
                           ),
-                          Text(
-                            '屏幕键盘布局',
-                            style: Theme.of(context).textTheme.labelMedium,
-                          ),
-                          const SizedBox(height: 6),
-                          SegmentedButton<ScreenKeypadLayout>(
-                            key: const ValueKey('screen-keypad-layout'),
-                            segments: const [
-                              ButtonSegment(
-                                value: ScreenKeypadLayout.numeric,
-                                label: Text('数字'),
-                              ),
-                              ButtonSegment(
-                                value: ScreenKeypadLayout.arrows,
-                                label: Text('方向键'),
-                              ),
-                            ],
-                            selected: {controller.screenKeypadLayout},
-                            showSelectedIcon: false,
-                            onSelectionChanged:
-                                controller.generalActionsEnabled &&
-                                    !controller.isBusy &&
-                                    controller.playbackDanceMode ==
-                                        PlaybackDanceMode.fourKey
-                                ? (value) => controller.setScreenKeypadLayout(
-                                    value.single,
-                                  )
-                                : null,
-                          ),
-                          if (controller.playbackDanceMode ==
-                              PlaybackDanceMode.eightKey)
-                            Text(
-                              '8K 下不提供方向键布局',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
                         ],
                       ],
                     ),

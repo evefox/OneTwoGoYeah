@@ -21,7 +21,7 @@ enum class JudgementGrade : std::uint8_t {
 };
 
 /// The window unit is either one 1/16 note (four per beat) or half a beat.
-/// The application default is the 1/16-note unit.
+/// The application default is the half-beat unit.
 enum class JudgementWindowBasis : std::uint8_t {
   SixteenthNote = 0,
   HalfBeat = 1,
@@ -42,7 +42,7 @@ struct JudgementConfig final {
 [[nodiscard]] constexpr JudgementConfig default_judgement_config(
     TimingParameters timing) noexcept {
   return JudgementConfig{timing,
-                         JudgementWindowBasis::SixteenthNote,
+                         JudgementWindowBasis::HalfBeat,
                          0.125,
                          0.25,
                          0.375,

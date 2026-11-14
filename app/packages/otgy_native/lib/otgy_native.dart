@@ -474,7 +474,7 @@ enum PlaybackJudgementGrade { perfect, great, cool, bad, miss }
 
 final class PlaybackJudgementConfig {
   const PlaybackJudgementConfig({
-    this.basis = PlaybackJudgementBasis.sixteenthNote,
+    this.basis = PlaybackJudgementBasis.halfBeat,
     this.perfectFraction = 0.125,
     this.greatFraction = 0.25,
     this.coolFraction = 0.375,

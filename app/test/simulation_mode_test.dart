@@ -194,6 +194,52 @@ void main() {
     expect(triggered, [PlaybackSoundId.f1_2]);
   });
 
+  testWidgets('the overlaid switch toggles numeric and arrow keypads', (
+    tester,
+  ) async {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    controller.setSimulationEnabled(true);
+    controller.openScreenKeypad();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
+      ),
+    );
+
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('Ctrl'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('screen-keypad-layout-switch')));
+    await tester.pump();
+    expect(controller.screenKeypadLayout, ScreenKeypadLayout.arrows);
+    expect(find.text('Ctrl'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('screen-keypad-layout-switch')));
+    await tester.pump();
+    expect(controller.screenKeypadLayout, ScreenKeypadLayout.numeric);
+  });
+
+  testWidgets('the layout switch is hidden in 8K', (tester) async {
+    final controller = EditorController();
+    addTearDown(controller.dispose);
+    controller.setSimulationEnabled(true);
+    controller.setPlaybackDanceMode(PlaybackDanceMode.eightKey);
+    controller.openScreenKeypad();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: ScreenKeypadOverlay(controller: controller)),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('screen-keypad-layout-switch')),
+      findsNothing,
+    );
+  });
+
   testWidgets('arrow overlay renders Ctrl, arrows and 0', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));

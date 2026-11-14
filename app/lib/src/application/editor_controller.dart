@@ -2196,6 +2196,20 @@ class EditorController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Switches the overlay between the numeric and arrow keypads. The button
+  /// lives on the overlay itself and stays usable while simulation plays; the
+  /// arrow layout is unavailable in 8K.
+  void toggleScreenKeypadLayout() {
+    if (!_simulationEnabled ||
+        _playbackDanceMode == PlaybackDanceMode.eightKey) {
+      return;
+    }
+    _screenKeypadLayout = _screenKeypadLayout == ScreenKeypadLayout.numeric
+        ? ScreenKeypadLayout.arrows
+        : ScreenKeypadLayout.numeric;
+    notifyListeners();
+  }
+
   void openScreenKeypad() {
     if (!_simulationEnabled || !generalActionsEnabled || _isBusy) {
       return;
