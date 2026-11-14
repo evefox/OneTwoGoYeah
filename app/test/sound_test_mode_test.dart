@@ -245,7 +245,7 @@ void main() {
     expect(controller.judgementConfig.badFraction, 0.875);
 
     controller.setJudgementOffsetMs(-999);
-    expect(controller.judgementConfig.offsetMs, -250);
+    expect(controller.judgementConfig.offsetMs, -100);
     controller.setJudgementDisplayDurationMs(5000);
     expect(controller.judgementDisplayDurationMs, 1000);
 

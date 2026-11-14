@@ -1853,13 +1853,13 @@ class _PlaybackSoundTestDialog extends StatelessWidget {
                   ),
                   Slider(
                     key: const ValueKey('judgement-offset'),
-                    value: config.offsetMs.clamp(-250.0, 250.0),
-                    min: -250,
-                    max: 250,
-                    // 1 ms per step: a 250 ms wide drag still lands on the
-                    // exact millisecond, and the step buttons below cover
-                    // changes that are too small to drag reliably.
-                    divisions: 500,
+                    value: config.offsetMs.clamp(-100.0, 100.0),
+                    min: -100,
+                    max: 100,
+                    // 1 ms per step: the sliders whole span is 200 ms, so a
+                    // normal drag still lands on the exact millisecond and
+                    // the step buttons below cover the rest.
+                    divisions: 200,
                     label: '${config.offsetMs.round()} ms',
                     onChanged: enabled ? controller.setJudgementOffsetMs : null,
                   ),

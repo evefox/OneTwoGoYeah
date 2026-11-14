@@ -2154,7 +2154,7 @@ class EditorController extends ChangeNotifier {
     if (!judgementTuningEnabled || !value.isFinite) {
       return;
     }
-    final clamped = value.clamp(-250.0, 250.0).roundToDouble();
+    final clamped = value.clamp(-100.0, 100.0).roundToDouble();
     if (clamped == _judgementConfig.offsetMs) {
       return;
     }
