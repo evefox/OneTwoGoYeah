@@ -19,8 +19,15 @@ bool injected = false;
 std::size_t attempts = 0U;
 std::size_t fail_at = std::numeric_limits<std::size_t>::max();
 
-void check() {
-  if (armed && attempts++ == fail_at) {
+void check(std::size_t size) {
+  bool faultable = true;
+#if defined(_MSC_VER) && defined(_DEBUG)
+  // The debug STL allocates a container proxy (two pointers) inside noexcept
+  // vector constructors; a failure there terminates the process before any
+  // handler can run, so those allocations are not faultable.
+  if (size == sizeof(void*) * 2U) faultable = false;
+#endif
+  if (armed && faultable && attempts++ == fail_at) {
     injected = true;
     throw std::bad_alloc{};
   }
@@ -34,13 +41,13 @@ void arm(std::size_t index) noexcept {
 }
 
 void* allocate(std::size_t size) {
-  check();
+  check(size);
   if (void* memory = std::malloc(size == 0U ? 1U : size)) return memory;
   throw std::bad_alloc{};
 }
 
 void* allocate_aligned(std::size_t size, std::size_t alignment) {
-  check();
+  check(size);
 #if defined(_MSC_VER)
   if (void* memory = _aligned_malloc(size == 0U ? 1U : size, alignment)) return memory;
 #else
