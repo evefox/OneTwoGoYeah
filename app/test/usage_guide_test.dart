@@ -320,6 +320,51 @@ void main() {
       );
       expect(find.text('⌘Z 或 ⌃Z'), findsOneWidget);
       expect(find.text('鼠标中键'), findsOneWidget);
+      for (final action in [
+        EditorShortcutAction.npcStart,
+        EditorShortcutAction.npcNote,
+        EditorShortcutAction.npcEnd,
+        EditorShortcutAction.showtime,
+        EditorShortcutAction.player,
+        EditorShortcutAction.cursorUp,
+        EditorShortcutAction.cursorDown,
+        EditorShortcutAction.cursorPreviousBeat,
+        EditorShortcutAction.cursorNextBeat,
+        EditorShortcutAction.cursorPreviousMeasure,
+        EditorShortcutAction.cursorNextMeasure,
+        EditorShortcutAction.cursorChartStart,
+        EditorShortcutAction.cursorChartEnd,
+        EditorShortcutAction.cursorPreviousMarker,
+        EditorShortcutAction.cursorNextMarker,
+        EditorShortcutAction.pasteAtCursor,
+        EditorShortcutAction.selectAll,
+        EditorShortcutAction.cursorSelectionStart,
+        EditorShortcutAction.cursorSelectionEnd,
+        EditorShortcutAction.scaleIn,
+        EditorShortcutAction.scaleOut,
+        EditorShortcutAction.openDraft,
+        EditorShortcutAction.saveDraft,
+        EditorShortcutAction.saveDraftAs,
+        EditorShortcutAction.openGuide,
+      ]) {
+        expect(
+          find.byKey(ValueKey('shortcut-row-${action.id}')),
+          findsOneWidget,
+        );
+        expect(find.text(action.label), findsOneWidget);
+      }
+      expect(find.text('切换 NPC 视角'), findsOneWidget);
+      expect(find.text('NPC 舞步'), findsOneWidget);
+      expect(find.text('Go / Yeah'), findsOneWidget);
+      expect(find.text('ShowTime'), findsOneWidget);
+      expect(find.text('切换玩家视角'), findsOneWidget);
+      expect(find.text('⌘V'), findsOneWidget);
+      expect(find.text('⌘↑'), findsOneWidget);
+      expect(find.text('⇧Page Up'), findsOneWidget);
+      expect(find.text('⌘A'), findsOneWidget);
+      expect(find.text('⌘S'), findsOneWidget);
+      expect(find.text('⇧⌘S'), findsOneWidget);
+      expect(find.text('F1'), findsOneWidget);
       expect(find.text('单指拖动'), findsNothing);
       expect(find.text('双指捏合'), findsNothing);
       expect(find.text('长按'), findsNothing);
@@ -335,6 +380,14 @@ void main() {
     expect(find.text('单指拖动'), findsOneWidget);
     expect(find.text('双指捏合'), findsOneWidget);
     expect(find.byKey(const ValueKey('shortcut-row-playPause')), findsNothing);
+    expect(find.byKey(const ValueKey('shortcut-row-npcStart')), findsNothing);
+    expect(find.byKey(const ValueKey('shortcut-row-cursorUp')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('shortcut-row-pasteAtCursor')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('shortcut-row-openGuide')), findsNothing);
+    expect(find.byKey(const ValueKey('shortcut-row-selectAll')), findsNothing);
     expect(find.text('鼠标中键'), findsNothing);
     expect(find.byKey(const ValueKey('shortcut-reset-all')), findsNothing);
   });
@@ -348,7 +401,10 @@ void main() {
       await pumpEditor(tester, preferences: preferences);
       await openShortcutTopic(tester);
 
-      await tester.tap(find.byKey(const ValueKey('shortcut-row-undo')));
+      final undoRow = find.byKey(const ValueKey('shortcut-row-undo'));
+      await tester.ensureVisible(undoRow);
+      await tester.pump();
+      await tester.tap(undoRow);
       await settle(tester);
       expect(
         find.byKey(const ValueKey('shortcut-capture-dialog')),
@@ -384,7 +440,10 @@ void main() {
       await pumpEditor(tester);
       await openShortcutTopic(tester);
 
-      await tester.tap(find.byKey(const ValueKey('shortcut-row-undo')));
+      final undoRow = find.byKey(const ValueKey('shortcut-row-undo'));
+      await tester.ensureVisible(undoRow);
+      await tester.pump();
+      await tester.tap(undoRow);
       await settle(tester);
       await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyY);

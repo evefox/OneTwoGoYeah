@@ -1777,6 +1777,55 @@ external int otgy_chart_editor_click_with_effects(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+/// Desktop explicit marker placement. marker_type is one of
+/// OTGY_CHART_MARKER_NPC_BLOCK_START, OTGY_CHART_MARKER_NPC_NOTE or
+/// OTGY_CHART_MARKER_NPC_MOVE_END; the NPC column is the only accepted column.
+/// The same type on an occupied row removes that single marker. Unknown columns
+/// or types never narrow to a valid command. out_player_actions_cleared reports
+/// failed player synchronization exactly like the click effects entry point.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint32,
+    ffi.Uint64,
+    ffi.Uint32,
+    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<ffi.Uint8>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_place_marker(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int column,
+  int row,
+  int marker_type,
+  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<ffi.Uint8> out_player_actions_cleared,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Removes exactly one NPC marker at row. A block start leaves its notes, move
+/// end and player block in place; notes and move ends synchronize the
+/// corresponding player practice. Empty and non-NPC rows make no change.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint32,
+    ffi.Uint64,
+    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<ffi.Uint8>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_remove_marker(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int column,
+  int row,
+  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<ffi.Uint8> out_player_actions_cleared,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
@@ -1867,6 +1916,21 @@ external int otgy_chart_editor_select(
   ffi.Pointer<otgy_chart_editor> editor,
   int column,
   int row,
+  ffi.Pointer<otgy_chart_session_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Selects every dance move that the row-based select can resolve. Sorted like
+/// the regular selection set and idempotent; never adds history.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_session_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_select_all(
+  ffi.Pointer<otgy_chart_editor> editor,
   ffi.Pointer<otgy_chart_session_result> out_result,
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
@@ -3267,6 +3331,10 @@ const int OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE = 20;
 const int OTGY_CHART_EDIT_CUT_SOURCE_CHANGED = 21;
 
 const int OTGY_CHART_EDIT_SHOWTIME_PARTIALLY_COMPLETED = 22;
+
+const int OTGY_CHART_EDIT_NOTE_LIMIT_REACHED = 23;
+
+const int OTGY_CHART_EDIT_EMPTY_DANCE_MOVE_END = 24;
 
 const int OTGY_CHART_DIAGNOSTIC_EMPTY_CHART = 0;
 

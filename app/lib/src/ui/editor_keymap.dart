@@ -7,6 +7,31 @@ import 'package:flutter/widgets.dart';
 /// the C ABI, a `ChartDraft`, or SLK output, and a rebound key still calls the
 /// exact controller command the default key called.
 enum EditorShortcutAction {
+  npcStart('npcStart', '切换 NPC 视角'),
+  npcNote('npcNote', 'NPC 舞步'),
+  npcEnd('npcEnd', 'Go / Yeah'),
+  showtime('showtime', 'ShowTime'),
+  player('player', '切换玩家视角'),
+  cursorUp('cursorUp', '光标上移'),
+  cursorDown('cursorDown', '光标下移'),
+  cursorPreviousBeat('cursorPreviousBeat', '上一拍'),
+  cursorNextBeat('cursorNextBeat', '下一拍'),
+  cursorPreviousMeasure('cursorPreviousMeasure', '上一个小节'),
+  cursorNextMeasure('cursorNextMeasure', '下一个小节'),
+  cursorChartStart('cursorChartStart', '跳到谱面开头'),
+  cursorChartEnd('cursorChartEnd', '跳到谱面末尾'),
+  cursorPreviousMarker('cursorPreviousMarker', '上一个标记'),
+  cursorNextMarker('cursorNextMarker', '下一个标记'),
+  cursorSelectionStart('cursorSelectionStart', '跳到选区开头'),
+  cursorSelectionEnd('cursorSelectionEnd', '跳到选区末尾'),
+  selectAll('selectAll', '全选舞步'),
+  pasteAtCursor('pasteAtCursor', '粘贴到判定线'),
+  scaleIn('scaleIn', 'Scale 增大'),
+  scaleOut('scaleOut', 'Scale 减小'),
+  openDraft('openDraft', '打开草稿'),
+  saveDraft('saveDraft', '保存'),
+  saveDraftAs('saveDraftAs', '另存为'),
+  openGuide('openGuide', '打开使用指南'),
   playPause('playPause', '播放 / 暂停'),
   undo('undo', '撤销'),
   redo('redo', '重做'),
@@ -49,7 +74,7 @@ final class ShortcutBinding {
 
   LogicalKeyboardKey? get key => LogicalKeyboardKey.findKeyByKeyId(keyId);
 
-  SingleActivator? toActivator() {
+  SingleActivator? toActivator({bool includeRepeats = true}) {
     final logicalKey = key;
     if (logicalKey == null) {
       return null;
@@ -60,6 +85,7 @@ final class ShortcutBinding {
       shift: shift,
       alt: alt,
       meta: meta,
+      includeRepeats: includeRepeats,
     );
   }
 
@@ -245,7 +271,21 @@ ShortcutBinding _bind(
 ///   subtract`, `ZOOM_RESET` empty, `ctrl + scroll` zoom and `ctrl + alt +
 ///   scroll` scale (already handled by the canvas scroll path).
 /// * `Menubar.cpp`: Undo `Ctrl+Z`, Redo `Ctrl+Y`.
-/// * `View.cpp`: play/pause on `Space`.
+/// * `View.cpp`: play/pause on `Space`; the cursor keys move one snap step,
+///   `Page Up/Down` one measure, `Shift+Page Up/Down` one beat, and
+///   `Home/End` the chart edges. Our grid is fixed at 1/16, so the same keys
+///   step by 1, 4 and 16 rows instead of a selectable snap.
+/// * `Editing.cpp`: number keys place markers in the column under the cursor.
+///   Our fixed `1-5` follow that habit but split the three NPC types apart, so
+///   one key per marker type replaces the contextual N-to-S conversion.
+/// * `Editing.cpp` and `History.cpp`: `Ctrl+V` pastes at the cursor; our
+///   desktop paste can also be committed by clicking the target row.
+/// * `Selection.cpp`: `Ctrl+A` selects all; ours selects every bound dance move
+///   and enters selection mode from plain editing.
+/// * `shortcuts.txt`: `FILE_OPEN = ctrl+o`, `FILE_SAVE = ctrl+s`,
+///   `SHOW_SHORTCUTS = F1`, `SCALE_INCREASE/DECREASE = ctrl + numpad +/-`.
+///   `FILE_SAVE_AS` has no AV default; we use the Windows convention
+///   `Ctrl+Shift+S`. `Ctrl+Home/End` follow AV's selection start/end.
 ///
 /// macOS keeps its existing Command-based defaults; ArrowVortex is Windows-only
 /// and has no macOS reference. Windows has no Zoom reset default because
@@ -258,6 +298,7 @@ Map<EditorShortcutAction, List<ShortcutBinding>> defaultEditorShortcutBindings(
   final List<ShortcutBinding> zoomIn;
   final List<ShortcutBinding> zoomOut;
   final List<ShortcutBinding> zoomReset;
+  final bool mac = platform == TargetPlatform.macOS;
   if (platform == TargetPlatform.macOS) {
     undo = [
       _bind(LogicalKeyboardKey.keyZ, meta: true),
@@ -289,6 +330,88 @@ Map<EditorShortcutAction, List<ShortcutBinding>> defaultEditorShortcutBindings(
     zoomReset = const <ShortcutBinding>[];
   }
   return Map<EditorShortcutAction, List<ShortcutBinding>>.unmodifiable({
+    // Explicit marker keys: 1-3 place the three NPC marker types, 4 places
+    // Showtime and 5 places the player block at the editor cursor. ArrowVortex
+    // uses numbers for chart columns; these defaults keep the same muscle
+    // memory while matching our three visible columns.
+    EditorShortcutAction.npcStart: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.digit1),
+    ]),
+    EditorShortcutAction.npcNote: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.digit2),
+    ]),
+    EditorShortcutAction.npcEnd: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.digit3),
+    ]),
+    EditorShortcutAction.showtime: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.digit4),
+    ]),
+    EditorShortcutAction.player: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.digit5),
+    ]),
+    // Cursor navigation keeps ArrowVortex's layout. The grid is fixed at 1/16,
+    // so a beat is 4 rows and a measure is 16 rows.
+    EditorShortcutAction.cursorUp: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.arrowUp),
+    ]),
+    EditorShortcutAction.cursorDown: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.arrowDown),
+    ]),
+    EditorShortcutAction.cursorPreviousBeat: List<ShortcutBinding>.unmodifiable(
+      [_bind(LogicalKeyboardKey.pageUp, shift: true)],
+    ),
+    EditorShortcutAction.cursorNextBeat: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.pageDown, shift: true),
+    ]),
+    EditorShortcutAction.cursorPreviousMeasure:
+        List<ShortcutBinding>.unmodifiable([_bind(LogicalKeyboardKey.pageUp)]),
+    EditorShortcutAction.cursorNextMeasure: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.pageDown),
+    ]),
+    EditorShortcutAction.cursorChartStart: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.home),
+    ]),
+    EditorShortcutAction.cursorChartEnd: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.end),
+    ]),
+    EditorShortcutAction.cursorPreviousMarker:
+        List<ShortcutBinding>.unmodifiable([
+          _bind(LogicalKeyboardKey.arrowUp, control: !mac, meta: mac),
+        ]),
+    EditorShortcutAction.cursorNextMarker: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.arrowDown, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.cursorSelectionStart:
+        List<ShortcutBinding>.unmodifiable([
+          _bind(LogicalKeyboardKey.home, control: !mac, meta: mac),
+        ]),
+    EditorShortcutAction.cursorSelectionEnd: List<ShortcutBinding>.unmodifiable(
+      [_bind(LogicalKeyboardKey.end, control: !mac, meta: mac)],
+    ),
+    EditorShortcutAction.selectAll: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.keyA, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.pasteAtCursor: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.keyV, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.scaleIn: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.numpadAdd, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.scaleOut: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.numpadSubtract, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.openDraft: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.keyO, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.saveDraft: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.keyS, control: !mac, meta: mac),
+    ]),
+    EditorShortcutAction.saveDraftAs: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.keyS, control: !mac, meta: mac, shift: true),
+    ]),
+    EditorShortcutAction.openGuide: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.f1),
+    ]),
     EditorShortcutAction.playPause: List<ShortcutBinding>.unmodifiable([
       _bind(LogicalKeyboardKey.space),
     ]),

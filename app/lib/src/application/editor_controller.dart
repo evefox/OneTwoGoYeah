@@ -905,19 +905,67 @@ class EditorController extends ChangeNotifier {
     _audioEndRow = 0;
   }
 
-  void clickCell(int column, int row) {
+  /// Returns whether the draft actually changed.
+  bool clickCell(int column, int row) {
     if (_isBusy || !generalActionsEnabled) {
       recordDiagnostic('click', {
         'column': column,
         'row': row,
         'blocked': true,
       });
-      return;
+      return false;
     }
     final result = _diagnosticCall(
       'click',
       () => _editor.click(column, math.max(0, row)),
     );
+    _applyChartEdit('click', result, {'column': column, 'row': row});
+    return result.changed;
+  }
+
+  /// Places one explicit NPC marker type at [row]. Placing the type that is
+  /// already there removes that single marker, matching the desktop key path.
+  /// Returns whether the draft actually changed.
+  bool placeNpcMarker(ChartNpcMarker marker, int row) {
+    if (_isBusy || !generalActionsEnabled) {
+      recordDiagnostic('placeMarker', {
+        'marker': marker.name,
+        'row': row,
+        'blocked': true,
+      });
+      return false;
+    }
+    final result = _diagnosticCall(
+      'placeMarker',
+      () =>
+          _editor.placeMarker(OTGY_CHART_COLUMN_NPC, marker, math.max(0, row)),
+    );
+    _applyChartEdit('placeMarker', result, {'marker': marker.name, 'row': row});
+    return result.changed;
+  }
+
+  /// Removes exactly one NPC marker at [row]. Returns whether the draft
+  /// actually changed.
+  bool removeNpcMarker(int row) {
+    if (_isBusy || !generalActionsEnabled) {
+      recordDiagnostic('removeMarker', {'row': row, 'blocked': true});
+      return false;
+    }
+    final result = _diagnosticCall(
+      'removeMarker',
+      () => _editor.removeMarker(OTGY_CHART_COLUMN_NPC, math.max(0, row)),
+    );
+    _applyChartEdit('removeMarker', result, {'row': row});
+    return result.changed;
+  }
+
+  /// Shared post-processing for every draft edit: notices, projection refresh,
+  /// persistence bookkeeping and the diagnostic record.
+  void _applyChartEdit(
+    String event,
+    EditResult result, [
+    Map<String, Object?> parameters = const {},
+  ]) {
     if (result.changed) {
       if (result.playerActionsCleared) {
         _notice = EditorNotice('演示已修改；对应练习无法自动修正，已清空练习 N/S，保留起始标记。');
@@ -931,7 +979,7 @@ class EditorController extends ChangeNotifier {
       _notice = EditorNotice(_editMessage(result.code));
       notifyListeners();
     }
-    _recordEdit('click', result, {'column': column, 'row': row});
+    _recordEdit(event, result, parameters);
   }
 
   void toggleSelectionMode() {
@@ -1012,6 +1060,52 @@ class EditorController extends ChangeNotifier {
     recordDiagnostic('select', {
       'column': column,
       'row': row,
+      'code': result.code,
+      'changed': result.changed,
+    });
+  }
+
+  /// Selects every dance move the row-based selection can resolve. From plain
+  /// editing this also enters selection mode; while a paste is pending the
+  /// command is ignored because the selection set no longer drives the
+  /// clipboard.
+  void selectAll() {
+    if (_isBusy ||
+        !selectionCommandEnabled ||
+        _chartInteractionMode == EditorChartInteractionMode.pastePending) {
+      recordDiagnostic('selectAll', {'blocked': true});
+      return;
+    }
+    if (_chartInteractionMode == EditorChartInteractionMode.normal) {
+      _chartInteractionMode = EditorChartInteractionMode.selection;
+      _pastePreview = null;
+      _pastePreviewAnchorRow = null;
+    }
+    final result = _diagnosticCall('selectAll', _editor.selectAll);
+    if (result.code != 0) {
+      _notice = EditorNotice(_editMessage(result.code));
+    }
+    notifyListeners();
+    recordDiagnostic('selectAll', {
+      'code': result.code,
+      'changed': result.changed,
+    });
+  }
+
+  /// Clears the selected dance moves but stays in selection mode. The
+  /// right-click gesture and the selection toolbar use this narrower command;
+  /// leaving the session is a separate action.
+  void clearSelectedMoves() {
+    if (_isBusy || !selectionCommandEnabled || !selectionMode) {
+      recordDiagnostic('selection.clearOnly', {'blocked': true});
+      return;
+    }
+    final result = _diagnosticCall(
+      'selection.clearOnly',
+      _editor.clearSelection,
+    );
+    notifyListeners();
+    recordDiagnostic('selection.clearOnly', {
       'code': result.code,
       'changed': result.changed,
     });
@@ -2688,6 +2782,8 @@ class EditorController extends ChangeNotifier {
     19 => '粘贴范围内存在其他标记',
     20 => 'Showtime 内容不一致，请删除后重新生成',
     21 => '剪切来源已变化，原内容未删除',
+    23 => '当前舞步已有 11 个条目，不能再追加',
+    24 => '组内还没有 NPC 舞步，不能放置 Go / Yeah',
     _ => '没有可应用的修改',
   };
 

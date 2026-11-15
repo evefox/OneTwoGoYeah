@@ -270,10 +270,23 @@ final class _CanvasColumnLayout {
 }
 
 class EditorCanvas extends StatefulWidget {
-  const EditorCanvas({super.key, required this.controller, this.preferences});
+  const EditorCanvas({
+    super.key,
+    required this.controller,
+    this.preferences,
+    this.onOpenDrafts,
+    this.onSave,
+    this.onSaveAs,
+  });
 
   final EditorController controller;
   final LocalUiPreferences? preferences;
+
+  /// Screen-level file actions used by the rebindable Ctrl+O/S chords. They
+  /// stay null when the canvas is used without a draft store.
+  final VoidCallback? onOpenDrafts;
+  final VoidCallback? onSave;
+  final VoidCallback? onSaveAs;
 
   @override
   State<EditorCanvas> createState() => _EditorCanvasState();
@@ -435,6 +448,7 @@ class _AudioEndHandleState extends State<_AudioEndHandle> {
 class _EditorCanvasState extends State<EditorCanvas>
     with SingleTickerProviderStateMixin {
   final _focusNode = FocusNode(debugLabel: '谱面编辑画布');
+  final _guideButtonKey = GlobalKey<_UsageGuideButtonState>();
   late final ValueNotifier<double> _paintCurrentRow;
   late final Ticker _playbackVisualTicker;
   double _gestureZoom = 10;
@@ -1037,15 +1051,104 @@ class _EditorCanvasState extends State<EditorCanvas>
   /// defaults used. The canvas never inspects the key itself.
   Map<ShortcutActivator, VoidCallback> _buildShortcutBindings() {
     final bindings = <ShortcutActivator, VoidCallback>{};
-    void add(EditorShortcutAction action, VoidCallback callback) {
+    void add(
+      EditorShortcutAction action,
+      VoidCallback callback, {
+      bool includeRepeats = true,
+    }) {
       for (final binding in _keymap.bindingsFor(action)) {
-        final activator = binding.toActivator();
+        final activator = binding.toActivator(includeRepeats: includeRepeats);
         if (activator != null) {
           bindings[activator] = callback;
         }
       }
     }
 
+    if (!_mobile) {
+      add(
+        EditorShortcutAction.npcStart,
+        () => _placeNpcMarker(ChartNpcMarker.blockStart),
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.npcNote,
+        () => _placeNpcMarker(ChartNpcMarker.note),
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.npcEnd,
+        () => _placeNpcMarker(ChartNpcMarker.moveEnd),
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.showtime,
+        () => _placeContextualMarker(OTGY_CHART_COLUMN_SHOWTIME),
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.player,
+        () => _placeContextualMarker(OTGY_CHART_COLUMN_PLAYER),
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.cursorUp,
+        () => _stepCursorToBoundary(1, forward: false),
+      );
+      add(
+        EditorShortcutAction.cursorDown,
+        () => _stepCursorToBoundary(1, forward: true),
+      );
+      add(
+        EditorShortcutAction.cursorPreviousBeat,
+        () => _stepCursorToBoundary(4, forward: false),
+      );
+      add(
+        EditorShortcutAction.cursorNextBeat,
+        () => _stepCursorToBoundary(4, forward: true),
+      );
+      add(
+        EditorShortcutAction.cursorPreviousMeasure,
+        () => _stepCursorToBoundary(16, forward: false),
+      );
+      add(
+        EditorShortcutAction.cursorNextMeasure,
+        () => _stepCursorToBoundary(16, forward: true),
+      );
+      add(EditorShortcutAction.cursorChartStart, _moveCursorToChartStart);
+      add(EditorShortcutAction.cursorChartEnd, _moveCursorToChartEnd);
+      add(
+        EditorShortcutAction.cursorPreviousMarker,
+        () => _moveCursorToMarker(forward: false),
+      );
+      add(
+        EditorShortcutAction.cursorNextMarker,
+        () => _moveCursorToMarker(forward: true),
+      );
+      add(
+        EditorShortcutAction.pasteAtCursor,
+        _pasteAtCursor,
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.cursorSelectionStart,
+        () => _moveCursorToSelection(start: true),
+      );
+      add(
+        EditorShortcutAction.cursorSelectionEnd,
+        () => _moveCursorToSelection(start: false),
+      );
+      add(
+        EditorShortcutAction.selectAll,
+        widget.controller.selectAll,
+        includeRepeats: false,
+      );
+      add(EditorShortcutAction.scaleIn, () => _scaleBy(0.25));
+      add(EditorShortcutAction.scaleOut, () => _scaleBy(-0.25));
+      add(EditorShortcutAction.openDraft, _openDraftsFromKey);
+      add(EditorShortcutAction.saveDraft, () => _saveFromKey(saveAs: false));
+      add(EditorShortcutAction.saveDraftAs, () => _saveFromKey(saveAs: true));
+      add(EditorShortcutAction.openGuide, _openGuideFromKey);
+    }
     add(EditorShortcutAction.undo, widget.controller.undo);
     add(EditorShortcutAction.redo, widget.controller.redo);
     add(EditorShortcutAction.zoomIn, () => _zoomBy(0.25));
@@ -1058,6 +1161,218 @@ class _EditorCanvasState extends State<EditorCanvas>
       add(EditorShortcutAction.playPause, widget.controller.togglePlayback);
     }
     return bindings;
+  }
+
+  /// Placement keys only act during plain editing. Playback, the selection and
+  /// paste sessions, audio export and other busy states keep the same gates the
+  /// pointer path uses.
+  bool get _placementKeysEnabled =>
+      !_mobile &&
+      !widget.controller.isBusy &&
+      !widget.controller.isPlaying &&
+      widget.controller.chartInteractionMode ==
+          EditorChartInteractionMode.normal &&
+      widget.controller.generalActionsEnabled;
+
+  int get _placementRow => math.max(0, widget.controller.currentRow.round());
+
+  ChartMarker? _markerAtRow(int row) {
+    for (final marker in widget.controller.markers) {
+      if (marker.row == row) {
+        return marker;
+      }
+      if (marker.row > row) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /// `1`-`3` place the three NPC types at the cursor. The same type already on
+  /// the row removes that marker, and only a real placement advances the
+  /// cursor by one sixteenth.
+  void _placeNpcMarker(ChartNpcMarker marker) {
+    if (!_placementKeysEnabled) {
+      return;
+    }
+    final row = _placementRow;
+    final current = _markerAtRow(row);
+    final removes =
+        current != null &&
+        current.column == OTGY_CHART_COLUMN_NPC &&
+        current.type == marker.value;
+    if (widget.controller.placeNpcMarker(marker, row) && !removes) {
+      widget.controller.moveToRow(row + 1.0);
+    }
+  }
+
+  /// `4` and `5` are the ordinary contextual clicks at the cursor row, so
+  /// Showtime completion and player generation behave exactly as they do on
+  /// the pointer path.
+  void _placeContextualMarker(int column) {
+    if (!_placementKeysEnabled) {
+      return;
+    }
+    final row = _placementRow;
+    final removes = _markerAtRow(row)?.column == column;
+    if (widget.controller.clickCell(column, row) && !removes) {
+      widget.controller.moveToRow(row + 1.0);
+    }
+  }
+
+  /// Moves the judgement line to the nearest grid boundary in one direction.
+  /// The editor grid is fixed at 1/16, so [unit] is 1 row for arrows, 4 for a
+  /// beat and 16 for a measure. A fractional cursor snaps to the next boundary
+  /// instead of a fixed distance, matching ArrowVortex's snap steps.
+  void _stepCursorToBoundary(int unit, {required bool forward}) {
+    final controller = widget.controller;
+    if (!controller.navigationEnabled || unit <= 0) {
+      return;
+    }
+    final row = controller.currentRow;
+    final next = forward
+        ? (row ~/ unit + 1) * unit
+        : ((row / unit).ceil() - 1) * unit;
+    controller.moveToRow(next.toDouble());
+  }
+
+  void _moveCursorToChartStart() {
+    if (!widget.controller.navigationEnabled) {
+      return;
+    }
+    widget.controller.moveToRow(0);
+  }
+
+  void _moveCursorToChartEnd() {
+    final controller = widget.controller;
+    if (!controller.navigationEnabled) {
+      return;
+    }
+    controller.moveToRow(controller.timelineRange.endRow);
+  }
+
+  /// Jumps to the closest marker strictly before or after the cursor. Markers
+  /// never share a row, so the projection order is unambiguous.
+  void _moveCursorToMarker({required bool forward}) {
+    final controller = widget.controller;
+    if (!controller.navigationEnabled) {
+      return;
+    }
+    final row = controller.currentRow;
+    final markers = controller.markers;
+    if (forward) {
+      for (final marker in markers) {
+        if (marker.row > row) {
+          controller.moveToRow(marker.row.toDouble());
+          return;
+        }
+      }
+    } else {
+      for (final marker in markers.reversed) {
+        if (marker.row < row) {
+          controller.moveToRow(marker.row.toDouble());
+          return;
+        }
+      }
+    }
+  }
+
+  /// Commits the pending paste at the judgement line, the desktop equivalent of
+  /// the mobile button. Clicking the target row stays available and unchanged.
+  /// The hover preview is cleared so the ghost never sits on a row that this
+  /// shortcut did not use; moving the pointer restores it.
+  void _pasteAtCursor() {
+    final controller = widget.controller;
+    if (!controller.pastePending ||
+        controller.isBusy ||
+        controller.isPlaying ||
+        !controller.selectionCommandEnabled) {
+      return;
+    }
+    final row = math.max(0, controller.currentRow.round());
+    controller.pasteAtRow(row);
+    _desktopHoverPosition = null;
+    controller.clearPastePreview();
+    _pastePreviewSyncedRevision = controller.projectRevision;
+  }
+
+  /// Jumps to the smallest first row or largest last row across the current
+  /// selection. An empty selection leaves the cursor alone.
+  void _moveCursorToSelection({required bool start}) {
+    final controller = widget.controller;
+    if (!controller.navigationEnabled) {
+      return;
+    }
+    final selections = controller.selections;
+    if (selections.isEmpty) {
+      return;
+    }
+    var row = start ? selections.first.firstRow : selections.first.lastRow;
+    for (final selection in selections.skip(1)) {
+      row = start
+          ? math.min(row, selection.firstRow)
+          : math.max(row, selection.lastRow);
+    }
+    controller.moveToRow(row.toDouble());
+  }
+
+  void _scaleBy(double delta) {
+    if (!widget.controller.navigationEnabled) {
+      return;
+    }
+    unawaited(widget.controller.setScale(widget.controller.scale + delta));
+  }
+
+  void _openDraftsFromKey() {
+    final callback = widget.onOpenDrafts;
+    final controller = widget.controller;
+    if (callback == null ||
+        controller.isBusy ||
+        !controller.generalActionsEnabled) {
+      return;
+    }
+    callback();
+  }
+
+  void _saveFromKey({required bool saveAs}) {
+    final callback = saveAs ? widget.onSaveAs : widget.onSave;
+    final controller = widget.controller;
+    if (callback == null ||
+        controller.isBusy ||
+        !controller.generalActionsEnabled ||
+        controller.markers.isEmpty) {
+      return;
+    }
+    callback();
+  }
+
+  void _openGuideFromKey() {
+    _guideButtonKey.currentState?.open();
+  }
+
+  /// Right-click clears the selected dance moves and otherwise leaves a
+  /// non-empty selection session, matching ArrowVortex's clear gesture. An
+  /// empty selection or a pending paste exits the session.
+  void _handleSecondaryTap() {
+    if (_mobile) {
+      return;
+    }
+    final controller = widget.controller;
+    if (controller.isBusy || !controller.selectionCommandEnabled) {
+      return;
+    }
+    switch (controller.chartInteractionMode) {
+      case EditorChartInteractionMode.normal:
+        return;
+      case EditorChartInteractionMode.selection:
+        if (controller.selectionCount > 0) {
+          controller.clearSelectedMoves();
+        } else {
+          controller.exitChartInteraction();
+        }
+      case EditorChartInteractionMode.pastePending:
+        controller.exitChartInteraction();
+    }
   }
 
   @override
@@ -1221,6 +1536,7 @@ class _EditorCanvasState extends State<EditorCanvas>
                       key: const ValueKey('editor-canvas'),
                       behavior: HitTestBehavior.opaque,
                       onTapUp: (details) => _handleTap(details, size),
+                      onSecondaryTapUp: (_) => _handleSecondaryTap(),
                       onLongPressStart: (details) =>
                           _handleLongPress(details, size),
                       onScaleStart: _handleScaleStart,
@@ -1379,6 +1695,7 @@ class _EditorCanvasState extends State<EditorCanvas>
                       navigation: navigation,
                       keymap: _keymap,
                       onKeymapChanged: _applyKeymap,
+                      guideButtonKey: _guideButtonKey,
                       showGuideHint: _guideHintPending,
                       guideHintDuration: _guideHintDuration,
                       onGuideHintShown: _handleGuideHintShown,
@@ -1396,6 +1713,7 @@ class _EditorCanvasState extends State<EditorCanvas>
                         navigation: navigation,
                         keymap: _keymap,
                         onKeymapChanged: _applyKeymap,
+                        guideButtonKey: _guideButtonKey,
                         showGuideHint: _guideHintPending,
                         guideHintDuration: _guideHintDuration,
                         onGuideHintShown: _handleGuideHintShown,
@@ -1486,6 +1804,7 @@ class _NavigationRail extends StatefulWidget {
     required this.navigation,
     required this.keymap,
     required this.onKeymapChanged,
+    required this.guideButtonKey,
     required this.showGuideHint,
     required this.guideHintDuration,
     required this.onGuideHintShown,
@@ -1495,6 +1814,7 @@ class _NavigationRail extends StatefulWidget {
   final TimelineNavigation navigation;
   final EditorKeymap keymap;
   final ValueChanged<EditorKeymap> onKeymapChanged;
+  final GlobalKey<_UsageGuideButtonState> guideButtonKey;
   final bool showGuideHint;
   final Duration guideHintDuration;
   final VoidCallback onGuideHintShown;
@@ -1505,6 +1825,7 @@ class _NavigationRail extends StatefulWidget {
 
 class _UsageGuideButton extends StatefulWidget {
   const _UsageGuideButton({
+    super.key,
     required this.controller,
     required this.keymap,
     required this.onKeymapChanged,
@@ -1603,6 +1924,14 @@ class _UsageGuideButtonState extends State<_UsageGuideButton> {
     if (mounted) {
       setState(() => _hintVisible = false);
     }
+  }
+
+  /// Opens the guide from the F1 shortcut with the same gate as the button.
+  void open() {
+    if (!_enabled) {
+      return;
+    }
+    _openGuide();
   }
 
   void _openGuide() {
@@ -2331,6 +2660,7 @@ class _NavigationRailState extends State<_NavigationRail> {
           mainAxisSize: MainAxisSize.min,
           children: [
             _UsageGuideButton(
+              key: widget.guideButtonKey,
               controller: controller,
               keymap: widget.keymap,
               onKeymapChanged: widget.onKeymapChanged,

@@ -3980,9 +3980,318 @@ void test_paste_preview_is_read_only() {
   assert(empty.paste(12U).code == preview.code);
 }
 
+void test_explicit_npc_placement_rules() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(editor.place_marker(ChartColumn::Npc, 0U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 10U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 20U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 30U,
+                             ChartRoleEventType::MoveEnd));
+  assert(editor.undo_count() == 4U);
+  assert(editor.draft().dance_move_drills().front().move_n_count == 2U);
+
+  const auto history_before_failure = editor.undo_count();
+  const auto failure = editor.place_marker(ChartColumn::Npc, 40U,
+                                           ChartRoleEventType::Note);
+  assert(failure.code == ChartEditCode::CannotAppendAfterEnd);
+  assert(!failure.changed);
+  assert(editor.undo_count() == history_before_failure);
+  assert(editor.place_marker(ChartColumn::Npc, 40U,
+                             ChartRoleEventType::MoveEnd)
+             .code == ChartEditCode::CannotAppendAfterEnd);
+
+  // A different NPC type on an occupied row is rejected, never converted.
+  const auto occupied = editor.place_marker(ChartColumn::Npc, 10U,
+                                            ChartRoleEventType::BlockStart);
+  assert(occupied.code == ChartEditCode::PositionOccupied);
+  assert(marker_of(editor.draft(), ChartMarkerType::NpcNote).row == 10U);
+
+  // A block start may open a new group inside a running dance move. Because
+  // this group already ends at row 30, the new segment starts its own move.
+  assert(editor.place_marker(ChartColumn::Npc, 25U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().drill_groups().size() == 2U);
+  assert(editor.draft().dance_move_drills().size() == 2U);
+
+  // A block start after a move end opens the next dance move.
+  assert(editor.place_marker(ChartColumn::Npc, 40U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().dance_move_drills().size() == 3U);
+
+  // A start inside a group that has not ended yet stays in the same move.
+  ChartEditor running{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(running.place_marker(ChartColumn::Npc, 0U,
+                              ChartRoleEventType::BlockStart));
+  assert(running.place_marker(ChartColumn::Npc, 10U,
+                              ChartRoleEventType::Note));
+  assert(running.place_marker(ChartColumn::Npc, 20U,
+                              ChartRoleEventType::Note));
+  assert(running.place_marker(ChartColumn::Npc, 25U,
+                              ChartRoleEventType::BlockStart));
+  assert(running.draft().drill_groups().size() == 2U);
+  assert(running.draft().dance_move_drills().size() == 1U);
+  assert(running.place_marker(ChartColumn::Npc, 26U,
+                              ChartRoleEventType::Note));
+  assert(running.place_marker(ChartColumn::Npc, 27U,
+                              ChartRoleEventType::MoveEnd));
+  assert(running.draft().dance_move_drills().front().move_n_count == 3U);
+}
+
+void test_explicit_npc_limits_and_occupancy() {
+  {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    assert(editor.place_marker(ChartColumn::Npc, 0U,
+                               ChartRoleEventType::BlockStart));
+    const auto empty_end = editor.place_marker(ChartColumn::Npc, 10U,
+                                               ChartRoleEventType::MoveEnd);
+    assert(empty_end.code == ChartEditCode::EmptyDanceMoveEnd);
+    assert(!empty_end.changed);
+    assert(editor.undo_count() == 1U);
+  }
+  {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    assert(editor.place_marker(ChartColumn::Npc, 0U,
+                               ChartRoleEventType::BlockStart));
+    for (std::uint64_t index = 1U; index <= 11U; ++index) {
+      assert(editor.place_marker(ChartColumn::Npc, index * 10U,
+                                 ChartRoleEventType::Note));
+    }
+    const auto history_before_failure = editor.undo_count();
+    const auto twelfth = editor.place_marker(ChartColumn::Npc, 120U,
+                                             ChartRoleEventType::Note);
+    assert(twelfth.code == ChartEditCode::NoteLimitReached);
+    assert(!twelfth.changed);
+    assert(editor.undo_count() == history_before_failure);
+    // Inserting between existing notes is not limited.
+    assert(editor.place_marker(ChartColumn::Npc, 105U,
+                               ChartRoleEventType::Note));
+    assert(editor.draft().dance_move_drills().front().move_n_count == 12U);
+  }
+  {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    assert(editor.place_marker(ChartColumn::Npc, 0U,
+                               ChartRoleEventType::BlockStart));
+    assert(editor.place_marker(ChartColumn::Npc, 10U,
+                               ChartRoleEventType::Note));
+    assert(editor.click(ChartColumn::Player, 5U));
+    const auto occupied = editor.place_marker(ChartColumn::Npc, 5U,
+                                              ChartRoleEventType::BlockStart);
+    assert(occupied.code == ChartEditCode::PositionOccupied);
+    const auto occupied_note = editor.place_marker(ChartColumn::Npc, 5U,
+                                                   ChartRoleEventType::Note);
+    assert(occupied_note.code == ChartEditCode::PositionOccupied);
+  }
+}
+
+void test_explicit_marker_removal_and_player_sync() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(editor.place_marker(ChartColumn::Npc, 0U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 10U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 20U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 30U,
+                             ChartRoleEventType::MoveEnd));
+  assert(editor.click(ChartColumn::Player, 50U));
+  assert(editor.click(ChartColumn::Player, 60U));
+  const auto player_events = [](const ChartDraft& draft) {
+    return static_cast<std::size_t>(std::count_if(
+        draft.role_events().begin(), draft.role_events().end(),
+        [](const ChartRoleEvent& event) {
+          return event.role == ChartRole::Player;
+        }));
+  };
+  // One player block start plus the three copied actions.
+  assert(player_events(editor.draft()) == 4U);
+
+  // Removing one note drops exactly one synchronized player action.
+  const auto note_id = marker_of(editor.draft(), ChartMarkerType::NpcNote, 1U).id;
+  const auto before_note = editor.draft();
+  const auto removed_note =
+      editor.remove_marker(ChartColumn::Npc, 20U);
+  assert(removed_note && removed_note.changed);
+  assert(removed_note.primary_event_id.value == note_id.value);
+  assert(!removed_note.player_actions_cleared);
+  assert(marker_of(editor.draft(), ChartMarkerType::NpcMoveEnd).row == 30U);
+  assert(player_events(editor.draft()) == 3U);
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before_note));
+  assert(editor.redo());
+
+  // A block start is removed alone: later NPC content and the player block
+  // stay in place, leaving a draft that only export validation rejects.
+  assert(editor.undo());
+  const auto before_start = editor.draft();
+  const auto removed_start = editor.remove_marker(ChartColumn::Npc, 0U);
+  assert(removed_start && removed_start.changed);
+  assert(!removed_start.player_actions_cleared);
+  assert(editor.draft().role_events().size() ==
+         before_start.role_events().size() - 1U);
+  assert(editor.draft().drill_groups().size() == 1U);
+  assert(editor.draft().dance_move_drills().size() == 1U);
+  assert(player_events(editor.draft()) == 4U);
+  assert(marker_of(editor.draft(), ChartMarkerType::NpcNote).row == 10U);
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before_start));
+  assert(editor.redo());
+
+  // The move end keeps the existing click deletion rules.
+  assert(editor.undo());  // back to the complete draft
+  ChartEditor reference{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(reference.place_marker(ChartColumn::Npc, 40U,
+                                ChartRoleEventType::BlockStart));
+  assert(reference.place_marker(ChartColumn::Npc, 50U,
+                                ChartRoleEventType::Note));
+  assert(reference.place_marker(ChartColumn::Npc, 60U,
+                                ChartRoleEventType::MoveEnd));
+  ChartEditor copy{reference.draft()};
+  assert(copy.remove_marker(ChartColumn::Npc, 60U));
+  assert(reference.click(ChartColumn::Npc, 60U));
+  assert(otgy::core::chart_drafts_equal(copy.draft(), reference.draft()));
+}
+
+void test_explicit_marker_removal_rejects_unrelated_rows() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(editor.place_marker(ChartColumn::Npc, 0U,
+                             ChartRoleEventType::BlockStart));
+  const auto empty = editor.remove_marker(ChartColumn::Npc, 5U);
+  assert(empty.code == ChartEditCode::NoChange);
+  assert(!empty.changed);
+  assert(editor.click(ChartColumn::Player, 5U));
+  const auto occupied = editor.remove_marker(ChartColumn::Npc, 5U);
+  assert(occupied.code == ChartEditCode::CannotPlace);
+  assert(!occupied.changed);
+  assert(editor.undo_count() == 2U);
+}
+
+void test_explicit_npc_start_adopts_orphan_group() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(editor.place_marker(ChartColumn::Npc, 0U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 10U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 20U,
+                             ChartRoleEventType::MoveEnd));
+  assert(editor.click(ChartColumn::Player, 50U));
+  assert(editor.click(ChartColumn::Player, 60U));
+  const auto group_id = editor.draft().drill_groups().front().id;
+  const auto drill_id = editor.draft().dance_move_drills().front().id;
+  const auto note_id = marker_of(editor.draft(), ChartMarkerType::NpcNote).id;
+  const auto end_id = marker_of(editor.draft(), ChartMarkerType::NpcMoveEnd).id;
+
+  assert(editor.remove_marker(ChartColumn::Npc, 0U));
+  assert(editor.draft().drill_groups().size() == 1U);
+
+  // A start placed immediately before the orphan group takes it over instead
+  // of creating a new group and dance move.
+  assert(editor.place_marker(ChartColumn::Npc, 1U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().drill_groups().size() == 1U);
+  assert(editor.draft().dance_move_drills().size() == 1U);
+  assert(editor.draft().drill_groups().front().id.value == group_id.value);
+  assert(editor.draft().dance_move_drills().front().id.value == drill_id.value);
+  assert(marker_of(editor.draft(), ChartMarkerType::NpcNote).id.value ==
+         note_id.value);
+  assert(marker_of(editor.draft(), ChartMarkerType::NpcMoveEnd).id.value ==
+         end_id.value);
+  assert(marker_of(editor.draft(), ChartMarkerType::NpcBlockStart).row == 1U);
+}
+
+void test_explicit_npc_start_adopts_nearest_group_only() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(editor.place_marker(ChartColumn::Npc, 0U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 10U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 20U,
+                             ChartRoleEventType::MoveEnd));
+  assert(editor.place_marker(ChartColumn::Npc, 30U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 40U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 50U,
+                             ChartRoleEventType::MoveEnd));
+  assert(editor.remove_marker(ChartColumn::Npc, 0U));
+  assert(editor.remove_marker(ChartColumn::Npc, 30U));
+  assert(editor.draft().drill_groups().size() == 2U);
+
+  // The nearer start-less group is adopted; the later one stays untouched.
+  assert(editor.place_marker(ChartColumn::Npc, 5U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().drill_groups().size() == 2U);
+  assert(editor.place_marker(ChartColumn::Npc, 25U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().drill_groups().size() == 2U);
+  assert(editor.draft().dance_move_drills().size() == 2U);
+}
+
+void test_explicit_npc_start_skips_occupied_gap() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(editor.place_marker(ChartColumn::Npc, 0U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 10U,
+                             ChartRoleEventType::Note));
+  assert(editor.place_marker(ChartColumn::Npc, 20U,
+                             ChartRoleEventType::MoveEnd));
+  assert(editor.place_marker(ChartColumn::Npc, 25U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 35U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.place_marker(ChartColumn::Npc, 40U,
+                             ChartRoleEventType::Note));
+  assert(editor.remove_marker(ChartColumn::Npc, 35U));
+  assert(editor.draft().drill_groups().size() == 3U);
+
+  // Markers between the new start and the start-less group block adoption.
+  assert(editor.place_marker(ChartColumn::Npc, 5U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().drill_groups().size() == 4U);
+}
+
+void test_select_all_collects_every_bound_drill() {
+  ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  const auto empty = editor.select_all();
+  assert(empty && !empty.changed);
+  assert(editor.selections().empty());
+
+  assert(editor.click(ChartColumn::Npc, 0U));
+  assert(editor.click(ChartColumn::Npc, 10U));
+  assert(editor.click(ChartColumn::Npc, 20U));
+  assert(editor.click(ChartColumn::Npc, 20U));
+  assert(editor.place_marker(ChartColumn::Npc, 60U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.click(ChartColumn::Npc, 70U));
+  assert(editor.click(ChartColumn::Npc, 80U));
+  assert(editor.click(ChartColumn::Npc, 80U));
+  // The second dance move stays selectable while its block start is missing.
+  assert(editor.remove_marker(ChartColumn::Npc, 60U));
+
+  const auto before = editor.draft();
+  const auto history = editor.undo_count();
+  const auto selected = editor.select_all();
+  assert(selected && selected.changed);
+  assert(editor.selections().size() == 2U);
+  assert(editor.selections()[0].first_row == 0U);
+  assert(editor.selections()[1].first_row == 70U);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  assert(editor.undo_count() == history);
+
+  const auto repeated = editor.select_all();
+  assert(repeated && !repeated.changed);
+  assert(editor.selections().size() == 2U);
+
+  assert(editor.clear_selection().changed);
+  assert(editor.selections().empty());
+  assert(editor.select_all().changed);
+}
+
 void test_result_messages() {
   for (unsigned int raw = 1U;
-       raw <= static_cast<unsigned int>(ChartEditCode::CutSourceChanged);
+       raw <= static_cast<unsigned int>(ChartEditCode::EmptyDanceMoveEnd);
        ++raw) {
     assert(!otgy::core::chart_edit_code_message(
                 static_cast<ChartEditCode>(raw))
@@ -4050,6 +4359,14 @@ int main() {
   test_pending_cut_source_changes_and_retry();
   test_batch_selection_revalidation();
   test_paste_preview_is_read_only();
+  test_explicit_npc_placement_rules();
+  test_explicit_npc_limits_and_occupancy();
+  test_explicit_marker_removal_and_player_sync();
+  test_explicit_marker_removal_rejects_unrelated_rows();
+  test_explicit_npc_start_adopts_orphan_group();
+  test_explicit_npc_start_adopts_nearest_group_only();
+  test_explicit_npc_start_skips_occupied_gap();
+  test_select_all_collects_every_bound_drill();
   test_result_messages();
   return 0;
 }

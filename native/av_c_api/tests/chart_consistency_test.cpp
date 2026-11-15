@@ -468,6 +468,18 @@ struct EditorPair final {
     return result;
   }
 
+  otgy::core::ChartSessionResult selectAll() {
+    const auto result = direct.select_all();
+    otgy_chart_session_result projected{};
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_select_all(abi.get(), &projected, &error) ==
+               OTGY_STATUS_OK && error == nullptr,
+           "editor pair select-all failed");
+    compare_session(result, projected);
+    compare();
+    return result;
+  }
+
   otgy::core::ChartSessionResult session(
       otgy::core::ChartSessionResult (otgy::core::ChartEditor::*core)() noexcept,
       otgy_status (*function)(otgy_chart_editor*, otgy_chart_session_result*,
@@ -504,6 +516,44 @@ struct EditorPair final {
                                    row, &projected, &error) == OTGY_STATUS_OK &&
                error == nullptr,
            "editor pair click failed");
+    compare_edit(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartEditResult place(otgy::core::ChartColumn column,
+                                   std::uint64_t row,
+                                   otgy::core::ChartRoleEventType type) {
+    const auto result = direct.place_marker(column, row, type);
+    otgy_chart_edit_result projected{};
+    std::uint8_t cleared = 0U;
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_place_marker(
+               abi.get(), static_cast<std::uint32_t>(column), row,
+               static_cast<std::uint32_t>(type), &projected, &cleared,
+               &error) == OTGY_STATUS_OK && error == nullptr,
+           "editor pair place failed");
+    expect(cleared ==
+               static_cast<std::uint8_t>(result.player_actions_cleared),
+           "editor pair place clear flag differs");
+    compare_edit(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartEditResult remove(otgy::core::ChartColumn column,
+                                    std::uint64_t row) {
+    const auto result = direct.remove_marker(column, row);
+    otgy_chart_edit_result projected{};
+    std::uint8_t cleared = 0U;
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_remove_marker(
+               abi.get(), static_cast<std::uint32_t>(column), row, &projected,
+               &cleared, &error) == OTGY_STATUS_OK && error == nullptr,
+           "editor pair remove failed");
+    expect(cleared ==
+               static_cast<std::uint8_t>(result.player_actions_cleared),
+           "editor pair remove clear flag differs");
     compare_edit(result, projected);
     compare();
     return result;
@@ -2264,6 +2314,133 @@ void test_player_sync_click_effect_consistency() {
          "redo did not delete the corresponding block");
 }
 
+void test_explicit_marker_consistency() {
+  using Column = otgy::core::ChartColumn;
+  using Event = otgy::core::ChartRoleEventType;
+  EditorPair pair{empty_chart()};
+
+  expect(pair.place(Column::Npc, 0U, Event::BlockStart).changed,
+         "explicit NPC-C placement failed");
+  expect(pair.place(Column::Npc, 10U, Event::Note).changed,
+         "explicit NPC-N placement failed");
+  expect(pair.place(Column::Npc, 20U, Event::Note).changed,
+         "explicit second NPC-N placement failed");
+  expect(pair.place(Column::Npc, 30U, Event::MoveEnd).changed,
+         "explicit NPC-S placement failed");
+  const auto after_placement = pair.direct.draft();
+  expect(pair.place(Column::Npc, 40U, Event::Note).code ==
+             otgy::core::ChartEditCode::CannotAppendAfterEnd,
+         "explicit NPC-N after the move end was not rejected");
+  expect(pair.place(Column::Npc, 10U, Event::BlockStart).code ==
+             otgy::core::ChartEditCode::PositionOccupied,
+         "explicit NPC-C did not report the occupied row");
+
+  // The same type removes exactly that marker through the ABI.
+  const auto removed = pair.remove(Column::Npc, 20U);
+  expect(removed.changed &&
+             removed.primary_event_id.value != 0U,
+         "explicit marker removal failed");
+  expect(pair.remove(Column::Npc, 25U).code ==
+             otgy::core::ChartEditCode::NoChange,
+         "removing an empty row made a change");
+  pair.history(true);
+  expect(otgy::core::chart_drafts_equal(pair.direct.draft(), after_placement),
+         "undo did not restore the removed marker");
+
+  // Unknown columns and marker types never narrow to a valid command.
+  const auto undo_before = pair.direct.undo_count();
+  const auto before_invalid = pair.direct.draft();
+  otgy_chart_edit_result projected{};
+  std::uint8_t cleared = 0U;
+  otgy_error* error = nullptr;
+  expect(otgy_chart_editor_place_marker(
+             pair.abi.get(), 255U, 50U,
+             OTGY_CHART_MARKER_NPC_BLOCK_START, &projected, &cleared,
+             &error) == OTGY_STATUS_OK && error == nullptr,
+         "invalid explicit column failed at the ABI boundary");
+  expect(cleared == 0U, "invalid explicit column reported a clear effect");
+  expect(projected.code == OTGY_CHART_EDIT_CANNOT_PLACE &&
+             projected.changed == 0U,
+         "invalid explicit column was accepted");
+  expect(otgy_chart_editor_place_marker(
+             pair.abi.get(), OTGY_CHART_COLUMN_NPC, 50U, 255U, &projected,
+             &cleared, &error) == OTGY_STATUS_OK && error == nullptr,
+         "invalid explicit marker type failed at the ABI boundary");
+  expect(cleared == 0U, "invalid explicit marker type reported a clear effect");
+  expect(projected.code == OTGY_CHART_EDIT_CANNOT_PLACE &&
+             projected.changed == 0U,
+         "invalid explicit marker type was accepted");
+  expect(pair.direct.undo_count() == undo_before &&
+             otgy::core::chart_drafts_equal(pair.direct.draft(),
+                                            before_invalid),
+         "rejected explicit commands changed the draft or history");
+
+  // Null outputs clear before the argument check, like the other edit calls.
+  projected = otgy_chart_edit_result{99U, 1U, 7U};
+  expect(otgy_chart_editor_place_marker(
+             nullptr, OTGY_CHART_COLUMN_NPC, 0U,
+             OTGY_CHART_MARKER_NPC_BLOCK_START, &projected, &cleared,
+             &error) == OTGY_STATUS_INVALID_ARGUMENT,
+         "null editor was not rejected");
+  expect(cleared == 0U,
+         "explicit placement did not clear the effect flag before validation");
+  expect(projected.code == 0U && projected.changed == 0U &&
+             projected.primary_event_id == 0U,
+         "explicit placement did not clear its result before validation");
+  projected = otgy_chart_edit_result{99U, 1U, 7U};
+  cleared = 1U;
+  expect(otgy_chart_editor_remove_marker(
+             nullptr, OTGY_CHART_COLUMN_NPC, 0U, &projected, &cleared,
+             &error) == OTGY_STATUS_INVALID_ARGUMENT,
+         "null editor was not rejected on removal");
+  expect(cleared == 0U,
+         "explicit removal did not clear the effect flag before validation");
+  expect(projected.code == 0U && projected.changed == 0U &&
+             projected.primary_event_id == 0U,
+         "explicit removal did not clear its result before validation");
+}
+
+void test_select_all_consistency() {
+  using Column = otgy::core::ChartColumn;
+  using Event = otgy::core::ChartRoleEventType;
+  EditorPair pair{empty_chart()};
+
+  const auto empty = pair.selectAll();
+  expect(empty.code == otgy::core::ChartEditCode::Success && !empty.changed,
+         "empty select-all reported a change");
+
+  expect(pair.click(Column::Npc, 0U).changed, "select-all NPC-C failed");
+  expect(pair.click(Column::Npc, 10U).changed, "select-all NPC-N failed");
+  expect(pair.click(Column::Npc, 10U).changed, "select-all NPC-S failed");
+  expect(pair.place(Column::Npc, 40U, Event::BlockStart).changed,
+         "select-all second NPC-C failed");
+  expect(pair.click(Column::Npc, 50U).changed, "select-all second NPC-N failed");
+  expect(pair.click(Column::Npc, 50U).changed, "select-all second NPC-S failed");
+
+  const auto selected = pair.selectAll();
+  expect(selected.code == otgy::core::ChartEditCode::Success && selected.changed,
+         "select-all did not report the new selection");
+  expect(pair.direct.selections().size() == 2U,
+         "select-all missed a dance move");
+  expect(pair.selectAll().changed == false,
+         "repeated select-all reported a change");
+  expect(pair.direct.undo_count() == 6U,
+         "select-all changed the edit history");
+
+  const auto cleared = pair.session(&otgy::core::ChartEditor::clear_selection,
+                                    otgy_chart_editor_clear_selection);
+  expect(cleared.changed && pair.direct.selections().empty(),
+         "clear-selection after select-all failed");
+
+  otgy_chart_session_result projected{};
+  otgy_error* error = nullptr;
+  expect(otgy_chart_editor_select_all(nullptr, &projected, &error) ==
+             OTGY_STATUS_INVALID_ARGUMENT,
+         "null select-all editor was not rejected");
+  expect(projected.code == 0U && projected.changed == 0U,
+         "select-all did not clear its result before validation");
+}
+
 void test_slk_finished_boundary(const std::vector<std::uint8_t>& bytes) {
   const auto direct_import =
       otgy::core::import_finished_slk(bytes.data(), bytes.size());
@@ -2446,6 +2623,8 @@ int main() {
     test_stale_showtime_consistency();
     test_failed_paste_consistency();
     test_player_sync_click_effect_consistency();
+    test_explicit_marker_consistency();
+    test_select_all_consistency();
     test_slk_finished_boundary(read_file(OTGY_C_API_SLK_FIXTURE));
     test_slk_position();
     return 0;

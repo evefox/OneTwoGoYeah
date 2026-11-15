@@ -25,6 +25,10 @@ export 'otgy_native_bindings_generated.dart'
         OTGY_CHART_COLUMN_NPC,
         OTGY_CHART_COLUMN_PLAYER,
         OTGY_CHART_COLUMN_SHOWTIME,
+        OTGY_CHART_EDIT_EMPTY_DANCE_MOVE_END,
+        OTGY_CHART_EDIT_NO_CHANGE,
+        OTGY_CHART_EDIT_NOTE_LIMIT_REACHED,
+        OTGY_CHART_EDIT_POSITION_OCCUPIED,
         OTGY_CHART_EDIT_SHOWTIME_PARTIALLY_COMPLETED,
         OTGY_CHART_MARKER_NPC_BLOCK_START,
         OTGY_CHART_MARKER_NPC_MOVE_END,
@@ -102,6 +106,18 @@ final class EditResult {
   final bool changed;
   final int primaryEventId;
   final bool playerActionsCleared;
+}
+
+/// The three NPC marker types the desktop keyboard path places explicitly.
+/// Values match `ChartRoleEventType` for the NPC roles.
+enum ChartNpcMarker {
+  blockStart(0),
+  note(1),
+  moveEnd(2);
+
+  const ChartNpcMarker(this.value);
+
+  final int value;
 }
 
 final class ChartSelection {
@@ -1781,6 +1797,11 @@ final class NativeChartEditor {
     ),
   );
 
+  SessionResult selectAll() => _session(
+    (result, error) =>
+        native.otgy_chart_editor_select_all(_requireEditor(), result, error),
+  );
+
   SessionResult clearSelection() => _session(
     (result, error) => native.otgy_chart_editor_clear_selection(
       _requireEditor(),
@@ -1848,6 +1869,62 @@ final class NativeChartEditor {
     try {
       _checkStatus(
         native.otgy_chart_editor_click_with_effects(
+          _requireEditor(),
+          column,
+          row,
+          result,
+          cleared,
+          error,
+        ),
+        error,
+      );
+      return EditResult(
+        code: result.ref.code,
+        changed: result.ref.changed != 0,
+        primaryEventId: result.ref.primary_event_id,
+        playerActionsCleared: cleared.value != 0,
+      );
+    } finally {
+      _destroyError(error);
+    }
+  });
+
+  EditResult placeMarker(int column, ChartNpcMarker marker, int row) =>
+      using((arena) {
+        final result = arena<native.otgy_chart_edit_result>();
+        final cleared = arena<Uint8>();
+        final error = arena<Pointer<native.otgy_error>>();
+        try {
+          _checkStatus(
+            native.otgy_chart_editor_place_marker(
+              _requireEditor(),
+              column,
+              row,
+              marker.value,
+              result,
+              cleared,
+              error,
+            ),
+            error,
+          );
+          return EditResult(
+            code: result.ref.code,
+            changed: result.ref.changed != 0,
+            primaryEventId: result.ref.primary_event_id,
+            playerActionsCleared: cleared.value != 0,
+          );
+        } finally {
+          _destroyError(error);
+        }
+      });
+
+  EditResult removeMarker(int column, int row) => using((arena) {
+    final result = arena<native.otgy_chart_edit_result>();
+    final cleared = arena<Uint8>();
+    final error = arena<Pointer<native.otgy_error>>();
+    try {
+      _checkStatus(
+        native.otgy_chart_editor_remove_marker(
           _requireEditor(),
           column,
           row,

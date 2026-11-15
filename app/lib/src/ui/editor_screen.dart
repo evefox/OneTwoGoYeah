@@ -1483,6 +1483,9 @@ class _EditorScreenState extends State<EditorScreen>
                           child: EditorCanvas(
                             controller: _controller,
                             preferences: widget.preferences,
+                            onOpenDrafts: _openDrafts,
+                            onSave: _save,
+                            onSaveAs: () => _save(saveAs: true),
                           ),
                         ),
                         _StatusBar(

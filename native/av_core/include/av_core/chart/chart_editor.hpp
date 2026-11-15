@@ -35,6 +35,8 @@ enum class ChartEditCode : std::uint8_t {
   ShowtimeContentStale = 20,
   CutSourceChanged = 21,
   ShowtimePartiallyCompleted = 22,
+  NoteLimitReached = 23,
+  EmptyDanceMoveEnd = 24,
 };
 
 [[nodiscard]] constexpr std::string_view chart_edit_code_message(
@@ -86,6 +88,10 @@ enum class ChartEditCode : std::uint8_t {
       return "the pending cut source has changed";
     case ChartEditCode::ShowtimePartiallyCompleted:
       return "Showtime completion stopped before later chart content";
+    case ChartEditCode::NoteLimitReached:
+      return "the dance move already has eleven notes";
+    case ChartEditCode::EmptyDanceMoveEnd:
+      return "cannot end a dance move that has no notes";
   }
   return "unknown chart edit result";
 }
@@ -176,6 +182,31 @@ class ChartEditor final {
 
   [[nodiscard]] ChartEditResult click(ChartColumn column,
                                       std::uint64_t row) noexcept;
+
+  /// Desktop explicit marker placement. Only the NPC column accepts the three
+  /// NPC event types; the type is taken from the command instead of the
+  /// surrounding sequence. An empty row receives exactly that type, including a
+  /// new block start inside a running dance move and a block start after a move
+  /// end. A row that already holds the same NPC type removes that single marker
+  /// through remove_marker; any other occupied row is rejected.
+  ///
+  /// Every successful placement is one history entry and uses the same
+  /// structural rules as click: Showtime display ranges gate NPC-C, append
+  /// beyond eleven notes is rejected, and a move end requires at least one note
+  /// in its group. Inserting between existing notes may still exceed eleven.
+  /// An NPC-C placed immediately before a group that lost its start event takes
+  /// that group over instead of creating a new group.
+  [[nodiscard]] ChartEditResult place_marker(ChartColumn column,
+                                             std::uint64_t row,
+                                             ChartRoleEventType type) noexcept;
+
+  /// Removes exactly one NPC marker from row. NPC-C leaves its notes, move end
+  /// and player block untouched, so the draft may become incomplete. NPC-N also
+  /// synchronizes the corresponding player actions; NPC-S keeps the existing
+  /// click behavior, including merging the following dance move. Empty rows and
+  /// non-NPC rows make no change.
+  [[nodiscard]] ChartEditResult remove_marker(ChartColumn column,
+                                              std::uint64_t row) noexcept;
   [[nodiscard]] ChartEditResult clear() noexcept;
   [[nodiscard]] ChartEditResult undo() noexcept;
   [[nodiscard]] ChartEditResult redo() noexcept;
@@ -191,6 +222,11 @@ class ChartEditor final {
   /// Session commands. They never touch the draft and never add history.
   [[nodiscard]] ChartSessionResult select(ChartColumn column,
                                           std::uint64_t row) noexcept;
+
+  /// Selects every dance move that `select` can resolve at a marker row: each
+  /// drill with at least one bound role event, including incomplete drafts.
+  /// The result is sorted like the regular selection set and is idempotent.
+  [[nodiscard]] ChartSessionResult select_all() noexcept;
   [[nodiscard]] ChartSessionResult clear_selection() noexcept;
   [[nodiscard]] ChartSessionResult copy_selection() noexcept;
   [[nodiscard]] ChartSessionResult clear_clipboard() noexcept;

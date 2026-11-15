@@ -70,6 +70,144 @@ void main() {
         expect(EditorKeymap.defaults(platform).isDefaultFor(platform), isTrue);
       }
     });
+
+    test('number keys place the five explicit marker types', () {
+      for (final platform in [TargetPlatform.windows, TargetPlatform.macOS]) {
+        final keymap = EditorKeymap.defaults(platform);
+        expect(chordsFor(keymap, EditorShortcutAction.npcStart, platform), [
+          '1',
+        ]);
+        expect(chordsFor(keymap, EditorShortcutAction.npcNote, platform), [
+          '2',
+        ]);
+        expect(chordsFor(keymap, EditorShortcutAction.npcEnd, platform), ['3']);
+        expect(chordsFor(keymap, EditorShortcutAction.showtime, platform), [
+          '4',
+        ]);
+        expect(chordsFor(keymap, EditorShortcutAction.player, platform), ['5']);
+      }
+    });
+
+    test('placement defaults are distinct from every other action', () {
+      final keymap = EditorKeymap.defaults(TargetPlatform.windows);
+      for (final action in [
+        EditorShortcutAction.npcStart,
+        EditorShortcutAction.npcNote,
+        EditorShortcutAction.npcEnd,
+        EditorShortcutAction.showtime,
+        EditorShortcutAction.player,
+      ]) {
+        expect(
+          keymap.conflictingAction(action, keymap.bindingsFor(action).single),
+          isNull,
+        );
+      }
+    });
+
+    test('cursor and paste defaults follow ArrowVortex on Windows', () {
+      const platform = TargetPlatform.windows;
+      final keymap = EditorKeymap.defaults(platform);
+
+      expect(chordsFor(keymap, EditorShortcutAction.cursorUp, platform), ['↑']);
+      expect(chordsFor(keymap, EditorShortcutAction.cursorDown, platform), [
+        '↓',
+      ]);
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorPreviousMeasure, platform),
+        ['Page Up'],
+      );
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorNextMeasure, platform),
+        ['Page Down'],
+      );
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorPreviousBeat, platform),
+        ['Shift + Page Up'],
+      );
+      expect(chordsFor(keymap, EditorShortcutAction.cursorNextBeat, platform), [
+        'Shift + Page Down',
+      ]);
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorChartStart, platform),
+        ['Home'],
+      );
+      expect(chordsFor(keymap, EditorShortcutAction.cursorChartEnd, platform), [
+        'End',
+      ]);
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorPreviousMarker, platform),
+        ['Ctrl + ↑'],
+      );
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorNextMarker, platform),
+        ['Ctrl + ↓'],
+      );
+      expect(chordsFor(keymap, EditorShortcutAction.pasteAtCursor, platform), [
+        'Ctrl + V',
+      ]);
+    });
+
+    test('macOS uses Command for marker jumps and paste', () {
+      const platform = TargetPlatform.macOS;
+      final keymap = EditorKeymap.defaults(platform);
+
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorPreviousMarker, platform),
+        ['⌘↑'],
+      );
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorNextMarker, platform),
+        ['⌘↓'],
+      );
+      expect(chordsFor(keymap, EditorShortcutAction.pasteAtCursor, platform), [
+        '⌘V',
+      ]);
+      expect(
+        chordsFor(keymap, EditorShortcutAction.cursorPreviousBeat, platform),
+        ['⇧Page Up'],
+      );
+    });
+
+    test('entry and selection defaults follow ArrowVortex', () {
+      const windows = TargetPlatform.windows;
+      final win = EditorKeymap.defaults(windows);
+      expect(chordsFor(win, EditorShortcutAction.selectAll, windows), [
+        'Ctrl + A',
+      ]);
+      expect(
+        chordsFor(win, EditorShortcutAction.cursorSelectionStart, windows),
+        ['Ctrl + Home'],
+      );
+      expect(chordsFor(win, EditorShortcutAction.cursorSelectionEnd, windows), [
+        'Ctrl + End',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.scaleIn, windows), [
+        'Ctrl + 小键盘 +',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.scaleOut, windows), [
+        'Ctrl + 小键盘 -',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.openDraft, windows), [
+        'Ctrl + O',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.saveDraft, windows), [
+        'Ctrl + S',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.saveDraftAs, windows), [
+        'Ctrl + Shift + S',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.openGuide, windows), ['F1']);
+
+      const macos = TargetPlatform.macOS;
+      final mac = EditorKeymap.defaults(macos);
+      expect(chordsFor(mac, EditorShortcutAction.selectAll, macos), ['⌘A']);
+      expect(chordsFor(mac, EditorShortcutAction.cursorSelectionStart, macos), [
+        '⌘Home',
+      ]);
+      expect(chordsFor(mac, EditorShortcutAction.saveDraftAs, macos), ['⇧⌘S']);
+      expect(chordsFor(mac, EditorShortcutAction.scaleIn, macos), ['⌘小键盘 +']);
+      expect(chordsFor(mac, EditorShortcutAction.openGuide, macos), ['F1']);
+    });
   });
 
   group('persistence', () {

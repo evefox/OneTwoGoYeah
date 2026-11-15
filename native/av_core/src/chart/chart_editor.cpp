@@ -1037,6 +1037,117 @@ void erase_role_events(MutableDraft& draft,
   return {ChartEditCode::Success, true, current.id};
 }
 
+[[nodiscard]] bool npc_marker_event_type(ChartMarkerType marker,
+                                         ChartRoleEventType& out) noexcept {
+  switch (marker) {
+    case ChartMarkerType::NpcBlockStart:
+      out = ChartRoleEventType::BlockStart;
+      return true;
+    case ChartMarkerType::NpcNote:
+      out = ChartRoleEventType::Note;
+      return true;
+    case ChartMarkerType::NpcMoveEnd:
+      out = ChartRoleEventType::MoveEnd;
+      return true;
+    default:
+      return false;
+  }
+}
+
+[[nodiscard]] std::uint64_t group_note_count(const MutableDraft& draft,
+                                             ChartDrillGroupId group_id) noexcept {
+  std::uint64_t count = 0U;
+  for (const auto& event : draft.role_events) {
+    if (event.role == ChartRole::Npc && event.type == ChartRoleEventType::Note &&
+        event.drill_group_id.value == group_id.value) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+/// Whether the group still holds its own block start. A group that lost its
+/// NPC-C through a single-marker deletion keeps its notes, move end and player
+/// block, so it can be adopted by a new start placed immediately before it.
+[[nodiscard]] bool group_has_npc_start(const MutableDraft& draft,
+                                       ChartDrillGroupId group_id) noexcept {
+  for (const auto& event : draft.role_events) {
+    if (event.role == ChartRole::Npc &&
+        event.type == ChartRoleEventType::BlockStart &&
+        event.drill_group_id.value == group_id.value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// The first start-less group after row, provided no marker sits between row
+/// and that group's first event. When several start-less groups follow, only
+/// the nearest one qualifies.
+[[nodiscard]] const ChartDrillGroup* nearest_adoptable_group_after(
+    const MutableDraft& draft, const std::vector<ChartMarker>& markers,
+    std::uint64_t row) noexcept {
+  const ChartDrillGroup* best = nullptr;
+  std::uint64_t best_row = std::numeric_limits<std::uint64_t>::max();
+  for (const auto& group : draft.drill_groups) {
+    if (group_has_npc_start(draft, group.id)) {
+      continue;
+    }
+    const auto first = group_first_row(draft, group.id);
+    if (first == std::numeric_limits<std::uint64_t>::max() || first <= row) {
+      continue;
+    }
+    if (first < best_row) {
+      best_row = first;
+      best = &group;
+    }
+  }
+  if (best == nullptr) {
+    return nullptr;
+  }
+  for (const auto& marker : markers) {
+    if (marker.row <= row) {
+      continue;
+    }
+    if (marker.row < best_row) {
+      return nullptr;
+    }
+    break;
+  }
+  return best;
+}
+
+/// Writes a block start into an existing group instead of creating a new group
+/// and dance move. The group keeps its identifier, notes and player events.
+[[nodiscard]] ChartEditResult add_npc_start_to_group(MutableDraft& draft,
+                                                     ChartDrillGroupId group_id,
+                                                     std::uint64_t row,
+                                                     IdState& ids) {
+  const auto* group = find_group_const(draft, group_id.value);
+  if (group == nullptr) {
+    return {ChartEditCode::InvalidDraft, false, {0U}};
+  }
+  const auto drill_id = group->dance_move_drill_id;
+  if (find_drill(draft, drill_id.value) == nullptr) {
+    return {ChartEditCode::InvalidDraft, false, {0U}};
+  }
+  std::uint64_t event_id = 0U;
+  if (!allocate_id(ids, event_id)) {
+    return {ChartEditCode::IdExhausted, false, {0U}};
+  }
+  draft.role_events.push_back({{event_id}, row, ChartRole::Npc,
+                               ChartRoleEventType::BlockStart, group_id,
+                               drill_id});
+  auto* updated = find_group(draft, group_id.value);
+  if (updated == nullptr) {
+    return {ChartEditCode::InvalidDraft, false, {0U}};
+  }
+  updated->npc_event_ids.push_back({event_id});
+  sort_role_events(draft);
+  sort_relation_ids(draft, updated->npc_event_ids);
+  return {ChartEditCode::Success, true, {event_id}};
+}
+
 [[nodiscard]] ChartEditResult add_player_start(MutableDraft& draft,
                                                const ChartMarker& previous,
                                                std::uint64_t row,
@@ -2880,6 +2991,37 @@ ChartSessionResult ChartEditor::clear_selection() noexcept {
   return {ChartEditCode::Success, changed};
 }
 
+ChartSessionResult ChartEditor::select_all() noexcept {
+  try {
+    std::vector<ChartSelection> next;
+    next.reserve(draft_.dance_move_drills().size());
+    for (const auto& drill : draft_.dance_move_drills()) {
+      ChartSelection derived{};
+      if (derive_selection(draft_, drill.id, derived)) {
+        next.push_back(derived);
+      }
+    }
+    std::sort(next.begin(), next.end(), selection_less);
+    bool changed = next.size() != selections_.size();
+    if (!changed) {
+      for (std::size_t index = 0U; index < next.size(); ++index) {
+        const auto& left = next[index];
+        const auto& right = selections_[index];
+        if (left.drill_id.value != right.drill_id.value ||
+            left.first_row != right.first_row ||
+            left.last_row != right.last_row) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    selections_ = std::move(next);
+    return {ChartEditCode::Success, changed};
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false};
+  }
+}
+
 ChartSessionResult ChartEditor::prepare_clipboard(bool cut) noexcept {
   try {
     if (selections_.empty()) {
@@ -3075,6 +3217,155 @@ ChartEditResult ChartEditor::click(ChartColumn column,
       return result;
     }
     if (npc_command) {
+      synchronize_npc_edit(draft_, markers, candidate, ids, result);
+    }
+    return commit(std::move(candidate).finish(), result, ids.next,
+                  ids.available);
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, {0U}};
+  }
+}
+
+ChartEditResult ChartEditor::place_marker(ChartColumn column,
+                                          std::uint64_t row,
+                                          ChartRoleEventType type) noexcept {
+  if (column != ChartColumn::Npc) {
+    return {ChartEditCode::CannotPlace, false, {0U}};
+  }
+  if (type != ChartRoleEventType::BlockStart &&
+      type != ChartRoleEventType::Note &&
+      type != ChartRoleEventType::MoveEnd) {
+    return {ChartEditCode::CannotPlace, false, {0U}};
+  }
+  try {
+    std::vector<ChartMarker> markers;
+    ChartEditCode projection_error = ChartEditCode::Success;
+    if (!editable_projection(draft_, markers, projection_error)) {
+      return {projection_error, false, {0U}};
+    }
+    const auto* current = marker_at(markers, row);
+    if (current != nullptr) {
+      if (current->column != ChartColumn::Npc) {
+        return {ChartEditCode::PositionOccupied, false, current->id};
+      }
+      ChartRoleEventType current_type = ChartRoleEventType::Note;
+      if (!npc_marker_event_type(current->type, current_type) ||
+          current_type != type) {
+        return {ChartEditCode::PositionOccupied, false, current->id};
+      }
+      return remove_marker(column, row);
+    }
+
+    const auto* previous = previous_chart_marker(markers, row);
+    MutableDraft candidate{draft_};
+    prune_eventless_groups(candidate);
+    IdState ids{next_id_, id_available_};
+    ChartEditResult result{ChartEditCode::CannotPlace, false, {0U}};
+    if (type == ChartRoleEventType::BlockStart) {
+      ChartEditCode error = ChartEditCode::Success;
+      if (!npc_start_allowed(draft_, row, error)) {
+        return {error, false, {0U}};
+      }
+      ChartDrillGroupId adoptable_id{0U};
+      const auto* adoptable =
+          nearest_adoptable_group_after(candidate, markers, row);
+      if (adoptable != nullptr) {
+        adoptable_id = adoptable->id;
+        result = add_npc_start_to_group(candidate, adoptable_id, row, ids);
+      } else {
+        result = add_npc_start(candidate, markers, row, ids);
+      }
+    } else {
+      if (previous == nullptr || previous->column != ChartColumn::Npc) {
+        return {ChartEditCode::CannotPlace, false, {0U}};
+      }
+      if (previous->type == ChartMarkerType::NpcMoveEnd) {
+        return {ChartEditCode::CannotAppendAfterEnd, false, previous->id};
+      }
+      const auto* source = find_role_event(candidate, previous->id.value);
+      if (source == nullptr) {
+        return {ChartEditCode::InvalidDraft, false, {0U}};
+      }
+      if (type == ChartRoleEventType::Note) {
+        const auto* drill =
+            find_drill(candidate, source->dance_move_drill_id.value);
+        const auto* next = next_chart_marker(markers, row);
+        const bool inserts =
+            next != nullptr && (next->type == ChartMarkerType::NpcNote ||
+                                next->type == ChartMarkerType::NpcMoveEnd);
+        if (!inserts && drill != nullptr && drill->move_n_count >= 11U) {
+          return {ChartEditCode::NoteLimitReached, false, {0U}};
+        }
+        result = add_npc_action(candidate, *previous, row,
+                                ChartRoleEventType::Note, ids);
+      } else {
+        if (group_note_count(candidate, source->drill_group_id) == 0U) {
+          return {ChartEditCode::EmptyDanceMoveEnd, false, {0U}};
+        }
+        const auto split = split_trailing_drill_groups(
+            candidate, source->dance_move_drill_id, source->drill_group_id,
+            ids);
+        if (split != ChartEditCode::Success) {
+          return {split, false, {0U}};
+        }
+        result = add_npc_action(candidate, *previous, row,
+                                ChartRoleEventType::MoveEnd, ids);
+      }
+    }
+    if (!result.changed) {
+      return result;
+    }
+    synchronize_npc_edit(draft_, markers, candidate, ids, result);
+    return commit(std::move(candidate).finish(), result, ids.next,
+                  ids.available);
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, {0U}};
+  }
+}
+
+ChartEditResult ChartEditor::remove_marker(ChartColumn column,
+                                           std::uint64_t row) noexcept {
+  if (column != ChartColumn::Npc) {
+    return {ChartEditCode::CannotPlace, false, {0U}};
+  }
+  try {
+    std::vector<ChartMarker> markers;
+    ChartEditCode projection_error = ChartEditCode::Success;
+    if (!editable_projection(draft_, markers, projection_error)) {
+      return {projection_error, false, {0U}};
+    }
+    const auto* current = marker_at(markers, row);
+    if (current == nullptr) {
+      return {ChartEditCode::NoChange, false, {0U}};
+    }
+    if (current->column != ChartColumn::Npc) {
+      return {ChartEditCode::CannotPlace, false, current->id};
+    }
+
+    MutableDraft candidate{draft_};
+    prune_eventless_groups(candidate);
+    IdState ids{next_id_, id_available_};
+    ChartEditResult result{ChartEditCode::Success, true, current->id};
+    if (current->type == ChartMarkerType::NpcMoveEnd) {
+      // A move end keeps the existing click deletion rules, including the
+      // following dance move merge.
+      result = click_existing_npc(candidate, markers, *current, ids);
+      if (!result.changed) {
+        return result;
+      }
+    } else if (current->type == ChartMarkerType::NpcBlockStart ||
+               current->type == ChartMarkerType::NpcNote) {
+      erase_role_events(candidate, {current->id.value});
+    } else {
+      return {ChartEditCode::CannotPlace, false, current->id};
+    }
+    if (!result.changed) {
+      return result;
+    }
+    // A block start is removed on its own: its notes, move end and player block
+    // stay, and the draft may become incomplete. Notes and end markers still
+    // synchronize the corresponding player practice.
+    if (current->type != ChartMarkerType::NpcBlockStart) {
       synchronize_npc_edit(draft_, markers, candidate, ids, result);
     }
     return commit(std::move(candidate).finish(), result, ids.next,

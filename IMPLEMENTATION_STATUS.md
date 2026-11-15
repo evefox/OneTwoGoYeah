@@ -555,6 +555,12 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 ## 当前工作与待验证项
 
+2026-11-15 桌面入口快捷键与全选已接通：会话内右键清除选择/退出，`F1` 打开使用指南，`Ctrl/Command+O` 打开草稿，`Ctrl/Command+S` 与 `Ctrl/Command+Shift+S` 保存/另存为，`Ctrl/Command+小键盘 +/-` 调整 Scale；`Ctrl/Command+A` 通过新增核心 `select_all` 全选所有可选舞步并从普通模式进入选择模式，`Ctrl/Command+Home/End` 跳到选区首尾。文件、帮助和 Scale 键与对应按钮/菜单共用门控，右键只在会话内响应。C ABI 追加 `otgy_chart_editor_select_all`，`ffigen` 已重新生成绑定。按约定，`Tab`、`Ctrl+Shift+E`、`Delete` 删除选中舞步、拖框与 `Shift/Alt` 加减选、`Shift+Home/End` 仍待确认后再实现。本轮原生 `59/59`、Flutter `300/300` 通过，`flutter analyze` 无问题；未执行真机或平台构建验证。
+
+2026-11-15 桌面光标导航与粘贴快捷键已接通：`↑/↓` 吸附 1/16 网格、`Page Up/Down` 吸附小节、`Shift+Page Up/Down` 吸附拍、`Home/End` 跳到首尾、`Ctrl/Command+↑/↓` 跳到相邻标记；全部经现有 `moveToRow`，播放和音频导出不响应，选择/待粘贴会话内仍可导航，移动端不注册。待粘贴模式新增 `Ctrl/Command+V` 在判定线提交，成功后保持待粘贴且不移动判定线，点击目标行继续可用。帮助页扩展到二十二项可改绑操作，并在复制粘贴指南中补充快捷键落点；标记键和粘贴键忽略按键重复，方向键保留连续移动。本轮原生代码未改动；Flutter `289/289` 通过，`flutter analyze` 无问题；未执行真机或平台构建验证。
+
+2026-11-14 桌面显式标记键已贯通核心、C ABI、Dart FFI、控制器和画布：`ChartEditor::place_marker` / `remove_marker` 提供三种 NPC 类型的显式放置、同类型单标记删除、11 个 N 与空组结束拒绝，以及无起始组的接管；`4` / `5` 复用既有 Showtime 与玩家上下文点击。C ABI 追加 `otgy_chart_editor_place_marker` / `otgy_chart_editor_remove_marker` 与结果码 `23/24`，并像点击一样输出 `player_actions_cleared`；`ffigen` 已重新生成绑定。帮助页改用用户可见名称列出五个标记键，桌面端十一项操作全部可改绑；放置成功后判定线前进一行，删除、拒绝和失败不移动。本轮原生 `59/59`、Flutter `278/278` 全部通过，`flutter analyze` 无问题；未执行真机或平台构建验证。
+
 全平台长按进入多选、点击切换舞步、复制/剪切准备、点击画布落点和持续待粘贴流程已贯通各层。C ABI 已迁移至 v2，拥有型选择集合与只读预览经 Dart 复制为不可变值；Flutter 使用普通、选择、待粘贴三态。首次剪切落点才删除源并插入目标，成功后快照继续用于复制。Flutter 门控、键盘焦点、诊断脱敏和应用自动化交互验收已完成。
 
 2026-10-16 本轮已执行并通过：原生 CMake 配置与完整构建；核心、黄金、CLI 和 C ABI 全套 `50/50`；Dart FFI 分析与完整测试 `19/19`；`ffigen` 重新生成绑定；Flutter 分析无问题；Flutter 全量测试 `178/178`；启用诊断的定向测试 `63/63`（`flutter test --dart-define=OTGY_DIAGNOSTICS=true` 加五个 `*diagnostic*` 测试文件）；最终源码 Android Debug 集成测试 `5/5`（连续两次运行）；最终源码 macOS Debug 集成测试 `5/5`。Android 普通入口 Debug APK 已重新构建，三 ABI 原生资产检查通过，最终 APK SHA-256 为 `c64dee169df732fe96648a47d5f6b95fa650ee744348877c1f7f68870ac5786e`。

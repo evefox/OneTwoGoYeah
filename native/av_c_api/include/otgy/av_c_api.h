@@ -950,6 +950,8 @@ typedef struct otgy_chart_edit_result {
 #define OTGY_CHART_EDIT_SHOWTIME_CONTENT_STALE UINT32_C(20)
 #define OTGY_CHART_EDIT_CUT_SOURCE_CHANGED UINT32_C(21)
 #define OTGY_CHART_EDIT_SHOWTIME_PARTIALLY_COMPLETED UINT32_C(22)
+#define OTGY_CHART_EDIT_NOTE_LIMIT_REACHED UINT32_C(23)
+#define OTGY_CHART_EDIT_EMPTY_DANCE_MOVE_END UINT32_C(24)
 
 OTGY_C_API otgy_status otgy_chart_editor_click(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
@@ -958,6 +960,23 @@ OTGY_C_API otgy_status otgy_chart_editor_click(
 /// synchronization cleared existing N/S actions. Both outputs are initialized
 /// before argument validation. The legacy result layout remains unchanged.
 OTGY_C_API otgy_status otgy_chart_editor_click_with_effects(
+    otgy_chart_editor* editor, uint32_t column, uint64_t row,
+    otgy_chart_edit_result* out_result, uint8_t* out_player_actions_cleared,
+    otgy_error** out_error);
+/// Desktop explicit marker placement. marker_type is one of
+/// OTGY_CHART_MARKER_NPC_BLOCK_START, OTGY_CHART_MARKER_NPC_NOTE or
+/// OTGY_CHART_MARKER_NPC_MOVE_END; the NPC column is the only accepted column.
+/// The same type on an occupied row removes that single marker. Unknown columns
+/// or types never narrow to a valid command. out_player_actions_cleared reports
+/// failed player synchronization exactly like the click effects entry point.
+OTGY_C_API otgy_status otgy_chart_editor_place_marker(
+    otgy_chart_editor* editor, uint32_t column, uint64_t row,
+    uint32_t marker_type, otgy_chart_edit_result* out_result,
+    uint8_t* out_player_actions_cleared, otgy_error** out_error);
+/// Removes exactly one NPC marker at row. A block start leaves its notes, move
+/// end and player block in place; notes and move ends synchronize the
+/// corresponding player practice. Empty and non-NPC rows make no change.
+OTGY_C_API otgy_status otgy_chart_editor_remove_marker(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
     otgy_chart_edit_result* out_result, uint8_t* out_player_actions_cleared,
     otgy_error** out_error);
@@ -1001,6 +1020,11 @@ OTGY_C_API uint64_t otgy_chart_editor_selection_count(
 OTGY_C_API otgy_status otgy_chart_editor_select(
     otgy_chart_editor* editor, uint32_t column, uint64_t row,
     otgy_chart_session_result* out_result, otgy_error** out_error);
+/// Selects every dance move that the row-based select can resolve. Sorted like
+/// the regular selection set and idempotent; never adds history.
+OTGY_C_API otgy_status otgy_chart_editor_select_all(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error);
 OTGY_C_API otgy_status otgy_chart_editor_clear_selection(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,
     otgy_error** out_error);

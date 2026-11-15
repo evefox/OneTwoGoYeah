@@ -355,4 +355,101 @@ void main() {
       '曲目_20260831_090507.ogg',
     );
   });
+
+  test('select all collects every bound dance move', () {
+    final editor = NativeChartEditor.createEmpty();
+    addTearDown(editor.dispose);
+
+    expect(editor.selectAll().changed, isFalse);
+    for (final row in [0, 2, 4, 6, 6]) {
+      expect(editor.click(OTGY_CHART_COLUMN_NPC, row).changed, isTrue);
+    }
+    for (final row in [8, 10]) {
+      expect(editor.click(OTGY_CHART_COLUMN_PLAYER, row).changed, isTrue);
+    }
+
+    final selected = editor.selectAll();
+    expect(selected.code, 0);
+    expect(selected.changed, isTrue);
+    expect(editor.selections, hasLength(1));
+    expect(editor.selections.single.firstRow, 0);
+    expect(editor.selections.single.lastRow, 14);
+
+    expect(editor.selectAll().changed, isFalse);
+    editor.clearSelection();
+    expect(editor.selections, isEmpty);
+  });
+
+  test('explicit marker placement and single-marker removal', () {
+    final editor = NativeChartEditor.createEmpty();
+    addTearDown(editor.dispose);
+
+    expect(
+      editor
+          .placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.blockStart, 0)
+          .changed,
+      isTrue,
+    );
+    expect(
+      editor.placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.note, 4).changed,
+      isTrue,
+    );
+    expect(
+      editor
+          .placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.moveEnd, 8)
+          .changed,
+      isTrue,
+    );
+    expect(editor.markers(), hasLength(3));
+
+    // A different type on the occupied row never replaces the marker.
+    expect(
+      editor.placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.note, 0).code,
+      OTGY_CHART_EDIT_POSITION_OCCUPIED,
+    );
+
+    final removed = editor.removeMarker(OTGY_CHART_COLUMN_NPC, 4);
+    expect(removed.changed, isTrue);
+    expect(editor.markers(), hasLength(2));
+    expect(
+      editor.removeMarker(OTGY_CHART_COLUMN_NPC, 4).code,
+      OTGY_CHART_EDIT_NO_CHANGE,
+    );
+
+    // Ending a group without notes is rejected with its own code.
+    final empty = NativeChartEditor.createEmpty();
+    addTearDown(empty.dispose);
+    expect(
+      empty
+          .placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.blockStart, 0)
+          .changed,
+      isTrue,
+    );
+    expect(
+      empty.placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.moveEnd, 4).code,
+      OTGY_CHART_EDIT_EMPTY_DANCE_MOVE_END,
+    );
+
+    // The whole row limit also reaches the app through the typed command.
+    final full = NativeChartEditor.createEmpty();
+    addTearDown(full.dispose);
+    expect(
+      full
+          .placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.blockStart, 0)
+          .changed,
+      isTrue,
+    );
+    for (var index = 1; index <= 11; index++) {
+      expect(
+        full
+            .placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.note, index * 4)
+            .changed,
+        isTrue,
+      );
+    }
+    expect(
+      full.placeMarker(OTGY_CHART_COLUMN_NPC, ChartNpcMarker.note, 48).code,
+      OTGY_CHART_EDIT_NOTE_LIMIT_REACHED,
+    );
+  });
 }

@@ -747,7 +747,7 @@ class _ShortcutTable extends StatelessWidget {
           if (!mobile) ...[
             const Divider(height: 20, color: EditorColors.border),
             Text(
-              '点击键盘行可以改成自己的组合；Backspace 清除绑定，Esc、Enter、复制和剪切保持固定。',
+              '标记键在判定线所在行放置，放置后判定线前进一格；点击键盘行可以改成自己的组合。Backspace 清除绑定，Esc、Enter、复制和剪切保持固定。',
               style: TextStyle(
                 fontSize: 12.5,
                 height: 1.5,

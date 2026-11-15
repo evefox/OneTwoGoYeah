@@ -16,6 +16,14 @@ otgy::core::ChartColumn chart_column(std::uint32_t value) noexcept {
       value <= OTGY_CHART_COLUMN_SHOWTIME ? value : UINT8_MAX);
 }
 
+otgy::core::ChartRoleEventType chart_role_event_type(
+    std::uint32_t value) noexcept {
+  // Only the three NPC event types are valid explicit placements; any other
+  // value is kept invalid so the core rejects it.
+  return static_cast<otgy::core::ChartRoleEventType>(
+      value <= OTGY_CHART_MARKER_NPC_MOVE_END ? value : UINT8_MAX);
+}
+
 otgy_chart_marker from_core(const otgy::core::ChartMarker& value) noexcept {
   return {value.id.value, value.row,
           static_cast<std::uint32_t>(value.column),
@@ -485,6 +493,54 @@ otgy_status otgy_chart_editor_click_with_effects(
   });
 }
 
+otgy_status otgy_chart_editor_place_marker(
+    otgy_chart_editor* editor, std::uint32_t column, std::uint64_t row,
+    std::uint32_t marker_type, otgy_chart_edit_result* out_result,
+    std::uint8_t* out_player_actions_cleared, otgy_error** out_error) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_edit_result{};
+  }
+  if (out_player_actions_cleared != nullptr) {
+    *out_player_actions_cleared = 0U;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_result == nullptr ||
+        out_player_actions_cleared == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto result = editor->value.place_marker(
+        chart_column(column), row, chart_role_event_type(marker_type));
+    copy_edit_result(result, *out_result);
+    *out_player_actions_cleared =
+        static_cast<std::uint8_t>(result.player_actions_cleared);
+    return OTGY_STATUS_OK;
+  });
+}
+
+otgy_status otgy_chart_editor_remove_marker(
+    otgy_chart_editor* editor, std::uint32_t column, std::uint64_t row,
+    otgy_chart_edit_result* out_result,
+    std::uint8_t* out_player_actions_cleared, otgy_error** out_error) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_edit_result{};
+  }
+  if (out_player_actions_cleared != nullptr) {
+    *out_player_actions_cleared = 0U;
+  }
+  return boundary(out_error, [&]() -> otgy_status {
+    if (editor == nullptr || out_result == nullptr ||
+        out_player_actions_cleared == nullptr) {
+      return invalid_argument(out_error);
+    }
+    const auto result =
+        editor->value.remove_marker(chart_column(column), row);
+    copy_edit_result(result, *out_result);
+    *out_player_actions_cleared =
+        static_cast<std::uint8_t>(result.player_actions_cleared);
+    return OTGY_STATUS_OK;
+  });
+}
+
 otgy_status otgy_chart_editor_clear(otgy_chart_editor* editor,
                                     otgy_chart_edit_result* out_result,
                                     otgy_error** out_error) {
@@ -554,6 +610,13 @@ otgy_status otgy_chart_editor_select(otgy_chart_editor* editor,
   return session_chart(editor, out_result, out_error, [&](auto& value) {
     return value.select(chart_column(column), row);
   });
+}
+
+otgy_status otgy_chart_editor_select_all(
+    otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error) {
+  return session_chart(editor, out_result, out_error,
+                       [](auto& value) { return value.select_all(); });
 }
 
 otgy_status otgy_chart_editor_clear_selection(
