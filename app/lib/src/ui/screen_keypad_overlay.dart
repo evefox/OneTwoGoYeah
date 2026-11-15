@@ -5,12 +5,7 @@ import 'package:otgy_native/otgy_native.dart';
 
 import '../application/editor_controller.dart';
 import 'editor_theme.dart';
-
-const _judgementPerfect = Color(0xFFC08BFF);
-const _judgementGreat = Color(0xFF9BE37A);
-const _judgementCool = Color(0xFF6FC8FF);
-const _judgementBad = Color(0xFFFFA3A3);
-const _judgementMiss = Color(0xFFFF5C5C);
+import 'judgement_display.dart';
 
 class ScreenKeypadOverlay extends StatelessWidget {
   const ScreenKeypadOverlay({
@@ -39,7 +34,7 @@ class ScreenKeypadOverlay extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             onTap: () {},
             child: ColoredBox(
-              color: const Color(0xD910151A),
+              color: judgementScrimColor,
               child: arrows
                   ? _ArrowLayout(controller: controller, trigger: trigger)
                   : _NumericLayout(controller: controller, trigger: trigger),
@@ -95,7 +90,7 @@ class _NumericLayout extends StatelessWidget {
             top: height * 0.25 - 34,
             left: 0,
             right: 0,
-            child: IgnorePointer(child: _JudgementText(judgement: judgement)),
+            child: IgnorePointer(child: JudgementText(judgement: judgement)),
           ),
         Positioned(
           left: 12,
@@ -168,7 +163,7 @@ class _ArrowLayout extends StatelessWidget {
                       left: 70,
                       right: 70,
                       child: IgnorePointer(
-                        child: _JudgementText(judgement: judgement),
+                        child: JudgementText(judgement: judgement),
                       ),
                     ),
                   Center(
@@ -309,36 +304,6 @@ class _LayoutSwitchButton extends StatelessWidget {
   }
 }
 
-class _JudgementText extends StatelessWidget {
-  const _JudgementText({required this.judgement});
-
-  final PlaybackJudgement judgement;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (judgement.grade) {
-      PlaybackJudgementGrade.perfect => ('PERFECT', _judgementPerfect),
-      PlaybackJudgementGrade.great => ('GREAT', _judgementGreat),
-      PlaybackJudgementGrade.cool => ('COOL', _judgementCool),
-      PlaybackJudgementGrade.bad => ('BAD', _judgementBad),
-      PlaybackJudgementGrade.miss => ('MISS', _judgementMiss),
-    };
-    return Text(
-      label,
-      textAlign: TextAlign.center,
-      style: TextStyle(
-        color: color,
-        fontSize: 22,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 2.4,
-        shadows: const [
-          Shadow(color: Color(0xDD000000), blurRadius: 8, offset: Offset(0, 1)),
-        ],
-      ),
-    );
-  }
-}
-
 /// A standard full-size keyboard has a 19.05 mm key pitch with an 18 mm cap
 /// and about 1 mm between caps. In Flutter's density-independent units that
 /// is a 120 dp pitch: a 113 dp cap with a 7 dp gap.
@@ -412,11 +377,7 @@ class _NumericKeypad extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final metrics = _KeyMetrics.fitGrid(
-          constraints,
-          columns: 3,
-          rows: 4,
-        );
+        final metrics = _KeyMetrics.fitGrid(constraints, columns: 3, rows: 4);
         final keyWidth = metrics.cap;
         final keyHeight = metrics.cap;
         final gap = metrics.gap;

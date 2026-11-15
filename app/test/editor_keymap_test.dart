@@ -71,6 +71,27 @@ void main() {
       }
     });
 
+    test('default bindings never collide across actions', () {
+      for (final platform in [
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+        TargetPlatform.macOS,
+      ]) {
+        final keymap = EditorKeymap.defaults(platform);
+        for (final action in EditorShortcutAction.values) {
+          for (final binding in keymap.bindingsFor(action)) {
+            expect(
+              keymap.conflictingAction(action, binding),
+              isNull,
+              reason:
+                  '${action.name} shares '
+                  '${formatShortcutBinding(binding, platform)} on $platform',
+            );
+          }
+        }
+      }
+    });
+
     test('number keys place the five explicit marker types', () {
       for (final platform in [TargetPlatform.windows, TargetPlatform.macOS]) {
         final keymap = EditorKeymap.defaults(platform);

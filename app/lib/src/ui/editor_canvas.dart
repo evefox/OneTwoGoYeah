@@ -13,6 +13,7 @@ import '../infrastructure/local_ui_preferences.dart';
 import 'editor_keymap.dart';
 import 'editor_theme.dart';
 import 'judgement_analysis_dialog.dart';
+import 'judgement_display.dart';
 import 'usage_guide.dart';
 
 const double editorCursorViewportFraction = 0.25;
@@ -1686,6 +1687,36 @@ class _EditorCanvasState extends State<EditorCanvas>
                     ),
                   ),
                 ),
+                // Simulation played with a wired keyboard has no keypad to
+                // show the judgement, so the chart area carries the same scrim
+                // and judgement text as the screen keypad. It is drawn before
+                // the navigation rail and ignores pointers, so the rail stays
+                // visible and the chart keeps its own input handling.
+                if (!_mobile &&
+                    widget.controller.isSimulationPlaying &&
+                    !widget.controller.screenKeypadOpen)
+                  Positioned.fill(
+                    key: const ValueKey('desktop-judgement-layer'),
+                    child: IgnorePointer(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          const ColoredBox(color: judgementScrimColor),
+                          if (widget.controller.judgementEnabled &&
+                              widget.controller.latestJudgement != null)
+                            Positioned(
+                              top: _cursorY(size) - 34,
+                              left: 0,
+                              right: 0,
+                              child: JudgementText(
+                                key: const ValueKey('desktop-judgement-text'),
+                                judgement: widget.controller.latestJudgement!,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 if (_mobile)
                   Positioned(
                     right: 8,

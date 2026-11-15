@@ -312,12 +312,8 @@ Map<EditorShortcutAction, List<ShortcutBinding>> defaultEditorShortcutBindings(
       _bind(LogicalKeyboardKey.equal, meta: true),
       _bind(LogicalKeyboardKey.equal, meta: true, shift: true),
       _bind(LogicalKeyboardKey.add, meta: true),
-      _bind(LogicalKeyboardKey.numpadAdd, meta: true),
     ];
-    zoomOut = [
-      _bind(LogicalKeyboardKey.minus, meta: true),
-      _bind(LogicalKeyboardKey.numpadSubtract, meta: true),
-    ];
+    zoomOut = [_bind(LogicalKeyboardKey.minus, meta: true)];
     zoomReset = [_bind(LogicalKeyboardKey.digit0, meta: true)];
   } else {
     undo = [_bind(LogicalKeyboardKey.keyZ, control: true)];
