@@ -1200,6 +1200,9 @@ class _EditorCanvasState extends State<EditorCanvas>
                       }
                     },
                     onPointerDown: (event) {
+                      // Any interaction inside the canvas must leave the editor
+                      // focused so keyboard shortcuts reach its bindings.
+                      _focusNode.requestFocus();
                       if (!_mobile) {
                         _updateDesktopPastePreview(event.localPosition, size);
                       }

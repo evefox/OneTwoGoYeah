@@ -219,6 +219,11 @@ class EditorController extends ChangeNotifier {
   bool _isExportingAudio = false;
   bool _audioExportCancellationRequested = false;
   EditorPlaybackMode _playbackMode = EditorPlaybackMode.idle;
+
+  /// True after playback reached the audio end. The edit cursor is stored as a
+  /// 1/16 row, so converting it back to seconds can land just before the end;
+  /// this flag keeps the replay-from-start rule exact.
+  bool _playbackAtEnd = false;
   bool _isDirty = false;
   EditorChartInteractionMode _chartInteractionMode =
       EditorChartInteractionMode.normal;
@@ -1680,6 +1685,11 @@ class EditorController extends ChangeNotifier {
         _currentRow = 0;
         cursorSeconds = 0;
       }
+      if (_playbackAtEnd) {
+        _playbackAtEnd = false;
+        _currentRow = 0;
+        cursorSeconds = 0;
+      }
       final start = OtgyNative.startPlayback(
         audioDurationSeconds: audio.durationSeconds,
         cursorTimelineSeconds: cursorSeconds,
@@ -1991,6 +2001,7 @@ class EditorController extends ChangeNotifier {
       _playbackTimer = null;
       _playbackStart = null;
       _playbackMode = EditorPlaybackMode.idle;
+      _playbackAtEnd = naturalEnd;
       _syncKeepScreenOn();
       _playbackGeneration++;
       if ((completedMode == EditorPlaybackMode.chartPreview ||
@@ -2306,6 +2317,7 @@ class EditorController extends ChangeNotifier {
       return;
     }
     _currentRow = next;
+    _playbackAtEnd = false;
     _invalidatePlaybackSoundSession();
     notifyListeners();
   }
