@@ -555,6 +555,8 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 ## 当前工作与待验证项
 
+2026-11-15 Windows 验收：main 已 rebase 到 `worktree-msvc-portability` 的 f5aec4e 并包含桌面快捷键提交 2989bab。在 otgy-win 上干净 Release 构建成功；Debug CTest `57/59`，仅 `av_core.ogg_vorbis_decoder/encoder` 两个已知 1 LSB 差异，`av_core.chart_editor`、分配失败注入和 `av_c_api.chart_consistency` 全部通过。诊断版 Release 注入按键确认 `placeMarker`（0/1/2）、`selectAll`、`copy`、`End`、`paste`（判定线 64）、右键清除和 `Esc` 退出真正到达核心。该机出现已知 DXGI 白屏，应用窗口内容全白，因此 F1、Ctrl+O/S、Scale 的界面结果未做视觉验收；真实键盘仍需用户亲手按一次。Visual Studio 多配置必须用 `ctest -C Debug`，`-C Release` 会因 `NDEBUG` 关闭断言而 SEGFAULT，不能作为测试结果（已记录在 TESTING.md）。
+
 2026-11-15 桌面入口快捷键与全选已接通：会话内右键清除选择/退出，`F1` 打开使用指南，`Ctrl/Command+O` 打开草稿，`Ctrl/Command+S` 与 `Ctrl/Command+Shift+S` 保存/另存为，`Ctrl/Command+小键盘 +/-` 调整 Scale；`Ctrl/Command+A` 通过新增核心 `select_all` 全选所有可选舞步并从普通模式进入选择模式，`Ctrl/Command+Home/End` 跳到选区首尾。文件、帮助和 Scale 键与对应按钮/菜单共用门控，右键只在会话内响应。C ABI 追加 `otgy_chart_editor_select_all`，`ffigen` 已重新生成绑定。按约定，`Tab`、`Ctrl+Shift+E`、`Delete` 删除选中舞步、拖框与 `Shift/Alt` 加减选、`Shift+Home/End` 仍待确认后再实现。本轮原生 `59/59`、Flutter `300/300` 通过，`flutter analyze` 无问题；未执行真机或平台构建验证。
 
 2026-11-15 桌面光标导航与粘贴快捷键已接通：`↑/↓` 吸附 1/16 网格、`Page Up/Down` 吸附小节、`Shift+Page Up/Down` 吸附拍、`Home/End` 跳到首尾、`Ctrl/Command+↑/↓` 跳到相邻标记；全部经现有 `moveToRow`，播放和音频导出不响应，选择/待粘贴会话内仍可导航，移动端不注册。待粘贴模式新增 `Ctrl/Command+V` 在判定线提交，成功后保持待粘贴且不移动判定线，点击目标行继续可用。帮助页扩展到二十二项可改绑操作，并在复制粘贴指南中补充快捷键落点；标记键和粘贴键忽略按键重复，方向键保留连续移动。本轮原生代码未改动；Flutter `289/289` 通过，`flutter analyze` 无问题；未执行真机或平台构建验证。

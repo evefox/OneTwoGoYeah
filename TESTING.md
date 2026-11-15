@@ -1006,6 +1006,8 @@ ctest --test-dir build/native --output-on-failure
 
 后续可以添加具体预设，但 CMake 和 CTest 仍是直接原生构建与测试入口。
 
+Visual Studio 等多配置生成器必须显式选择配置：`cmake --build build/native --config Debug` 配合 `ctest --test-dir build/native -C Debug --output-on-failure`。这些测试以 `assert` 判定，Release 配置的 `NDEBUG` 会使断言失效并产生无效的 SEGFAULT 结果；Release 只用于构建验收，不用于 CTest 结果。
+
 ## 核心功能完成定义
 
 核心功能只有同时满足以下条件才算完成：
