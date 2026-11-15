@@ -6,7 +6,10 @@ import 'package:test/test.dart';
 
 void main() {
   test('stable ABI creates and edits an empty chart', () {
-    expect(OtgyNative.apiVersion, 2);
+    // Kept literal on purpose: bumping the C ABI must force a review of the
+    // Dart bindings, so this test pins OTGY_C_API_VERSION from
+    // native/av_c_api/include/otgy/av_c_api.h.
+    expect(OtgyNative.apiVersion, 5);
     expect(OtgyNative.coreVersion, isNotEmpty);
 
     final editor = NativeChartEditor.createEmpty();

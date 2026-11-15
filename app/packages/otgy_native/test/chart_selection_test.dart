@@ -326,19 +326,27 @@ void main() {
     );
   });
 
-  test('a move inserted before recorded moves keeps the Showtime', () {
+  test('a move completed before recorded moves clears the Showtime', () {
     final editor = NativeChartEditor.createEmpty();
     addTearDown(editor.dispose);
     addDanceMove(editor, 24);
     addDanceMove(editor, 64);
     expect(editor.click(OTGY_CHART_COLUMN_SHOWTIME, 96).changed, isTrue);
-    addDanceMove(editor, 0);
     expect(editor.showtimeMoves(), hasLength(2));
-    final before = editor.encodeRecovery();
-    final refused = editor.click(OTGY_CHART_COLUMN_SHOWTIME, 128);
-    expect(refused.code, 20);
-    expect(refused.changed, isFalse);
-    expect(editor.encodeRecovery(), before);
+    addDanceMove(editor, 0);
+    expect(editor.showtimeMoves(), isEmpty);
+    expect(
+      editor.markers().where(
+        (m) =>
+            m.type == OTGY_CHART_MARKER_SHOWTIME_START ||
+            m.type == OTGY_CHART_MARKER_SHOWTIME_MOVE,
+      ),
+      isEmpty,
+    );
+    // The edit that completed the leading move cleared the Showtime, so one
+    // undo restores it together with that click.
+    editor.undo();
+    expect(editor.showtimeMoves(), hasLength(2));
   });
 
   test('partial Showtime completion reports its own code', () {
