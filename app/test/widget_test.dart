@@ -2615,6 +2615,22 @@ void main() {
     await controller.pausePlayback();
   });
 
+  testWidgets('space reaches the canvas shortcut after a canvas tap', (
+    tester,
+  ) async {
+    await pumpEditor(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('editor-canvas')));
+    await tester.pump();
+    expect(
+      FocusManager.instance.primaryFocus?.debugLabel,
+      '谱面编辑画布',
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    expect(controller.notice?.message, '请先加载音频');
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('pressing play at the audio end rewinds to the beginning', (
     tester,
   ) async {
@@ -2981,7 +2997,14 @@ void main() {
     await tester.pump();
     expect(controller.isPlaying, isFalse);
     expect(controller.currentSongSeconds, closeTo(0.6, 0.01));
-    expect(controller.playbackStartEnabled, isFalse);
+    // Reaching the end keeps play available: the next start rewinds to 0.
+    expect(controller.playbackStartEnabled, isTrue);
+    await controller.togglePlayback();
+    await tester.pump();
+    expect(controller.currentRow, 0);
+    expect(controller.isPlaying, isTrue);
+    await controller.pausePlayback();
+    await tester.pump();
   });
 
   testWidgets('audio end handle drags to a beat and can return to default', (

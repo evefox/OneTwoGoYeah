@@ -2628,7 +2628,7 @@ class _NavigationRailState extends State<_NavigationRail> {
                   : !controller.generalActionsEnabled
                   ? '请先退出选择或粘贴模式'
                   : !controller.playbackStartEnabled
-                  ? '已到音乐结束位置'
+                  ? '没有可播放的音频范围'
                   : '播放',
               icon: Icon(
                 controller.canPauseFromRail

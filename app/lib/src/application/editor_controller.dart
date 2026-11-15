@@ -688,7 +688,8 @@ class EditorController extends ChangeNotifier {
       return false;
     }
     final effective = end.clamp(0.0, audio.durationSeconds).toDouble();
-    return currentSongSeconds < effective;
+    // Starting at the end stays enabled: pressing play rewinds to the start.
+    return effective > 0.0;
   }
 
   bool get rhythmTestStartEnabled => playbackStartEnabled && _bpm != 0;
