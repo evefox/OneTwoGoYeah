@@ -591,3 +591,5 @@ Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多�
 - 其余主色与 `app/lib/src/ui/editor_theme.dart` 一致：画布 `#10151A`、面板 `#171D23`、抬升面 `#202831`、边框 `#34404A`；多选跨度上的主导色 `#19252B`（Android）与 `#18252B`（macOS）等于 `accent` `#65B8C5` 以 `0.10` 叠加画布。
 
 上述测量只能排除截图全黑并确认颜色、平台路由与几何量级，不能代替对排版、遮挡、ghost 轮廓、焦点环形状和文本内容的视觉审查。Windows、iOS、Release 运行时和真实 Android 设备未在本轮执行。既有 `NPC-S` 拆分、边界删除合并和 Showtime 清理改动继续保留；既有 Release 进程与原模拟器数据保持原状。本轮未提交或推送。
+
+
