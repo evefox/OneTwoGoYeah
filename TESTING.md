@@ -914,6 +914,10 @@ Offset 微调浮窗测试必须验证：
 
 Android 平台构建完成后运行 `tool/verify_android_native_asset.sh`，逐一检查 `arm64-v8a`、`armeabi-v7a` 和 `x86_64` 的 `libotgy_native.so` 导出 `otgy_chart_create_empty` 和模拟播放 JNI 桥的两个符号，且不声明或打包 `libc++_shared.so` 依赖。Release 使用构建/链接钩子分离的 native assets 流程，`android_jni.cpp` 必须加入送进链接钩子的静态库，否则最终 `.so` 会缺少 JNI 符号并在真机启动流式播放时抛 `UnsatisfiedLinkError`。该检查防止 FFI 首次加载因 NDK C++ 运行库缺失而失败；模拟器或真机启动验证仍需在阶段 9 完成。
 
+Windows x86-64 已使用 MSVC `19.52` 与 Windows SDK `10.0.26100` 在真实主机运行完整原生套件，结果为 `57/59`：两项 Ogg 黄金测试在 32768 个字节中有 26 个相差 1 个最低有效位。因此 Windows 目前不满足“某平台的完整黄金套件通过”这一发布前提；在差异定位并解决、或引入明确、足够小且有理由的平台容差之前，不能把 Windows 视为最终发布兼容，也不得用更宽松的断言替代精确比较。
+
+MSVC 构建必须让窄字符源文件路径和字面量按 UTF-8 解释（`/utf-8` 加 `std::filesystem::u8path`），并且三个 C ABI 测试必须能加载同一构建产出的 `otgy_c_api.dll`；缺少相邻 DLL 时它们以 `0xC0000135` 退出，属于构建布局错误而不是测试失败。
+
 ## 本地诊断验收
 
 诊断测试在 App 基础设施、控制器、Widget 与既有文件通道层进行，不复制核心谱面算法。必须覆盖：

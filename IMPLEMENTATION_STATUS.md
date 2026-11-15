@@ -1,6 +1,6 @@
 # 实现状态
 
-更新时间：2026-10-17
+更新时间：2026-11-15
 
 ## 当前阶段
 
@@ -8,7 +8,7 @@
 
 ## 阶段 9：发布前兼容验证（进行中）
 
-已有发布核查覆盖当前 Apple Silicon 主机；Windows、真实 iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境补齐。以下发布产物与核查数据来自既有阶段 9 记录，未包含本轮多选与延迟剪切改动；本轮实测进度见文末“当前工作与待验证项”。
+已有发布核查覆盖当前 Apple Silicon 主机，并在真实 Windows x86-64 主机上补齐原生构建、App Release 构建与实机冒烟；Windows ARM64、真实 iOS 设备以及 Android 真机/模拟器的 Release 冒烟仍需在对应环境补齐。以下发布产物与核查数据来自既有阶段 9 记录，未包含本轮多选与延迟剪切改动；本轮实测进度见文末“当前工作与待验证项”。
 
 ### 已完成
 
@@ -211,6 +211,7 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 - Flutter：`3.47.2`，Dart `3.13.2`
 - Android SDK：`35/36`，NDK `28.2.13676358`；本机 Debug APK 已完成构建
 - Apple SDK：Xcode `26.6`（macOS SDK `26.5`），CocoaPods `1.17.0`
+- Windows：Windows 11 x86-64，Visual Studio `2026`（MSVC `19.52`，工具集 `v145`），Windows SDK `10.0.26100`，CMake `4.3.2`（`Visual Studio 18 2026` 生成器）
 - Git：已初始化，默认分支为 `main`
 
 ## 修改文件
@@ -358,6 +359,42 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 - `native/tools/avtool/tests/`
 
 ## 最后成功验证
+
+### 2026-11-15：Windows 原生构建、实机冒烟与两处编辑缺陷修复
+
+Windows 版本此前从未在真实硬件上构建或运行。本轮在独立分支上补齐 MSVC 可移植性并在实机完成验证。可移植性改动只影响构建与测试入口，不改变领域行为：
+
+- `native/av_core/src/timing/arrowvortex/FindOnsets.cpp`：`static char*` 字符串字面量改为 `char[]`，满足 `/permissive-`。
+- `native/av_c_api/src/audio.cpp`：补 `<cmath>`；MSVC 的 `std::isfinite` 由该头提供。
+- `native/CMakeLists.txt`：MSVC 追加 `/utf-8`，窄字符串字面量与源文件按 UTF-8 解释。
+- 8 个 SLK 测试：源路径改用 `std::filesystem::u8path`，Windows 不再按 ANSI 代码页解释窄字符路径。
+- `native/tools/avtool/tests/*.cmake`：`execute_process` 追加 `ENCODING UTF8`；`decode_errors.cmake` 的正则按 CMake 4 规则转义 `[`。
+- `native/av_c_api/tests/CMakeLists.txt`：Windows 上把 `otgy_c_api.dll` 复制到三个 C ABI 测试的可执行文件目录；此前它们以 `0xC0000135` 退出。
+- `app/packages/otgy_native/hook/link.dart`：Windows 不再追加 `-x none` 与 `std=c++17`，并避免 `native_toolchain_c` 给原生产物加 `/TP`；否则 `.lib` 归档会被当作 C++ 源文件。
+- `native/av_core/tests/chart_editor_allocation_failure_test.cpp`：MSVC Debug 的 STL 容器代理会在 `noexcept` 构造内分配两个指针大小的块，注入失败会直接 `std::terminate`；该尺寸不再注入。
+
+实机结果（Windows 11、MSVC `19.52`、Windows SDK `10.0.26100`）：
+
+```text
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+flutter build windows --release
+```
+
+原生完整套件 `57/59` 通过。未通过的两项是 Ogg 黄金测试：32768 个字节中 26 个相差 1 个最低有效位。是否为此引入平台容差尚未决定，本轮不放宽断言。成品 SLK 导入→导出在 Windows 上对真实成品谱面逐字节一致。
+
+App Release 在实机通过启动、音频与 SLK 导入（含中文路径）、播放/暂停/末尾重播、编辑、选择、撤销/重做、保存与另存为、同名覆盖提示和未保存关闭确认。
+
+本轮修复并实机验证的两处缺陷：
+
+- 音乐末尾无法重新播放：`playbackStartEnabled` 在光标到达音乐结尾时禁用播放按钮，前两处回卷修复因此不可达。现在末尾保持可用，播放时回卷到开头（实测 `00:10.031 → 00:00.947`）。
+- 同名草稿不提示覆盖：检查把当前草稿排除在外。现在任何同名草稿都提示，并以已有草稿标识为目标（只保留一份同名草稿）。
+
+键盘结论：点击画布后焦点落在画布的 `FocusNode` 上，快捷键绑定在 widget 测试中通过；实机注入的 SPACE 事件携带扫描码但 `logicalKey` 与 `physicalKey` 为 `null`，因此扫描码注入无法触发 `Shortcuts`。真实键盘路径本轮没有在实机按下，键盘仍不记为已实机验证；`Ctrl+Z` 曾以虚拟键注入但没有探针日志，同样不作为已验证结论。
+
+测试侧同步纠正两处与既有规格不符的断言：`otgy_native_test` 的 ABI 版本断言从 `2` 更新到当前 `5`；`chart_selection_test` 的“首个已记录舞步之前新增完整舞步”用例改为断言 Showtime 随该次编辑失效并可一次撤销恢复，与 `FUNCTIONAL_SPEC.md` 的“Showtime 内容失效”判据和 `chart_editor_test.cpp` 用例 (e) 一致。
+
+本轮在主机上执行：原生 CMake/CTest 完整 `59/59`、Dart FFI 完整 `29/29`、Flutter 完整 `256/256`。
 
 ### 2026-10-15：Showtime 失效判定的引用归属
 
@@ -510,7 +547,8 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 - 示例 MP3/Ogg 的再分发许可尚未确认，已通过 `.gitignore` 排除；两个 SLK 继续保留为本地规范与测试参考。
 - Android Release 当前使用本地 Debug signing key；macOS Release 为本机 Ad Hoc 签名。对外分发前必须由发布者在目标环境配置自己的 Android release keystore、Developer ID 签名和 Apple notarization，且不能把密钥或密码提交到仓库。
-- 本机不是 Windows 环境，也没有已连接的 Android 真机或已签名 iOS 真机；Windows x86-64/ARM64、Android 真机/模拟器 Release 冒烟和 iOS 真机安装运行仍需在对应设备或 CI 完成。
+- 主机不是 Windows 环境，也没有已连接的 Android 真机或已签名 iOS 真机。Windows x86-64 已在一台真实主机完成原生与 App 构建、运行冒烟；Windows ARM64、Android 真机/模拟器 Release 冒烟和 iOS 真机安装运行仍需在对应设备或 CI 完成。
+- Windows 上两项 Ogg 黄金测试未通过：32768 个字节中 26 个相差 1 个最低有效位。成因尚未定位，当前不放宽断言；是否为此引入明确的平台容差、或调整固定 libVorbis 在该编译器的浮点路径，待决定。
 - Flutter 不支持 iOS simulator 的 Release 构建；模拟器验证应使用 Debug/Profile 构建，不能把 `flutter build ios --simulator --release` 作为发布产物。
 - 对固定的 libmad/libogg/libVorbis 旧版 C 快照执行全量 UndefinedBehaviorSanitizer 时，会在解码/编码路径报告负下标式指针访问、空指针零偏移和有符号左移诊断，包括 `libogg/framing.c`、`bitwise.c` 以及 libVorbis `sharedbook.c`、`psy.c`、`floor1.c`。普通构建与全量 AddressSanitizer 仍精确通过全部黄金结果；未用测试过滤或更宽容断言掩盖这些诊断。阶段 7 定向组合验证只对新增/修改的自有 C++ 路径启用 UndefinedBehaviorSanitizer，对固定第三方 C 快照保留 AddressSanitizer，并以 `halt_on_error=1` 通过 4/4。
 - 移动端固定判定线锚点受时间线末尾限制。`calculate_timeline_range()` 始终以四小节基础范围为基础取最晚者（`native/av_core/src/timing/timeline_range.cpp:13`），时间光标被限制在 `endRow` 以内（`app/lib/src/application/editor_controller.dart:1348`），而目标闭区间 `[锚点行, 锚点行 + 最大偏移]` 必须三列全空。因此在没有音频、末尾已有内容的项目里，把批次粘贴到时间线末尾后末尾行被该批次占用，判定线无法再移到末尾之后，无法在同一末尾继续追加；需要加载音频或存在更晚标记/`SHOW-D` 才能继续。本轮用一次性 Dart 诊断（已删除）在真实 `NativeChartEditor` 上测得：无音频空项目 `endRow = 64.0`（四小节基础范围）；在锚点 `64` 首次粘贴成功并提交一次修订，`endRow` 增长到 `78.0`；此后 `moveToRow(1000)` 被限制为 `78.0`；对可达末尾区间 `72/74/75/76/77/78` 逐行调用 `updatePastePreview()` 全部返回 `PasteRangeOccupied`（`19`，“粘贴范围内存在其他标记”），在末尾再调用 `pasteAtRow()` 修订数不变、返回同一稳定错误。该限制来自既有 `FUNCTIONAL_SPEC.md` 条款，本轮未改动这些契约，是否允许锚点越过末尾待产品决定。
