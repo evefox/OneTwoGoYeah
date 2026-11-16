@@ -27,6 +27,13 @@ void main() {
     }
   }
 
+  int selectedMoveCount(EditorController controller) =>
+      controller.selections.map((unit) => unit.danceMoveDrillId).toSet().length;
+
+  int selectedFirstRow(EditorController controller) => controller.selections
+      .map((unit) => unit.firstRow)
+      .reduce((left, right) => left < right ? left : right);
+
   void useTwoMoves() {
     final editor = NativeChartEditor.createEmpty();
     addDanceMove(editor, 0);
@@ -125,7 +132,7 @@ void main() {
         controller.chartInteractionMode,
         EditorChartInteractionMode.selection,
       );
-      expect(controller.selectionCount, 2);
+      expect(selectedMoveCount(controller), 2);
     } finally {
       debugDefaultTargetPlatformOverride = previous;
     }
@@ -141,8 +148,8 @@ void main() {
       await pumpCanvas(tester);
       await dragRows(tester, 0, 14);
 
-      expect(controller.selectionCount, 1);
-      expect(controller.selections.single.firstRow, 0);
+      expect(selectedMoveCount(controller), 1);
+      expect(selectedFirstRow(controller), 0);
     } finally {
       debugDefaultTargetPlatformOverride = previous;
     }
@@ -155,7 +162,7 @@ void main() {
     try {
       await pumpCanvas(tester);
       await dragRows(tester, 0, 14);
-      expect(controller.selectionCount, 1);
+      expect(selectedMoveCount(controller), 1);
 
       controller.moveToRow(32);
       await tester.pumpAndSettle();
@@ -163,14 +170,14 @@ void main() {
       await tester.tapAt(rowPoint(tester, 32), kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
       await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-      expect(controller.selectionCount, 2);
+      expect(selectedMoveCount(controller), 2);
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
       await tester.tapAt(rowPoint(tester, 32), kind: PointerDeviceKind.mouse);
       await tester.pumpAndSettle();
       await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
-      expect(controller.selectionCount, 1);
-      expect(controller.selections.single.firstRow, 0);
+      expect(selectedMoveCount(controller), 1);
+      expect(selectedFirstRow(controller), 0);
     } finally {
       debugDefaultTargetPlatformOverride = previous;
     }
@@ -184,8 +191,9 @@ void main() {
     useTwoMoves();
     try {
       await pumpCanvas(tester);
-      await dragRows(tester, 0, 36);
-      expect(controller.selectionCount, 2);
+      // Cover every unit of both moves so Delete removes the full content.
+      await dragRows(tester, 0, 46);
+      expect(selectedMoveCount(controller), 2);
 
       await press(tester, LogicalKeyboardKey.delete);
       expect(controller.markers, isEmpty);

@@ -182,7 +182,7 @@ void main() {
       target.chartInteractionMode,
       EditorChartInteractionMode.pastePending,
     );
-    expect(target.selectionCount, extended ? 2 : 1);
+    expect(target.selectionCount, extended ? 8 : 4);
     expect(target.hasSelection, isTrue);
     expect(target.hasClipboard, isTrue);
     expect(target.clipboardCount, extended ? 2 : 1);
@@ -418,7 +418,7 @@ void main() {
           expect(captureState['pastePreviewAnchorRow'], isNull);
           expect(captureState['pastePreviewCode'], isNull);
           expect(sessionCaptureState['interactionMode'], 'pastePending');
-          expect(sessionCaptureState['selectionCount'], 1);
+          expect(sessionCaptureState['selectionCount'], 4);
           expect(sessionCaptureState['hasSelection'], isTrue);
           expect(sessionCaptureState['hasClipboard'], isTrue);
           expect(sessionCaptureState['clipboardCount'], 1);
@@ -508,7 +508,7 @@ void main() {
         controller.chartInteractionMode,
         EditorChartInteractionMode.pastePending,
       );
-      expect(controller.selectionCount, 2);
+      expect(controller.selectionCount, 8);
       expect(controller.hasSelection, isTrue);
       expect(controller.hasClipboard, isTrue);
       expect(controller.clipboardCount, 2);

@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define OTGY_C_API_VERSION UINT32_C(5)
+#define OTGY_C_API_VERSION UINT32_C(6)
 
 typedef uint32_t otgy_status;
 #define OTGY_STATUS_OK UINT32_C(0)
@@ -994,12 +994,20 @@ OTGY_C_API otgy_status otgy_chart_editor_redo(
     otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
     otgy_error** out_error);
 
-/// One selected dance move, projected from session state.
+/// One selected unit, projected from session state. A unit is the block start
+/// marker or the note/move-end run of one role inside one drill group.
+#define OTGY_CHART_SELECTION_PART_START UINT32_C(0)
+#define OTGY_CHART_SELECTION_PART_ACTIONS UINT32_C(1)
+
 typedef struct otgy_chart_selection {
   uint8_t active;
+  uint8_t role;
+  uint8_t part;
   uint64_t dance_move_drill_id;
+  uint64_t drill_group_id;
   uint64_t first_row;
   uint64_t last_row;
+  uint64_t event_count;
 } otgy_chart_selection;
 
 /// Session commands change selection or clipboard only, without draft history.
@@ -1049,6 +1057,8 @@ OTGY_C_API otgy_status otgy_chart_editor_clear_selection(
 OTGY_C_API uint8_t otgy_chart_editor_has_clipboard(
     const otgy_chart_editor* editor);
 OTGY_C_API uint64_t otgy_chart_editor_clipboard_count(
+    const otgy_chart_editor* editor);
+OTGY_C_API uint64_t otgy_chart_editor_clipboard_marker_count(
     const otgy_chart_editor* editor);
 OTGY_C_API uint8_t otgy_chart_editor_cut_pending(
     const otgy_chart_editor* editor);

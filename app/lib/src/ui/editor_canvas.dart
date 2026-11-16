@@ -3190,7 +3190,7 @@ class _ChartInteractionControls extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         spacing: 8,
                         children: [
-                          Text('${controller.clipboardCount} 个舞步'),
+                          Text('${controller.clipboardMarkerCount} 个标记'),
                           FilledButton.icon(
                             key: const ValueKey('paste-at-current-cursor'),
                             onPressed: enabled && controller.hasClipboard
@@ -3214,7 +3214,9 @@ class _ChartInteractionControls extends StatelessWidget {
                     children: [
                       Padding(
                         padding: const EdgeInsets.only(left: 12, right: 4),
-                        child: Text('点击谱面放置 ${controller.clipboardCount} 个舞步'),
+                        child: Text(
+                          '点击谱面放置 ${controller.clipboardMarkerCount} 个标记',
+                        ),
                       ),
                       exit,
                     ],
@@ -3223,6 +3225,10 @@ class _ChartInteractionControls extends StatelessWidget {
               key: const ValueKey('selection-controls'),
               mainAxisSize: MainAxisSize.min,
               children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 4),
+                  child: Text('${controller.selectedMarkerCount} 个标记'),
+                ),
                 IconButton(
                   key: const ValueKey('selection-copy'),
                   onPressed: enabled && controller.canCopySelection
@@ -3252,7 +3258,7 @@ class _ChartInteractionControls extends StatelessWidget {
       return '正在计算当前判定线的粘贴位置';
     }
     return preview.valid
-        ? '第 $row 行，可以粘贴 ${controller.clipboardCount} 个舞步'
+        ? '第 $row 行，可以粘贴 ${controller.clipboardMarkerCount} 个标记'
         : '第 $row 行，当前位置不能粘贴';
   }
 }
@@ -3515,9 +3521,7 @@ class _EditorCanvasPainter extends CustomPainter {
       return;
     }
     final band = projectEditorSelectionBand(
-      selection: ChartSelection(
-        active: true,
-        danceMoveDrillId: 0,
+      selection: ChartSelection.band(
         firstRow: math.min(start, end),
         lastRow: math.max(start, end),
       ),
@@ -3558,9 +3562,7 @@ class _EditorCanvasPainter extends CustomPainter {
         ? EditorColors.markerPlayer
         : EditorColors.danger;
     final envelope = projectEditorSelectionBand(
-      selection: ChartSelection(
-        active: true,
-        danceMoveDrillId: 0,
+      selection: ChartSelection.band(
         firstRow: preview.firstRow,
         lastRow: preview.lastRow,
       ),

@@ -121,9 +121,13 @@ void compare_edit(const otgy::core::ChartEditResult& direct,
 void compare_selection(const otgy::core::ChartSelection& direct,
                        const otgy_chart_selection& abi) {
   expect(abi.active == static_cast<std::uint8_t>(direct.active) &&
+             abi.role == static_cast<std::uint8_t>(direct.role) &&
+             abi.part == static_cast<std::uint8_t>(direct.part) &&
              abi.dance_move_drill_id == direct.drill_id.value &&
+             abi.drill_group_id == direct.drill_group_id.value &&
              abi.first_row == direct.first_row &&
-             abi.last_row == direct.last_row,
+             abi.last_row == direct.last_row &&
+             abi.event_count == direct.event_count,
          "chart selection differs");
 }
 
@@ -660,37 +664,41 @@ void test_batch_selection_and_preview() {
       continue;
     }
     expect(pair.select(marker.column, marker.row).changed &&
-               pair.direct.selections().size() == 1U,
+               pair.direct.selections().size() == 4U,
            "role marker did not select its move");
     expect(pair.select(marker.column, marker.row).changed &&
-               pair.direct.selections().empty(),
-           "repeated role marker did not toggle its move off");
+               pair.direct.selections().size() == 3U,
+           "repeated role marker did not toggle its unit off");
+    pair.session(&otgy::core::ChartEditor::clear_selection,
+                 otgy_chart_editor_clear_selection);
     seen[static_cast<std::size_t>(marker.type)] = true;
   }
   expect(std::all_of(seen.begin(), seen.end(), [](bool value) { return value; }),
          "selection fixture omitted a role marker type");
   pair.select(otgy::core::ChartColumn::Npc, 100U);
   pair.select(otgy::core::ChartColumn::Npc, 0U);
-  expect(pair.direct.selections().size() == 2U &&
+  expect(pair.direct.selections().size() == 8U &&
              pair.direct.selections()[0].first_row == 0U &&
-             pair.direct.selections()[1].first_row == 100U,
+             pair.direct.selections()[4].first_row == 100U,
          "noncontiguous selection order depends on click order");
   const auto selected = pair.direct.selections();
   const auto blank = pair.select(otgy::core::ChartColumn::Npc, 99U);
-  expect(!blank.changed && pair.direct.selections().size() == 2U,
+  expect(!blank.changed && pair.direct.selections().size() == 8U,
          "blank click discarded selections");
   const auto cross_column = pair.select(otgy::core::ChartColumn::Player, 0U);
-  expect(cross_column.changed && pair.direct.selections().size() == 1U &&
-             pair.direct.selections().front().first_row == 100U,
-         "cross-column click did not toggle the marker-row move");
+  expect(cross_column.changed && pair.direct.selections().size() == 7U &&
+             pair.direct.selections().front().first_row == 2U,
+         "cross-column click did not toggle the marker-row unit");
   expect(pair.select(otgy::core::ChartColumn::Showtime, 0U).changed &&
-             pair.direct.selections().size() == 2U,
-         "cross-column click did not restore the marker-row move");
-  pair.select(otgy::core::ChartColumn::Npc, 100U);
-  expect(pair.direct.selections().size() == 1U &&
+             pair.direct.selections().size() == 8U &&
              pair.direct.selections().front().first_row == 0U,
-         "toggle removed another selected move");
+         "cross-column click did not restore the marker-row unit");
   pair.select(otgy::core::ChartColumn::Npc, 100U);
+  expect(pair.direct.selections().size() == 7U,
+         "toggle removed more than the marker-row unit");
+  pair.select(otgy::core::ChartColumn::Npc, 100U);
+  expect(pair.direct.selections().size() == 8U,
+         "second toggle did not restore the marker-row unit");
 
   otgy_chart_selections* raw_owned = nullptr;
   otgy_error* error = nullptr;
@@ -721,15 +729,15 @@ void test_batch_selection_and_preview() {
   auto gap_collision = gap.preview(200U);
   expect(otgy_chart_paste_preview_get_code(gap_collision.get()) ==
              OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED &&
-             otgy_chart_paste_preview_get_selection_count(gap_collision.get()) == 2U &&
+             otgy_chart_paste_preview_get_selection_count(gap_collision.get()) == 8U &&
              gap.paste(200U).code == otgy::core::ChartEditCode::PasteRangeOccupied,
          "batch paste ignored occupied space between fragments");
   auto preview = pair.preview(200U);
   const auto expected_preview = pair.direct.preview_paste(200U);
   expect(expected_preview.code == otgy::core::ChartEditCode::Success &&
-             expected_preview.spans.size() == 2U &&
+             expected_preview.spans.size() == 8U &&
              expected_preview.spans[0].first_row == 200U &&
-             expected_preview.spans[1].first_row == 300U &&
+             expected_preview.spans[4].first_row == 300U &&
              expected_preview.last_row == 314U,
          "batch preview lost shared base or relative gaps");
   auto overflow = pair.preview(UINT64_MAX);
@@ -744,11 +752,11 @@ void test_batch_selection_and_preview() {
              otgy::core::chart_drafts_equal(pair.direct.draft(), control.draft()),
          "preview or refusal consumed object identifiers");
   expect(pair.direct.undo_count() == 1U &&
-             pair.direct.selections().size() == 2U &&
+             pair.direct.selections().size() == 8U &&
              pair.direct.selections()[0].first_row == 200U &&
-             pair.direct.selections()[1].first_row == 300U &&
+             pair.direct.selections()[4].first_row == 300U &&
              pair.direct.selections()[0].drill_id.value != selected[0].drill_id.value &&
-             pair.direct.selections()[1].drill_id.value != selected[1].drill_id.value,
+             pair.direct.selections()[4].drill_id.value != selected[4].drill_id.value,
          "batch paste lost its fresh identities, selection or single history");
   const auto pasted_markers = otgy::core::project_chart_markers(pair.direct.draft());
   for (const auto& ghost : expected_preview.ghost_markers) {
@@ -867,13 +875,13 @@ void test_selection_order_and_lifecycle() {
   const auto start_row = generated.draft().showtime_start_events().front().row;
   const auto unavailable = showtime.select(otgy::core::ChartColumn::Showtime,
                                            start_row);
-  expect(!unavailable.changed && showtime.direct.selections().size() == 1U,
+  expect(!unavailable.changed && showtime.direct.selections().size() == 4U,
          "SHOW-C changed existing selection");
   for (const auto& move : generated.draft().showtime_move_events()) {
     showtime.session(&otgy::core::ChartEditor::clear_selection,
                      otgy_chart_editor_clear_selection);
     expect(showtime.select(otgy::core::ChartColumn::Showtime, move.row).changed &&
-               showtime.direct.selections().size() == 1U &&
+               showtime.direct.selections().size() == 4U &&
                showtime.direct.selections().front().drill_id.value ==
                    move.dance_move_drill_id.value,
            "SHOW-D did not resolve its referenced dance move");
@@ -907,7 +915,7 @@ void test_deferred_cut_consistency() {
   auto occupied = pair.preview(16U);
   expect(otgy_chart_paste_preview_get_code(occupied.get()) ==
              OTGY_CHART_EDIT_PASTE_RANGE_OCCUPIED &&
-             otgy_chart_paste_preview_get_selection_count(occupied.get()) == 1U &&
+             otgy_chart_paste_preview_get_selection_count(occupied.get()) == 4U &&
              otgy_chart_paste_preview_get_marker_count(occupied.get()) != 0U,
          "occupied cut preview lost its destination geometry");
   const auto refused = pair.paste(16U);
@@ -941,8 +949,9 @@ void test_deferred_cut_consistency() {
              pair.direct.undo_count() == 1U &&
              !pair.direct.has_pending_cut() &&
              pair.direct.draft().dance_move_drills().size() == 2U &&
+             pair.direct.selections().size() == 8U &&
              pair.direct.selections()[0].first_row == 1U &&
-             pair.direct.selections()[1].first_row == 17U,
+             pair.direct.selections()[4].first_row == 17U,
          "overlapping batch cut did not atomically replace source");
   for (const auto& event : original.role_events()) {
     expect(std::none_of(pair.direct.draft().role_events().begin(),
@@ -1258,9 +1267,15 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
          "C ABI select failed");
   compare_session(direct_select, abi_session);
   compare_session_state(direct_editor, editor.get());
-  expect(direct_editor.selections().size() == 1U &&
-             direct_editor.selections().front().first_row == 0U &&
-             direct_editor.selections().front().last_row == 4U,
+  expect(direct_editor.selections().size() == 2U &&
+             direct_editor.selections()[0].part ==
+                 otgy::core::ChartSelectionPart::Start &&
+             direct_editor.selections()[0].first_row == 0U &&
+             direct_editor.selections()[0].last_row == 0U &&
+             direct_editor.selections()[1].part ==
+                 otgy::core::ChartSelectionPart::Actions &&
+             direct_editor.selections()[1].first_row == 4U &&
+             direct_editor.selections()[1].last_row == 4U,
          "C ABI selection span differs");
   expect(otgy_chart_editor_get_undo_count(editor.get()) ==
                  direct_editor.undo_count() &&
@@ -1275,7 +1290,7 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
          "C ABI empty row select failed");
   compare_session(direct_deselect, abi_session);
   expect(abi_session.changed == 0U &&
-             otgy_chart_editor_selection_count(editor.get()) == 1U,
+             otgy_chart_editor_selection_count(editor.get()) == 2U,
          "empty row changed the C ABI selection");
   compare_session_state(direct_editor, editor.get());
 
@@ -1358,9 +1373,11 @@ Handle<otgy_chart, otgy_chart_destroy> test_chart_edit_and_persistence() {
          "successful C ABI paste did not add one history entry");
 
   compare_session_state(direct_editor, editor.get());
-  expect(direct_editor.selections().size() == 1U &&
-             direct_editor.selections().front().first_row == 200U &&
-             direct_editor.selections().front().last_row == 204U,
+  expect(direct_editor.selections().size() == 2U &&
+             direct_editor.selections()[0].first_row == 200U &&
+             direct_editor.selections()[0].last_row == 200U &&
+             direct_editor.selections()[1].first_row == 204U &&
+             direct_editor.selections()[1].last_row == 204U,
          "C ABI pasted selection differs");
 
   abi_paste = {7U, 7U, 7U};
@@ -2450,7 +2467,7 @@ void test_select_all_consistency() {
   const auto selected = pair.selectAll();
   expect(selected.code == otgy::core::ChartEditCode::Success && selected.changed,
          "select-all did not report the new selection");
-  expect(pair.direct.selections().size() == 2U,
+  expect(pair.direct.selections().size() == 4U,
          "select-all missed a dance move");
   expect(pair.selectAll().changed == false,
          "repeated select-all reported a change");
@@ -2502,6 +2519,9 @@ void test_selection_range_and_delete_consistency() {
   expect(repeated.code == otgy::core::ChartEditCode::Success && !repeated.changed,
          "repeated replace range reported a change");
 
+  const auto whole_move = pair.selectRange(0U, 10U, OTGY_CHART_SELECTION_REPLACE);
+  expect(whole_move.changed && pair.direct.selections().size() == 2U,
+         "whole-move range did not select both units");
   const auto deleted = pair.deleteSelection();
   expect(deleted.changed, "delete-selection did not report a change");
   expect(pair.direct.selections().empty(),

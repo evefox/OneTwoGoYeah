@@ -580,6 +580,18 @@ class EditorController extends ChangeNotifier {
       _chartInteractionMode == EditorChartInteractionMode.pastePending;
   List<ChartSelection> get selections => _editor.selections;
   int get selectionCount => _editor.selectionCount;
+
+  /// Number of role markers covered by the current selection units.
+  int get selectedMarkerCount {
+    var total = 0;
+    for (final unit in _editor.selections) {
+      total += unit.eventCount;
+    }
+    return total;
+  }
+
+  /// Number of role markers carried by the clipboard fragment.
+  int get clipboardMarkerCount => _editor.clipboardMarkerCount;
   bool get hasSelection => _editor.hasSelection;
   bool get hasClipboard => _editor.hasClipboard;
   int get clipboardCount => _editor.clipboardCount;

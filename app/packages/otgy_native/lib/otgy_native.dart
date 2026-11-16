@@ -132,25 +132,75 @@ enum ChartSelectionMode {
   final int value;
 }
 
+/// The role a selected unit belongs to. Values match the
+/// `OTGY_CHART_ROLE_*` constants.
+enum ChartSelectionRole {
+  npc(native.OTGY_CHART_ROLE_NPC),
+  player(native.OTGY_CHART_ROLE_PLAYER);
+
+  const ChartSelectionRole(this.value);
+
+  final int value;
+
+  static ChartSelectionRole fromValue(int value) =>
+      value == player.value ? player : npc;
+}
+
+/// Which part of a drill group a selected unit covers. Values match the
+/// `OTGY_CHART_SELECTION_PART_*` constants.
+enum ChartSelectionPart {
+  start(native.OTGY_CHART_SELECTION_PART_START),
+  actions(native.OTGY_CHART_SELECTION_PART_ACTIONS);
+
+  const ChartSelectionPart(this.value);
+
+  final int value;
+
+  static ChartSelectionPart fromValue(int value) =>
+      value == actions.value ? actions : start;
+}
+
 final class ChartSelection {
   const ChartSelection({
     required this.active,
     required this.danceMoveDrillId,
+    required this.drillGroupId,
+    required this.role,
+    required this.part,
     required this.firstRow,
     required this.lastRow,
+    required this.eventCount,
   });
 
   final bool active;
   final int danceMoveDrillId;
+  final int drillGroupId;
+  final ChartSelectionRole role;
+  final ChartSelectionPart part;
   final int firstRow;
   final int lastRow;
+  final int eventCount;
+
+  /// Synthetic row band for painting a drag preview or paste envelope that has
+  /// no unit identity yet.
+  const ChartSelection.band({required this.firstRow, required this.lastRow})
+    : active = true,
+      danceMoveDrillId = 0,
+      drillGroupId = 0,
+      role = ChartSelectionRole.npc,
+      part = ChartSelectionPart.start,
+      eventCount = 0;
 
   factory ChartSelection._fromNative(native.otgy_chart_selection value) =>
       ChartSelection(
         active: value.active != 0,
         danceMoveDrillId: value.dance_move_drill_id,
+        drillGroupId: value.drill_group_id,
+        role: ChartSelectionRole.fromValue(value.role),
+        part: ChartSelectionPart.fromValue(value.part),
         firstRow: value.first_row,
         lastRow: value.last_row,
+        eventCount: value.event_count,
       );
 }
 
@@ -1747,6 +1797,8 @@ final class NativeChartEditor {
       native.otgy_chart_editor_has_clipboard(_requireEditor()) != 0;
   int get clipboardCount =>
       native.otgy_chart_editor_clipboard_count(_requireEditor());
+  int get clipboardMarkerCount =>
+      native.otgy_chart_editor_clipboard_marker_count(_requireEditor());
   bool get cutPending =>
       native.otgy_chart_editor_cut_pending(_requireEditor()) != 0;
 

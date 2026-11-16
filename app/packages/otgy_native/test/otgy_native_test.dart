@@ -9,7 +9,7 @@ void main() {
     // Kept literal on purpose: bumping the C ABI must force a review of the
     // Dart bindings, so this test pins OTGY_C_API_VERSION from
     // native/av_c_api/include/otgy/av_c_api.h.
-    expect(OtgyNative.apiVersion, 5);
+    expect(OtgyNative.apiVersion, 6);
     expect(OtgyNative.coreVersion, isNotEmpty);
 
     final editor = NativeChartEditor.createEmpty();
@@ -56,10 +56,19 @@ void main() {
     editor.select(OTGY_CHART_COLUMN_NPC, 32);
     editor.select(OTGY_CHART_COLUMN_NPC, 0);
     final selected = editor.selections;
-    expect(selected.map((item) => item.firstRow), [0, 32]);
-    expect(editor.selectionCount, 2);
+    expect(selected.map((item) => item.firstRow), [
+      0,
+      2,
+      8,
+      10,
+      32,
+      34,
+      40,
+      42,
+    ]);
+    expect(editor.selectionCount, 8);
     editor.select(OTGY_CHART_COLUMN_SHOWTIME, 200);
-    expect(editor.selectionCount, 2);
+    expect(editor.selectionCount, 8);
     final before = editor.encodeRecovery();
     expect(editor.copySelection().code, 0);
     expect(editor.clipboardCount, 2);
@@ -67,7 +76,16 @@ void main() {
     expect(preview.valid, isTrue);
     expect(preview.firstRow, 100);
     expect(preview.lastRow, 146);
-    expect(preview.selections.map((item) => item.firstRow), [100, 132]);
+    expect(preview.selections.map((item) => item.firstRow), [
+      100,
+      102,
+      108,
+      110,
+      132,
+      134,
+      140,
+      142,
+    ]);
     final ghostRows = preview.markers.map((item) => item.row).toList();
     expect(ghostRows, [
       100,
@@ -95,7 +113,16 @@ void main() {
     editor.clearSelection();
     editor.clearClipboard();
     editor.dispose();
-    expect(selected.map((item) => item.firstRow), [0, 32]);
+    expect(selected.map((item) => item.firstRow), [
+      0,
+      2,
+      8,
+      10,
+      32,
+      34,
+      40,
+      42,
+    ]);
     expect(preview.markers.map((item) => item.row), ghostRows);
   });
 
@@ -371,9 +398,9 @@ void main() {
     final selected = editor.selectAll();
     expect(selected.code, 0);
     expect(selected.changed, isTrue);
-    expect(editor.selections, hasLength(1));
-    expect(editor.selections.single.firstRow, 0);
-    expect(editor.selections.single.lastRow, 14);
+    expect(editor.selections, hasLength(4));
+    expect(editor.selections.first.firstRow, 0);
+    expect(editor.selections.last.lastRow, 14);
 
     expect(editor.selectAll().changed, isFalse);
     editor.clearSelection();
@@ -405,25 +432,25 @@ void main() {
     final replaced = editor.selectRange(0, 14, ChartSelectionMode.replace);
     expect(replaced.code, 0);
     expect(replaced.changed, isTrue);
-    expect(editor.selections, hasLength(1));
+    expect(editor.selections, hasLength(4));
 
     expect(editor.selectRange(32, 32, ChartSelectionMode.add).changed, isTrue);
-    expect(editor.selections, hasLength(2));
+    expect(editor.selections, hasLength(5));
 
     expect(
       editor.selectRange(32, 32, ChartSelectionMode.subtract).changed,
       isTrue,
     );
-    expect(editor.selections, hasLength(1));
+    expect(editor.selections, hasLength(4));
 
     expect(
       editor.selectRange(0, 14, ChartSelectionMode.replace).changed,
       false,
     );
 
-    // Bring the second move back in so Delete removes both.
-    expect(editor.selectRange(32, 32, ChartSelectionMode.add).changed, isTrue);
-    expect(editor.selections, hasLength(2));
+    // Cover both moves fully so Delete removes every unit.
+    expect(editor.selectRange(32, 46, ChartSelectionMode.add).changed, isTrue);
+    expect(editor.selections, hasLength(8));
 
     final deleted = editor.deleteSelection();
     expect(deleted.changed, isTrue);

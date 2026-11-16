@@ -120,10 +120,10 @@ void main() {
         controller.chartInteractionMode,
         EditorChartInteractionMode.selection,
       );
-      expect(controller.selectionCount, 2);
+      expect(controller.selectionCount, 8);
 
       await press(tester, LogicalKeyboardKey.keyA, meta: true);
-      expect(controller.selectionCount, 2);
+      expect(controller.selectionCount, 8);
 
       await press(tester, LogicalKeyboardKey.home, meta: true);
       expect(controller.currentRow, 0);
@@ -143,7 +143,7 @@ void main() {
     try {
       await openEditor(tester);
       await press(tester, LogicalKeyboardKey.keyA, meta: true);
-      expect(controller.selectionCount, 2);
+      expect(controller.selectionCount, 8);
 
       // The first right click only clears the selection.
       await secondaryTap(tester);

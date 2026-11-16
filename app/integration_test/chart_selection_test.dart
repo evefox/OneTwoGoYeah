@@ -61,6 +61,30 @@ void main() {
     }
   }
 
+  /// First row of every selected dance move, derived from its selected units.
+  List<int> selectedMoveFirstRows(EditorController controller) {
+    final rows = <int, int>{};
+    for (final unit in controller.selections) {
+      final current = rows[unit.danceMoveDrillId];
+      if (current == null || unit.firstRow < current) {
+        rows[unit.danceMoveDrillId] = unit.firstRow;
+      }
+    }
+    return rows.values.toList()..sort();
+  }
+
+  /// Last row of every selected dance move, derived from its selected units.
+  List<int> selectedMoveLastRows(EditorController controller) {
+    final rows = <int, int>{};
+    for (final unit in controller.selections) {
+      final current = rows[unit.danceMoveDrillId];
+      if (current == null || unit.lastRow > current) {
+        rows[unit.danceMoveDrillId] = unit.lastRow;
+      }
+    }
+    return rows.values.toList()..sort();
+  }
+
   Future<void> openEditor(
     WidgetTester tester, {
     bool withSecondMove = true,
@@ -284,9 +308,7 @@ void main() {
           controller.chartInteractionMode,
           EditorChartInteractionMode.selection,
         );
-        expect(controller.selections.map((selection) => selection.firstRow), [
-          0,
-        ]);
+        expect(selectedMoveFirstRows(controller), [0]);
         expect(controller.encodeFormalDraft(), orderedEquals(before));
         expect(controller.projectRevision, 0);
 
@@ -329,27 +351,31 @@ void main() {
         controller.chartInteractionMode,
         EditorChartInteractionMode.selection,
       );
-      expect(controller.selections.map((item) => item.firstRow), [0]);
+      expect(selectedMoveFirstRows(controller), [0]);
       expectSessionToolbars(tester);
       // Navigation and history navigation stay available so the paste target
       // row remains reachable while the session is active.
       expect(controller.navigationEnabled, isTrue);
       controller.moveToRow(64);
       await tester.pumpAndSettle();
-      expect(controller.selections.map((item) => item.firstRow), [0]);
+      expect(selectedMoveFirstRows(controller), [0]);
       await activateRow(tester, 'Showtime', 33);
-      expect(controller.selections.map((item) => item.firstRow), [0]);
+      expect(selectedMoveFirstRows(controller), [0]);
       await activateRow(tester, 'Showtime', 32);
-      expect(controller.selections.map((item) => item.firstRow), [0, 32]);
-      expect(controller.selections.map((item) => item.lastRow), [14, 46]);
+      expect(selectedMoveFirstRows(controller), [0, 32]);
+      expect(selectedMoveLastRows(controller), [14, 46]);
       expect(controller.encodeFormalDraft(), orderedEquals(source));
       expect(controller.projectRevision, 0);
       expect(controller.scale, 4);
 
       await activateRow(tester, '玩家', 32);
-      expect(controller.selections.map((item) => item.firstRow), [0]);
+      // A second activation toggles only the unit under the pointer, so the
+      // move stays selected and its first surviving unit starts at row 34.
+      expect(selectedMoveFirstRows(controller), [0, 34]);
+      expect(controller.selections.length, 7);
       await activateRow(tester, 'Showtime', 32, longPress: true);
-      expect(controller.selections.map((item) => item.firstRow), [0, 32]);
+      expect(selectedMoveFirstRows(controller), [0, 32]);
+      expect(controller.selections.length, 8);
       expect(find.byKey(const ValueKey('selection-controls')), findsOneWidget);
       await captureScreenshot(tester, 'selection-highlight');
 
@@ -392,7 +418,7 @@ void main() {
           find.byKey(const ValueKey('paste-pending-controls')),
           findsOneWidget,
         );
-        expect(find.text('点击谱面放置 2 个舞步'), findsOneWidget);
+        expect(find.text('点击谱面放置 16 个标记'), findsOneWidget);
         await captureScreenshot(tester, 'paste-pending-preview');
         await previewGesture.removePointer();
         await tester.pumpAndSettle();
@@ -561,18 +587,18 @@ void main() {
       final canRedo = controller.canRedo;
       final showD = controller.showtimeMoves.single;
       await activateRow(tester, '玩家', showD.row, longPress: true);
-      expect(controller.selections.single.firstRow, 0);
-      expect(controller.selections.single.lastRow, 14);
+      expect(selectedMoveFirstRows(controller).single, 0);
+      expect(selectedMoveLastRows(controller).single, 14);
       for (final column in ['NPC', 'Showtime', '玩家']) {
         await activateRow(tester, column, 16);
-        expect(controller.selections.single.firstRow, 0);
+        expect(selectedMoveFirstRows(controller).single, 0);
         expect(find.text('该标记不属于可选择的舞步'), findsOneWidget);
         await activateRow(tester, column, 5);
-        expect(controller.selections.single.firstRow, 0);
+        expect(selectedMoveFirstRows(controller).single, 0);
         await activateRow(tester, column, showD.row);
         expect(controller.selections, isEmpty);
         await activateRow(tester, column, showD.row);
-        expect(controller.selections.single.firstRow, 0);
+        expect(selectedMoveFirstRows(controller).single, 0);
       }
       expect(controller.encodeFormalDraft(), orderedEquals(before));
       expect(controller.projectRevision, revision);

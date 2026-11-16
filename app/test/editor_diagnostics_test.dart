@@ -94,7 +94,7 @@ void main() {
     expect(state('select'), {
       ...controller.diagnosticState,
       'interactionMode': 'selection',
-      'selectionCount': 1,
+      'selectionCount': 4,
       'hasSelection': true,
       'hasClipboard': false,
       'clipboardCount': 0,
@@ -109,7 +109,7 @@ void main() {
     expect(last('cut')['changed'], cut.changed);
     expect(state('cut')['revision'], 0);
     expect(state('cut')['interactionMode'], 'pastePending');
-    expect(state('cut')['selectionCount'], 1);
+    expect(state('cut')['selectionCount'], 4);
     expect(state('cut')['hasSelection'], isTrue);
     expect(state('cut')['hasClipboard'], isTrue);
     expect(state('cut')['clipboardCount'], 1);
@@ -269,7 +269,7 @@ void main() {
     expect(() => snapshot['revision'] = 99, throwsUnsupportedError);
     expect(() => record['code'] = 99, throwsUnsupportedError);
     expect(snapshot['interactionMode'], 'selection');
-    expect(snapshot['selectionCount'], 1);
+    expect(snapshot['selectionCount'], 4);
     expect(snapshot['hasSelection'], isTrue);
     expect(snapshot['hasClipboard'], isFalse);
     expect(snapshot['clipboardCount'], 0);
@@ -278,7 +278,7 @@ void main() {
     controller.clearChart();
     expect(snapshot['markerCount'], greaterThan(0));
     expect(snapshot['interactionMode'], 'selection');
-    expect(snapshot['selectionCount'], 1);
+    expect(snapshot['selectionCount'], 4);
     expect(snapshot['hasSelection'], isTrue);
     expect(jsonEncode(record), originalRecord);
   });

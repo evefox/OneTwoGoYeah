@@ -32,6 +32,30 @@ void main() {
     }
   }
 
+  /// First row of every selected dance move, derived from its selected units.
+  List<int> selectedMoveFirstRows(EditorController controller) {
+    final rows = <int, int>{};
+    for (final unit in controller.selections) {
+      final current = rows[unit.danceMoveDrillId];
+      if (current == null || unit.firstRow < current) {
+        rows[unit.danceMoveDrillId] = unit.firstRow;
+      }
+    }
+    return rows.values.toList()..sort();
+  }
+
+  /// Last row of every selected dance move, derived from its selected units.
+  List<int> selectedMoveLastRows(EditorController controller) {
+    final rows = <int, int>{};
+    for (final unit in controller.selections) {
+      final current = rows[unit.danceMoveDrillId];
+      if (current == null || unit.lastRow > current) {
+        rows[unit.danceMoveDrillId] = unit.lastRow;
+      }
+    }
+    return rows.values.toList()..sort();
+  }
+
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('otgy-selection-widget-');
     store = await LocalProjectStore.openAt(directory);
@@ -571,8 +595,12 @@ void main() {
     const selection = ChartSelection(
       active: true,
       danceMoveDrillId: 7,
+      drillGroupId: 11,
+      role: ChartSelectionRole.npc,
+      part: ChartSelectionPart.actions,
       firstRow: 16,
       lastRow: 30,
+      eventCount: 3,
     );
     const chart = Rect.fromLTWH(0, 28, 390, 600);
     expect(
@@ -664,21 +692,25 @@ void main() {
       controller.chartInteractionMode,
       EditorChartInteractionMode.selection,
     );
-    expect(controller.selections.map((item) => item.firstRow), [0]);
+    expect(selectedMoveFirstRows(controller), [0]);
     expect(find.byKey(const ValueKey('selection-mode')), findsNothing);
 
     await tapRow(tester, 'Showtime', 33);
-    expect(controller.selections.map((item) => item.firstRow), [0]);
+    expect(selectedMoveFirstRows(controller), [0]);
     await tapRow(tester, 'Showtime', 32);
-    expect(controller.selections.map((item) => item.firstRow), [0, 32]);
-    expect(controller.selections.map((item) => item.lastRow), [14, 46]);
+    expect(selectedMoveFirstRows(controller), [0, 32]);
+    expect(selectedMoveLastRows(controller), [14, 46]);
+    // A second activation toggles only the unit under the pointer, so the
+    // move stays selected while one of its units is removed.
     await tapRow(tester, 'Showtime', 8);
-    expect(controller.selections.map((item) => item.firstRow), [32]);
+    expect(selectedMoveFirstRows(controller), [0, 32]);
+    expect(controller.selections.length, 7);
     await tapRow(tester, 'NPC', 8);
-    expect(controller.selections.map((item) => item.firstRow), [0, 32]);
+    expect(selectedMoveFirstRows(controller), [0, 32]);
+    expect(controller.selections.length, 8);
     for (final column in ['NPC', 'Showtime', '玩家']) {
       await tapRow(tester, column, 5);
-      expect(controller.selections.map((item) => item.firstRow), [0, 32]);
+      expect(selectedMoveFirstRows(controller), [0, 32]);
     }
     expect(controller.encodeFormalDraft(), orderedEquals(before));
     expect(controller.projectRevision, revision);
@@ -710,18 +742,18 @@ void main() {
         final canRedo = controller.canRedo;
         final showD = controller.showtimeMoves.single;
         await tapRow(tester, '玩家', showD.row, longPress: true);
-        expect(controller.selections.single.firstRow, 0);
-        expect(controller.selections.single.lastRow, 14);
+        expect(selectedMoveFirstRows(controller).single, 0);
+        expect(selectedMoveLastRows(controller).single, 14);
         for (final column in ['NPC', 'Showtime', '玩家']) {
           await tapRow(tester, column, 16);
-          expect(controller.selections.single.firstRow, 0);
+          expect(selectedMoveFirstRows(controller).single, 0);
           expect(find.text('该标记不属于可选择的舞步'), findsOneWidget);
           await tapRow(tester, column, 5);
-          expect(controller.selections.single.firstRow, 0);
+          expect(selectedMoveFirstRows(controller).single, 0);
           await tapRow(tester, column, showD.row);
           expect(controller.selections, isEmpty);
           await tapRow(tester, column, showD.row);
-          expect(controller.selections.single.firstRow, 0);
+          expect(selectedMoveFirstRows(controller).single, 0);
         }
         expect(controller.encodeFormalDraft(), orderedEquals(before));
         expect(controller.projectRevision, revision);
@@ -773,12 +805,15 @@ void main() {
 
     await tapRow(tester, 'NPC', 0, longPress: true);
     await tapRow(tester, 'NPC', 32);
-    expect(controller.selections.map((item) => item.firstRow), [0, 32]);
+    expect(selectedMoveFirstRows(controller), [0, 32]);
 
+    expect(controller.selectedMarkerCount, 16);
     await tapRow(tester, 'NPC', 0);
-    expect(controller.selections.map((item) => item.firstRow), [32]);
+    expect(selectedMoveFirstRows(controller), [2, 32]);
+    expect(controller.selectedMarkerCount, 15);
     await tapRow(tester, 'NPC', 0);
-    expect(controller.selections.map((item) => item.firstRow), [0, 32]);
+    expect(selectedMoveFirstRows(controller), [0, 32]);
+    expect(controller.selectedMarkerCount, 16);
 
     await shortcut(tester, LogicalKeyboardKey.keyC, meta: true);
     expect(
@@ -791,7 +826,7 @@ void main() {
       find.byKey(const ValueKey('paste-pending-controls')),
       findsOneWidget,
     );
-    expect(find.text('点击谱面放置 2 个舞步'), findsOneWidget);
+    expect(find.text('点击谱面放置 16 个标记'), findsOneWidget);
     expect(controller.encodeFormalDraft(), orderedEquals(source));
     expect(controller.projectRevision, 0);
 
@@ -962,7 +997,7 @@ void main() {
           controller.chartInteractionMode,
           EditorChartInteractionMode.selection,
         );
-        expect(controller.selections.map((item) => item.firstRow), [0]);
+        expect(selectedMoveFirstRows(controller), [0]);
         expect(controller.encodeFormalDraft(), orderedEquals(before));
         expect(controller.projectRevision, 0);
 

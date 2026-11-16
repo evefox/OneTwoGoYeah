@@ -1996,6 +1996,11 @@ external int otgy_chart_editor_clipboard_count(
   ffi.Pointer<otgy_chart_editor> editor,
 );
 
+@ffi.Native<ffi.Uint64 Function(ffi.Pointer<otgy_chart_editor>)>()
+external int otgy_chart_editor_clipboard_marker_count(
+  ffi.Pointer<otgy_chart_editor> editor,
+);
+
 @ffi.Native<ffi.Uint8 Function(ffi.Pointer<otgy_chart_editor>)>()
 external int otgy_chart_editor_cut_pending(
   ffi.Pointer<otgy_chart_editor> editor,
@@ -2987,19 +2992,30 @@ final class otgy_chart_edit_result extends ffi.Struct {
   external int primary_event_id;
 }
 
-/// One selected dance move, projected from session state.
 final class otgy_chart_selection extends ffi.Struct {
   @ffi.Uint8()
   external int active;
 
+  @ffi.Uint8()
+  external int role;
+
+  @ffi.Uint8()
+  external int part;
+
   @ffi.Uint64()
   external int dance_move_drill_id;
+
+  @ffi.Uint64()
+  external int drill_group_id;
 
   @ffi.Uint64()
   external int first_row;
 
   @ffi.Uint64()
   external int last_row;
+
+  @ffi.Uint64()
+  external int event_count;
 }
 
 /// Session commands change selection or clipboard only, without draft history.
@@ -3039,7 +3055,7 @@ final class otgy_slk_position extends ffi.Struct {
   external int total_sixteenth;
 }
 
-const int OTGY_C_API_VERSION = 5;
+const int OTGY_C_API_VERSION = 6;
 
 const int OTGY_STATUS_OK = 0;
 
@@ -3378,6 +3394,10 @@ const int OTGY_CHART_EDIT_SHOWTIME_PARTIALLY_COMPLETED = 22;
 const int OTGY_CHART_EDIT_NOTE_LIMIT_REACHED = 23;
 
 const int OTGY_CHART_EDIT_EMPTY_DANCE_MOVE_END = 24;
+
+const int OTGY_CHART_SELECTION_PART_START = 0;
+
+const int OTGY_CHART_SELECTION_PART_ACTIONS = 1;
 
 const int OTGY_CHART_DIAGNOSTIC_EMPTY_CHART = 0;
 

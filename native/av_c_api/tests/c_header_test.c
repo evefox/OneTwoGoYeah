@@ -22,7 +22,7 @@ int main(void) {
   size_t index;
   int result = 0;
 
-  if (OTGY_C_API_VERSION != 5U ||
+  if (OTGY_C_API_VERSION != 6U ||
       otgy_c_api_version() != OTGY_C_API_VERSION ||
       OTGY_CHART_EDIT_CUT_SOURCE_CHANGED != 21U) {
     return 1;

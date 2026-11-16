@@ -16,9 +16,37 @@ void addDanceMove(NativeChartEditor editor, int firstRow) {
 List<Object> selectionFields(ChartSelection selection) => [
   selection.active,
   selection.danceMoveDrillId,
+  selection.drillGroupId,
+  selection.role,
+  selection.part,
   selection.firstRow,
   selection.lastRow,
+  selection.eventCount,
 ];
+
+/// First row of every selected dance move, derived from its selected units.
+List<int> selectedMoveFirstRows(NativeChartEditor editor) {
+  final rows = <int, int>{};
+  for (final unit in editor.selections) {
+    final current = rows[unit.danceMoveDrillId];
+    if (current == null || unit.firstRow < current) {
+      rows[unit.danceMoveDrillId] = unit.firstRow;
+    }
+  }
+  return rows.values.toList()..sort();
+}
+
+/// Last row of every selected dance move, derived from its selected units.
+List<int> selectedMoveLastRows(NativeChartEditor editor) {
+  final rows = <int, int>{};
+  for (final unit in editor.selections) {
+    final current = rows[unit.danceMoveDrillId];
+    if (current == null || unit.lastRow > current) {
+      rows[unit.danceMoveDrillId] = unit.lastRow;
+    }
+  }
+  return rows.values.toList()..sort();
+}
 
 List<Object?> markerGeometry(ChartMarker marker, int firstRow) => [
   marker.row - firstRow,
@@ -51,20 +79,21 @@ void main() {
     expect(editor.select(OTGY_CHART_COLUMN_PLAYER, 56).changed, isTrue);
     expect(editor.select(OTGY_CHART_COLUMN_NPC, 16).changed, isTrue);
     final savedSelection = editor.selections;
-    expect(savedSelection.map((s) => s.firstRow), [16, 48]);
-    expect(savedSelection.map((s) => s.lastRow), [30, 62]);
+    expect(selectedMoveFirstRows(editor), [16, 48]);
+    expect(selectedMoveLastRows(editor), [30, 62]);
     expect(editor.select(OTGY_CHART_COLUMN_SHOWTIME, 16).changed, isTrue);
-    expect(editor.selections.map((s) => s.firstRow), [48]);
+    expect(editor.selections.length, savedSelection.length - 1);
     expect(editor.select(OTGY_CHART_COLUMN_PLAYER, 16).changed, isTrue);
     expect(editor.select(OTGY_CHART_COLUMN_NPC, 17).changed, isFalse);
     expect(editor.select(OTGY_CHART_COLUMN_NPC, 999).changed, isFalse);
-    expect(
-      editor.selections.map(selectionFields),
-      savedSelection.map(selectionFields),
-    );
+    expect(editor.selections.length, savedSelection.length);
+    expect(selectedMoveFirstRows(editor), [16, 48]);
+    expect(selectedMoveLastRows(editor), [30, 62]);
     expect(editor.select(OTGY_CHART_COLUMN_PLAYER, 24).changed, isTrue);
-    expect(editor.selections.single.firstRow, 48);
-    editor.select(OTGY_CHART_COLUMN_NPC, 16);
+    expect(editor.selections.length, savedSelection.length - 1);
+    // Restoring the same unit brings the selection back to the saved set.
+    editor.select(OTGY_CHART_COLUMN_PLAYER, 24);
+    expect(editor.selections.length, savedSelection.length);
     expect(editor.copySelection().code, 0);
     expect(editor.clipboardCount, 2);
     expect(editor.cutPending, isFalse);
@@ -73,10 +102,9 @@ void main() {
     expect(editor.clearClipboard().changed, isTrue);
     expect(editor.hasClipboard, isFalse);
     expect(editor.cutPending, isFalse);
-    expect(
-      editor.selections.map(selectionFields),
-      savedSelection.map(selectionFields),
-    );
+    expect(editor.selections.length, savedSelection.length);
+    expect(selectedMoveFirstRows(editor), [16, 48]);
+    expect(selectedMoveLastRows(editor), [30, 62]);
     expect(editor.clearSelection().changed, isTrue);
     expect(editor.clearSelection().changed, isFalse);
     expect(editor.paste(300).code, 18);
@@ -87,7 +115,7 @@ void main() {
     expect(editor.encodeRecovery(), future);
     editor.undo();
     expect(editor.encodeRecovery(), snapshot);
-    expect(savedSelection.map((s) => s.firstRow), [16, 48]);
+    expect(savedSelection.map((s) => s.danceMoveDrillId).toSet(), hasLength(2));
   });
 
   test(
@@ -112,14 +140,21 @@ void main() {
       )) {
         for (final column in columns) {
           expect(editor.select(column, marker.row).changed, isTrue);
-          expect(editor.selections.single.firstRow, 0);
-          expect(editor.selections.single.lastRow, 14);
+          expect(selectedMoveFirstRows(editor), [0]);
+          expect(selectedMoveLastRows(editor), [14]);
           final selected = editor.selections.map(selectionFields).toList();
           expect(editor.select(column, 5).changed, isFalse);
           expect(editor.select(column, showStart.row).code, 17);
           expect(editor.selections.map(selectionFields), selected);
+          // A second activation toggles one unit, except a Showtime marker
+          // which toggles every unit of its dance move.
           expect(editor.select(column, marker.row).changed, isTrue);
-          expect(editor.selections, isEmpty);
+          if (marker.type == OTGY_CHART_MARKER_SHOWTIME_MOVE) {
+            expect(editor.selections, isEmpty);
+          } else {
+            expect(editor.selections.length, selected.length - 1);
+          }
+          editor.clearSelection();
         }
       }
       expect(editor.encodeRecovery(), before);
@@ -158,7 +193,16 @@ void main() {
     editor.copySelection();
     final preview = editor.pastePreview(200);
     expect(preview.valid, isTrue);
-    expect(preview.selections.map((s) => s.firstRow), [200, 232]);
+    expect(preview.selections.map((s) => s.firstRow), [
+      200,
+      202,
+      208,
+      210,
+      232,
+      234,
+      240,
+      242,
+    ]);
     expect(preview.lastRow, 246);
     expect(editor.paste(200).changed, isTrue);
     final afterFirst = editor.encodeRecovery();
@@ -319,9 +363,7 @@ void main() {
     addDanceMove(editor, 16);
     expect(editor.showtimeMoves(), isEmpty);
     expect(
-      editor.markers().where(
-        (m) => m.type == OTGY_CHART_MARKER_SHOWTIME_START,
-      ),
+      editor.markers().where((m) => m.type == OTGY_CHART_MARKER_SHOWTIME_START),
       isEmpty,
     );
   });

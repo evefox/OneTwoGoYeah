@@ -114,14 +114,27 @@ enum class ChartSelectionMode : std::uint8_t {
   Subtract = 2,
 };
 
-/// The dance move selected in the current editor session. The row span is
-/// derived from the draft and covers every NPC and player event bound to the
-/// drill, so it stays correct for a draft that is still incomplete.
+/// The part of a drill group a selection unit covers: the block start marker
+/// (NPC-C or PLY-C) or the note and move-end run that follows it.
+enum class ChartSelectionPart : std::uint8_t {
+  Start = 0,
+  Actions = 1,
+};
+
+/// One independently selectable unit inside a drill group. A group holds up to
+/// four units: the NPC block start, the NPC actions, the player block start and
+/// the player actions. Rows are derived from the draft, so a unit stays correct
+/// for a draft that is still incomplete; `event_count` counts the role markers
+/// the unit covers.
 struct ChartSelection final {
   bool active{false};
   ChartDanceMoveDrillId drill_id{0U};
+  ChartDrillGroupId drill_group_id{0U};
+  ChartRole role{ChartRole::Npc};
+  ChartSelectionPart part{ChartSelectionPart::Start};
   std::uint64_t first_row{0U};
   std::uint64_t last_row{0U};
+  std::uint64_t event_count{0U};
 };
 
 /// Independent session snapshot of all selected dance moves. Rows are offsets
@@ -187,6 +200,13 @@ class ChartEditor final {
   }
   [[nodiscard]] bool has_clipboard() const noexcept { return has_clipboard_; }
 
+  /// Number of role markers carried by the current clipboard fragment. Zero
+  /// when the clipboard is empty.
+  [[nodiscard]] std::uint64_t clipboard_marker_count() const noexcept {
+    return static_cast<std::uint64_t>(
+        clipboard_.content.role_events().size());
+  }
+
   [[nodiscard]] ChartEditResult click(ChartColumn column,
                                       std::uint64_t row) noexcept;
 
@@ -227,16 +247,21 @@ class ChartEditor final {
   [[nodiscard]] ChartRepairStatus repair_relations() noexcept;
 
   /// Session commands. They never touch the draft and never add history.
+  ///
+  /// `select` resolves the unit under the pointer and applies the session rule:
+  /// when none of the drill's units is selected the whole drill is selected;
+  /// otherwise the unit under the pointer toggles. A Showtime marker toggles
+  /// every unit of the dance move it references.
   [[nodiscard]] ChartSessionResult select(ChartColumn column,
                                           std::uint64_t row) noexcept;
 
-  /// Selects every dance move that `select` can resolve at a marker row: each
-  /// drill with at least one bound role event, including incomplete drafts.
-  /// The result is sorted like the regular selection set and is idempotent.
+  /// Selects every unit of every drill that has at least one bound role event,
+  /// including incomplete drafts. The result is sorted like the regular
+  /// selection set and is idempotent.
   [[nodiscard]] ChartSessionResult select_all() noexcept;
 
-  /// Selects every dance move with at least one role event inside the inclusive
-  /// row range. A move whose span merely covers the range without an event
+  /// Selects every unit that has at least one role event inside the inclusive
+  /// row range. A unit whose span merely covers the range without an event
   /// inside it does not count. `Replace` swaps the whole set, `Add` unions and
   /// `Subtract` removes; bounds are ordered internally. Never touches the draft
   /// or its history.
@@ -244,10 +269,12 @@ class ChartEditor final {
       std::uint64_t first_row, std::uint64_t last_row,
       ChartSelectionMode mode) noexcept;
 
-  /// Deletes every selected dance move: all NPC and player events bound to the
-  /// drills disappear, then the regular commit cleanup removes empty groups,
-  /// stale Showtimes and drills without events. One history entry; a draft that
-  /// becomes incomplete stays editable.
+  /// Deletes the selected units only. An NPC actions unit also resynchronizes
+  /// the player practice of its group; an NPC block start leaves the player
+  /// block untouched; player units remove only their own markers. Then the
+  /// regular commit cleanup removes empty groups, stale Showtimes and drills
+  /// without events. One history entry; a draft that becomes incomplete stays
+  /// editable.
   [[nodiscard]] ChartEditResult delete_selection() noexcept;
 
   [[nodiscard]] ChartSessionResult clear_selection() noexcept;

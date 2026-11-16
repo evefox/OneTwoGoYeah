@@ -65,8 +65,11 @@ void copy_edit_result(const otgy::core::ChartEditResult& source,
 
 otgy_chart_selection from_core(
     const otgy::core::ChartSelection& value) noexcept {
-  return {static_cast<std::uint8_t>(value.active), value.drill_id.value,
-          value.first_row, value.last_row};
+  return {static_cast<std::uint8_t>(value.active),
+          static_cast<std::uint8_t>(value.role),
+          static_cast<std::uint8_t>(value.part), value.drill_id.value,
+          value.drill_group_id.value, value.first_row, value.last_row,
+          value.event_count};
 }
 
 void copy_session_result(const otgy::core::ChartSessionResult& source,
@@ -666,6 +669,13 @@ std::uint64_t otgy_chart_editor_clipboard_count(
   return editor == nullptr || !editor->value.has_clipboard()
              ? 0U
              : editor->value.clipboard().content.dance_move_drills().size();
+}
+
+std::uint64_t otgy_chart_editor_clipboard_marker_count(
+    const otgy_chart_editor* editor) {
+  return editor == nullptr || !editor->value.has_clipboard()
+             ? 0U
+             : editor->value.clipboard_marker_count();
 }
 
 std::uint8_t otgy_chart_editor_cut_pending(const otgy_chart_editor* editor) {
