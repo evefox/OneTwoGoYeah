@@ -593,3 +593,5 @@ Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多�
 上述测量只能排除截图全黑并确认颜色、平台路由与几何量级，不能代替对排版、遮挡、ghost 轮廓、焦点环形状和文本内容的视觉审查。Windows、iOS、Release 运行时和真实 Android 设备未在本轮执行。既有 `NPC-S` 拆分、边界删除合并和 Showtime 清理改动继续保留；既有 Release 进程与原模拟器数据保持原状。本轮未提交或推送。
 
 
+
+2026-11-16 桌面选区与批量删除已贯通核心、C ABI、Dart FFI 和画布。核心新增 `ChartEditor::select_range(first_row, last_row, mode)`：区间内只要出现某舞步的任一角色事件就命中，跨度覆盖但区间内无事件不算命中；`Replace`/`Add`/`Subtract` 分别替换、加选、减选，边界升序归一，不修改草稿或历史。新增 `ChartEditor::delete_selection()`：删除全部选中舞步的事件、演练组和舞步，复用引用清理后经 `finish()` 执行既有空组、失效 Showtime、空舞步清理，合并为一条历史。C ABI 追加 `otgy_chart_editor_select_range`（非法模式值拒绝为参数错误）与 `otgy_chart_editor_delete_selection`，`ffigen` 已重新生成绑定。Windows/macOS 画布把超过触摸阈值的左键拖动解释为区间选择，松手提交并显示只读预览带；普通拖框替换、`Shift` 加选、`Alt` 减选；选择模式内 `Shift`/`Alt` 点击按单行区间加选/减选。新增可改绑 `Delete` 删除选中舞步和 `Ctrl/Command+Shift+E` 导出成品 SLK，帮助页可改绑操作增至三十三项并补充拖框行。撤销只恢复内容、不恢复选择集合。本轮原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 全部通过，`flutter analyze` 与 `dart analyze` 无问题；未执行真机或平台构建验证。

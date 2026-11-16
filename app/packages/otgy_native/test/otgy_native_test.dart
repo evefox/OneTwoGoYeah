@@ -380,6 +380,57 @@ void main() {
     expect(editor.selections, isEmpty);
   });
 
+  test('range selection combines and delete removes the selected moves', () {
+    final editor = NativeChartEditor.createEmpty();
+    addTearDown(editor.dispose);
+
+    void addMove(int firstRow) {
+      for (final row in [0, 2, 4, 6, 6]) {
+        expect(
+          editor.click(OTGY_CHART_COLUMN_NPC, firstRow + row).changed,
+          isTrue,
+        );
+      }
+      for (final row in [8, 10]) {
+        expect(
+          editor.click(OTGY_CHART_COLUMN_PLAYER, firstRow + row).changed,
+          isTrue,
+        );
+      }
+    }
+
+    addMove(0);
+    addMove(32);
+
+    final replaced = editor.selectRange(0, 14, ChartSelectionMode.replace);
+    expect(replaced.code, 0);
+    expect(replaced.changed, isTrue);
+    expect(editor.selections, hasLength(1));
+
+    expect(editor.selectRange(32, 32, ChartSelectionMode.add).changed, isTrue);
+    expect(editor.selections, hasLength(2));
+
+    expect(
+      editor.selectRange(32, 32, ChartSelectionMode.subtract).changed,
+      isTrue,
+    );
+    expect(editor.selections, hasLength(1));
+
+    expect(
+      editor.selectRange(0, 14, ChartSelectionMode.replace).changed,
+      false,
+    );
+
+    // Bring the second move back in so Delete removes both.
+    expect(editor.selectRange(32, 32, ChartSelectionMode.add).changed, isTrue);
+    expect(editor.selections, hasLength(2));
+
+    final deleted = editor.deleteSelection();
+    expect(deleted.changed, isTrue);
+    expect(editor.selections, isEmpty);
+    expect(editor.markers(), isEmpty);
+  });
+
   test('explicit marker placement and single-marker removal', () {
     final editor = NativeChartEditor.createEmpty();
     addTearDown(editor.dispose);

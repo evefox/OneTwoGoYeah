@@ -120,6 +120,18 @@ enum ChartNpcMarker {
   final int value;
 }
 
+/// How a range selection combines with the existing selection set. Values match
+/// the `OTGY_CHART_SELECTION_*` constants.
+enum ChartSelectionMode {
+  replace(0),
+  add(1),
+  subtract(2);
+
+  const ChartSelectionMode(this.value);
+
+  final int value;
+}
+
 final class ChartSelection {
   const ChartSelection({
     required this.active,
@@ -1800,6 +1812,29 @@ final class NativeChartEditor {
   SessionResult selectAll() => _session(
     (result, error) =>
         native.otgy_chart_editor_select_all(_requireEditor(), result, error),
+  );
+
+  SessionResult selectRange(
+    int firstRow,
+    int lastRow,
+    ChartSelectionMode mode,
+  ) => _session(
+    (result, error) => native.otgy_chart_editor_select_range(
+      _requireEditor(),
+      firstRow,
+      lastRow,
+      mode.value,
+      result,
+      error,
+    ),
+  );
+
+  EditResult deleteSelection() => _edit(
+    (result, error) => native.otgy_chart_editor_delete_selection(
+      _requireEditor(),
+      result,
+      error,
+    ),
   );
 
   SessionResult clearSelection() => _session(

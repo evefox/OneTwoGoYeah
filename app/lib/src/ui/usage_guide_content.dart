@@ -67,6 +67,7 @@ List<(String, String)> desktopFixedShortcutRows(TargetPlatform platform) {
     ('$primary + C', '复制选中的舞步（选择模式）'),
     ('$primary + X', '剪切选中的舞步（选择模式）'),
     ('Esc', '退出选择或粘贴'),
+    ('左键拖框', '框选舞步；Shift 加选、Alt 减选'),
     ('滚轮', '移动时间线'),
     ('$primary + 滚轮', '调整 Zoom'),
     ('Ctrl + Alt + 滚轮', '调整 Scale'),

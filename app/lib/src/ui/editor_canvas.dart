@@ -278,16 +278,18 @@ class EditorCanvas extends StatefulWidget {
     this.onOpenDrafts,
     this.onSave,
     this.onSaveAs,
+    this.onExportSlk,
   });
 
   final EditorController controller;
   final LocalUiPreferences? preferences;
 
-  /// Screen-level file actions used by the rebindable Ctrl+O/S chords. They
+  /// Screen-level file actions used by the rebindable Ctrl+O/S/E chords. They
   /// stay null when the canvas is used without a draft store.
   final VoidCallback? onOpenDrafts;
   final VoidCallback? onSave;
   final VoidCallback? onSaveAs;
+  final VoidCallback? onExportSlk;
 
   @override
   State<EditorCanvas> createState() => _EditorCanvasState();
@@ -476,6 +478,10 @@ class _EditorCanvasState extends State<EditorCanvas>
   bool _audioEndDragIsSource = false;
   bool _audioEndDragActive = false;
   Offset? _desktopHoverPosition;
+  Offset? _selectionDragStartPosition;
+  int? _selectionDragStartRow;
+  int? _selectionDragRow;
+  bool _selectionDragActive = false;
   bool _pastePreviewSyncScheduled = false;
   int? _pastePreviewSyncedRevision;
   bool _guideHintPending = false;
@@ -758,6 +764,75 @@ class _EditorCanvasState extends State<EditorCanvas>
     );
   }
 
+  /// Starts tracking a possible desktop drag selection. A plain click never
+  /// turns into a selection because the drag only becomes active after the
+  /// pointer moves beyond the touch slop.
+  void _beginSelectionDrag(PointerDownEvent event, Size size) {
+    _selectionDragStartPosition = null;
+    if (_mobile ||
+        event.buttons != kPrimaryMouseButton ||
+        widget.controller.chartInteractionMode ==
+            EditorChartInteractionMode.pastePending ||
+        _isInAudioEndHandle(event.localPosition, size)) {
+      return;
+    }
+    final row = _rowAt(event.localPosition.dy, size);
+    _selectionDragStartPosition = event.localPosition;
+    _selectionDragStartRow = row;
+    _selectionDragRow = row;
+    _selectionDragActive = false;
+  }
+
+  void _updateSelectionDrag(PointerMoveEvent event, Size size) {
+    final startPosition = _selectionDragStartPosition;
+    if (startPosition == null || (event.buttons & kPrimaryMouseButton) == 0) {
+      return;
+    }
+    if (!_selectionDragActive &&
+        (event.localPosition - startPosition).distance > kTouchSlop) {
+      setState(() => _selectionDragActive = true);
+    }
+    if (!_selectionDragActive) {
+      return;
+    }
+    final row = _rowAt(event.localPosition.dy, size);
+    if (row != _selectionDragRow) {
+      setState(() => _selectionDragRow = row);
+    }
+  }
+
+  void _finishSelectionDrag() {
+    final active = _selectionDragActive;
+    final startRow = _selectionDragStartRow;
+    final endRow = _selectionDragRow;
+    _clearSelectionDragState();
+    if (!active || startRow == null || endRow == null) {
+      return;
+    }
+    final keys = HardwareKeyboard.instance;
+    final mode = keys.isShiftPressed
+        ? ChartSelectionMode.add
+        : keys.isAltPressed
+        ? ChartSelectionMode.subtract
+        : ChartSelectionMode.replace;
+    widget.controller.selectRange(startRow, endRow, mode);
+  }
+
+  void _cancelSelectionDrag() {
+    _clearSelectionDragState();
+  }
+
+  void _clearSelectionDragState() {
+    final hadPreview = _selectionDragActive;
+    _selectionDragStartPosition = null;
+    _selectionDragStartRow = null;
+    _selectionDragRow = null;
+    _selectionDragActive = false;
+    if (hadPreview && mounted) {
+      setState(() {});
+    }
+  }
+
   void _handleTap(TapUpDetails details, Size size) {
     _focusNode.requestFocus();
     if (_isInAudioEndHandle(details.localPosition, size)) {
@@ -779,6 +854,24 @@ class _EditorCanvasState extends State<EditorCanvas>
       case EditorChartInteractionMode.normal:
         widget.controller.clickCell(column, row);
       case EditorChartInteractionMode.selection:
+        // Desktop modifier clicks mirror the drag modifiers: Shift adds the
+        // move under the pointer, Alt removes it, a plain click keeps the
+        // existing toggle.
+        if (!_mobile) {
+          final keys = HardwareKeyboard.instance;
+          if (keys.isShiftPressed) {
+            widget.controller.selectRange(row, row, ChartSelectionMode.add);
+            return;
+          }
+          if (keys.isAltPressed) {
+            widget.controller.selectRange(
+              row,
+              row,
+              ChartSelectionMode.subtract,
+            );
+            return;
+          }
+        }
         widget.controller.selectAt(column, row);
       case EditorChartInteractionMode.pastePending:
         if (!_mobile) {
@@ -1143,6 +1236,16 @@ class _EditorCanvasState extends State<EditorCanvas>
         widget.controller.selectAll,
         includeRepeats: false,
       );
+      add(
+        EditorShortcutAction.deleteSelection,
+        _deleteSelectedMovesFromKey,
+        includeRepeats: false,
+      );
+      add(
+        EditorShortcutAction.exportSlk,
+        _exportSlkFromKey,
+        includeRepeats: false,
+      );
       add(EditorShortcutAction.scaleIn, () => _scaleBy(0.25));
       add(EditorShortcutAction.scaleOut, () => _scaleBy(-0.25));
       add(EditorShortcutAction.openDraft, _openDraftsFromKey);
@@ -1351,6 +1454,27 @@ class _EditorCanvasState extends State<EditorCanvas>
     _guideButtonKey.currentState?.open();
   }
 
+  /// Delete only acts inside a selection session; the controller still owns the
+  /// busy and gate checks when the set is empty.
+  void _deleteSelectedMovesFromKey() {
+    if (!widget.controller.selectionMode) {
+      return;
+    }
+    widget.controller.deleteSelectedMoves();
+  }
+
+  void _exportSlkFromKey() {
+    final callback = widget.onExportSlk;
+    final controller = widget.controller;
+    if (callback == null ||
+        controller.isBusy ||
+        !controller.generalActionsEnabled ||
+        controller.markers.isEmpty) {
+      return;
+    }
+    callback();
+  }
+
   /// Right-click clears the selected dance moves and otherwise leaves a
   /// non-empty selection session, matching ArrowVortex's clear gesture. An
   /// empty selection or a pending paste exits the session.
@@ -1526,13 +1650,18 @@ class _EditorCanvasState extends State<EditorCanvas>
                         widget.controller.moveToRow(
                           _rowAt(event.localPosition.dy, size).toDouble(),
                         );
+                        return;
                       }
+                      _beginSelectionDrag(event, size);
                     },
                     onPointerMove: (event) {
                       if (!_mobile) {
                         _updateDesktopPastePreview(event.localPosition, size);
                       }
+                      _updateSelectionDrag(event, size);
                     },
+                    onPointerUp: (event) => _finishSelectionDrag(),
+                    onPointerCancel: (event) => _cancelSelectionDrag(),
                     child: GestureDetector(
                       key: const ValueKey('editor-canvas'),
                       behavior: HitTestBehavior.opaque,
@@ -1558,6 +1687,12 @@ class _EditorCanvasState extends State<EditorCanvas>
                                   rowSpacing: spacing,
                                   currentRow: _paintCurrentRow,
                                   previewAudioEndRow: _audioEndPreviewRow,
+                                  selectionDragFirstRow: _selectionDragActive
+                                      ? _selectionDragStartRow
+                                      : null,
+                                  selectionDragLastRow: _selectionDragActive
+                                      ? _selectionDragRow
+                                      : null,
                                 ),
                               ),
                             ),
@@ -3162,6 +3297,8 @@ class _EditorCanvasPainter extends CustomPainter {
     required this.rowSpacing,
     required this.currentRow,
     required this.previewAudioEndRow,
+    this.selectionDragFirstRow,
+    this.selectionDragLastRow,
   }) : super(repaint: Listenable.merge([currentRow, previewAudioEndRow]));
 
   final EditorController controller;
@@ -3169,6 +3306,11 @@ class _EditorCanvasPainter extends CustomPainter {
   final double rowSpacing;
   final ValueListenable<double> currentRow;
   final ValueListenable<double?> previewAudioEndRow;
+
+  /// Live drag-selection bounds in chart rows. Null unless the pointer is
+  /// currently dragging out a range on desktop.
+  final int? selectionDragFirstRow;
+  final int? selectionDragLastRow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3228,6 +3370,7 @@ class _EditorCanvasPainter extends CustomPainter {
     _drawGrid(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawAudioEndLine(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawSelections(canvas, chart, cursorY, spacing, paintCurrentRow);
+    _drawSelectionDragPreview(canvas, chart, cursorY, spacing, paintCurrentRow);
     _drawPastePreview(
       canvas,
       chart,
@@ -3355,6 +3498,48 @@ class _EditorCanvasPainter extends CustomPainter {
           ..color = EditorColors.accent.withValues(alpha: 0.85),
       );
     }
+  }
+
+  /// Draws the range the pointer is currently dragging out. It uses a lighter
+  /// fill than a committed selection so the user can tell the two apart.
+  void _drawSelectionDragPreview(
+    Canvas canvas,
+    Rect chart,
+    double cursorY,
+    double spacing,
+    double paintCurrentRow,
+  ) {
+    final start = selectionDragFirstRow;
+    final end = selectionDragLastRow;
+    if (start == null || end == null) {
+      return;
+    }
+    final band = projectEditorSelectionBand(
+      selection: ChartSelection(
+        active: true,
+        danceMoveDrillId: 0,
+        firstRow: math.min(start, end),
+        lastRow: math.max(start, end),
+      ),
+      chart: chart,
+      cursorY: cursorY,
+      currentRow: paintCurrentRow,
+      rowSpacing: spacing,
+    );
+    if (band == null) {
+      return;
+    }
+    canvas.drawRect(
+      band,
+      Paint()..color = EditorColors.accent.withValues(alpha: 0.06),
+    );
+    canvas.drawRect(
+      band,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = EditorColors.accent.withValues(alpha: 0.55),
+    );
   }
 
   void _drawPastePreview(

@@ -1111,6 +1111,62 @@ class EditorController extends ChangeNotifier {
     });
   }
 
+  /// Selects every dance move that has at least one event inside the inclusive
+  /// row range. Replace and add enter selection mode from plain editing;
+  /// subtract only applies inside a session. While a paste is pending the
+  /// command is ignored because the selection set no longer drives the
+  /// clipboard.
+  void selectRange(int firstRow, int lastRow, ChartSelectionMode mode) {
+    if (_isBusy ||
+        !selectionCommandEnabled ||
+        _chartInteractionMode == EditorChartInteractionMode.pastePending ||
+        (mode == ChartSelectionMode.subtract &&
+            _chartInteractionMode != EditorChartInteractionMode.selection)) {
+      recordDiagnostic('selectRange', {
+        'firstRow': firstRow,
+        'lastRow': lastRow,
+        'mode': mode.name,
+        'blocked': true,
+      });
+      return;
+    }
+    if (_chartInteractionMode == EditorChartInteractionMode.normal) {
+      _chartInteractionMode = EditorChartInteractionMode.selection;
+      _pastePreview = null;
+      _pastePreviewAnchorRow = null;
+    }
+    final low = math.max(0, math.min(firstRow, lastRow));
+    final high = math.max(0, math.max(firstRow, lastRow));
+    final result = _diagnosticCall(
+      'selectRange',
+      () => _editor.selectRange(low, high, mode),
+    );
+    if (result.code != 0) {
+      _notice = EditorNotice(_editMessage(result.code));
+    }
+    notifyListeners();
+    recordDiagnostic('selectRange', {
+      'firstRow': low,
+      'lastRow': high,
+      'mode': mode.name,
+      'code': result.code,
+      'changed': result.changed,
+    });
+  }
+
+  /// Deletes every selected dance move in one history entry. Empty groups,
+  /// Showtimes that lose their content and drills without events are cleaned by
+  /// the core in the same transaction, so one undo restores all of it.
+  bool deleteSelectedMoves() {
+    if (_isBusy || !selectionCommandEnabled || !selectionMode) {
+      recordDiagnostic('deleteSelection', {'blocked': true});
+      return false;
+    }
+    final result = _diagnosticCall('deleteSelection', _editor.deleteSelection);
+    _applyChartEdit('deleteSelection', result);
+    return result.changed;
+  }
+
   void copySelection() {
     if (_isBusy || !selectionCommandEnabled || !selectionMode) {
       recordDiagnostic('copy', {'blocked': true});

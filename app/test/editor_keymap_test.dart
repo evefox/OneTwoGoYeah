@@ -218,6 +218,12 @@ void main() {
         'Ctrl + Shift + S',
       ]);
       expect(chordsFor(win, EditorShortcutAction.openGuide, windows), ['F1']);
+      expect(chordsFor(win, EditorShortcutAction.deleteSelection, windows), [
+        'Delete',
+      ]);
+      expect(chordsFor(win, EditorShortcutAction.exportSlk, windows), [
+        'Ctrl + Shift + E',
+      ]);
 
       const macos = TargetPlatform.macOS;
       final mac = EditorKeymap.defaults(macos);
@@ -228,6 +234,10 @@ void main() {
       expect(chordsFor(mac, EditorShortcutAction.saveDraftAs, macos), ['⇧⌘S']);
       expect(chordsFor(mac, EditorShortcutAction.scaleIn, macos), ['⌘小键盘 +']);
       expect(chordsFor(mac, EditorShortcutAction.openGuide, macos), ['F1']);
+      expect(chordsFor(mac, EditorShortcutAction.deleteSelection, macos), [
+        'Delete',
+      ]);
+      expect(chordsFor(mac, EditorShortcutAction.exportSlk, macos), ['⇧⌘E']);
     });
   });
 

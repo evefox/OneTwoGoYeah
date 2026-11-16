@@ -30,6 +30,7 @@ using otgy::core::ChartMarkerType;
 using otgy::core::ChartRole;
 using otgy::core::ChartRoleEvent;
 using otgy::core::ChartRoleEventType;
+using otgy::core::ChartSelectionMode;
 
 [[nodiscard]] ChartMarker marker_of(const ChartDraft& draft,
                                     ChartMarkerType type,
@@ -4289,6 +4290,90 @@ void test_select_all_collects_every_bound_drill() {
   assert(editor.select_all().changed);
 }
 
+void test_select_range_and_delete_selection() {
+  // Range membership is decided by events inside the range, not by a move's
+  // derived span. The first move spans 0..10 and the second 16..36.
+  auto editor = build_two_complete_moves();
+  const auto before = editor.draft();
+  const auto history = editor.undo_count();
+
+  const auto first = editor.select_range(0U, 10U, ChartSelectionMode::Replace);
+  assert(first && first.changed);
+  assert(editor.selections().size() == 1U);
+  assert(editor.selections()[0].first_row == 0U);
+  assert(editor.selections()[0].last_row == 14U);
+
+  // Row 15 holds no event at all: the gap between the two moves is empty, so
+  // replacing with it clears the selection even though both moves exist.
+  const auto gap = editor.select_range(15U, 15U, ChartSelectionMode::Replace);
+  assert(gap && gap.changed);
+  assert(editor.selections().empty());
+
+  // Add unions both moves; Subtract removes only the intersecting one.
+  assert(editor.select_range(0U, 0U, ChartSelectionMode::Add).changed);
+  assert(editor.select_range(16U, 16U, ChartSelectionMode::Add).changed);
+  assert(editor.selections().size() == 2U);
+  assert(editor.select_range(30U, 40U, ChartSelectionMode::Subtract).changed);
+  assert(editor.selections().size() == 1U);
+  assert(editor.selections()[0].first_row == 0U);
+
+  // Reversed bounds are ordered internally.
+  assert(editor.select_range(40U, 30U, ChartSelectionMode::Replace).changed);
+  assert(editor.selections().size() == 1U);
+  assert(editor.selections()[0].first_row == 16U);
+
+  // Selecting never edits the draft or adds history.
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before));
+  assert(editor.undo_count() == history);
+
+  // Replacing with the same span is idempotent.
+  const auto repeated =
+      editor.select_range(16U, 36U, ChartSelectionMode::Replace);
+  assert(repeated && !repeated.changed);
+}
+
+void test_delete_selection_removes_drills_and_stale_showtime() {
+  auto editor = build_two_complete_moves();
+  assert(editor.click(ChartColumn::Showtime, 52U));
+  const auto with_showtime = editor.draft();
+  assert(with_showtime.showtimes().size() == 1U);
+  const auto history = editor.undo_count();
+
+  // Deleting the second move removes its events and groups; the Showtime that
+  // references it is stale and disappears in the same history entry.
+  assert(editor.select_range(16U, 36U, ChartSelectionMode::Replace));
+  const auto deleted = editor.delete_selection();
+  assert(deleted.changed);
+  assert(editor.undo_count() == history + 1U);
+  const auto after = editor.draft();
+  assert(after.dance_move_drills().size() == 1U);
+  assert(after.showtimes().empty());
+  assert(after.showtime_start_events().empty());
+  assert(after.showtime_move_events().empty());
+
+  // The result equals deleting the same move from a chart without a Showtime.
+  auto plain = build_two_complete_moves();
+  assert(plain.select_range(16U, 36U, ChartSelectionMode::Replace));
+  assert(plain.delete_selection().changed);
+  assert(otgy::core::chart_drafts_equal(after, plain.draft()));
+
+  // One undo restores the whole transaction, including the Showtime.
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), with_showtime));
+  assert(editor.redo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), after));
+
+  // The selection set drops drills that no longer exist.
+  assert(editor.selections().empty());
+  const auto empty_history = editor.undo_count();
+  assert(editor.delete_selection().code == ChartEditCode::SelectionUnavailable);
+  assert(editor.undo_count() == empty_history);
+
+  // The remaining draft stays editable.
+  assert(editor.click(ChartColumn::Npc, 40U));
+  assert(editor.draft().dance_move_drills().size() == 2U);
+}
+
 void test_result_messages() {
   for (unsigned int raw = 1U;
        raw <= static_cast<unsigned int>(ChartEditCode::EmptyDanceMoveEnd);
@@ -4367,6 +4452,8 @@ int main() {
   test_explicit_npc_start_adopts_nearest_group_only();
   test_explicit_npc_start_skips_occupied_gap();
   test_select_all_collects_every_bound_drill();
+  test_select_range_and_delete_selection();
+  test_delete_selection_removes_drills_and_stale_showtime();
   test_result_messages();
   return 0;
 }

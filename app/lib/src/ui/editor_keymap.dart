@@ -25,12 +25,14 @@ enum EditorShortcutAction {
   cursorSelectionStart('cursorSelectionStart', '跳到选区开头'),
   cursorSelectionEnd('cursorSelectionEnd', '跳到选区末尾'),
   selectAll('selectAll', '全选舞步'),
+  deleteSelection('deleteSelection', '删除选中舞步'),
   pasteAtCursor('pasteAtCursor', '粘贴到判定线'),
   scaleIn('scaleIn', 'Scale 增大'),
   scaleOut('scaleOut', 'Scale 减小'),
   openDraft('openDraft', '打开草稿'),
   saveDraft('saveDraft', '保存'),
   saveDraftAs('saveDraftAs', '另存为'),
+  exportSlk('exportSlk', '导出成品 SLK'),
   openGuide('openGuide', '打开使用指南'),
   playPause('playPause', '播放 / 暂停'),
   undo('undo', '撤销'),
@@ -387,6 +389,9 @@ Map<EditorShortcutAction, List<ShortcutBinding>> defaultEditorShortcutBindings(
     EditorShortcutAction.selectAll: List<ShortcutBinding>.unmodifiable([
       _bind(LogicalKeyboardKey.keyA, control: !mac, meta: mac),
     ]),
+    EditorShortcutAction.deleteSelection: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.delete),
+    ]),
     EditorShortcutAction.pasteAtCursor: List<ShortcutBinding>.unmodifiable([
       _bind(LogicalKeyboardKey.keyV, control: !mac, meta: mac),
     ]),
@@ -404,6 +409,9 @@ Map<EditorShortcutAction, List<ShortcutBinding>> defaultEditorShortcutBindings(
     ]),
     EditorShortcutAction.saveDraftAs: List<ShortcutBinding>.unmodifiable([
       _bind(LogicalKeyboardKey.keyS, control: !mac, meta: mac, shift: true),
+    ]),
+    EditorShortcutAction.exportSlk: List<ShortcutBinding>.unmodifiable([
+      _bind(LogicalKeyboardKey.keyE, control: !mac, meta: mac, shift: true),
     ]),
     EditorShortcutAction.openGuide: List<ShortcutBinding>.unmodifiable([
       _bind(LogicalKeyboardKey.f1),

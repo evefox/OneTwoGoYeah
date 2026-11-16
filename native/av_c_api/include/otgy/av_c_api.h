@@ -756,6 +756,10 @@ typedef struct otgy_showtime_move {
 #define OTGY_CHART_COLUMN_PLAYER UINT32_C(1)
 #define OTGY_CHART_COLUMN_SHOWTIME UINT32_C(2)
 
+#define OTGY_CHART_SELECTION_REPLACE UINT32_C(0)
+#define OTGY_CHART_SELECTION_ADD UINT32_C(1)
+#define OTGY_CHART_SELECTION_SUBTRACT UINT32_C(2)
+
 #define OTGY_CHART_MARKER_NPC_BLOCK_START UINT32_C(0)
 #define OTGY_CHART_MARKER_NPC_NOTE UINT32_C(1)
 #define OTGY_CHART_MARKER_NPC_MOVE_END UINT32_C(2)
@@ -1024,6 +1028,18 @@ OTGY_C_API otgy_status otgy_chart_editor_select(
 /// the regular selection set and idempotent; never adds history.
 OTGY_C_API otgy_status otgy_chart_editor_select_all(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,
+    otgy_error** out_error);
+/// Selects every dance move with at least one event inside the inclusive row
+/// range. `mode` is one of the OTGY_CHART_SELECTION_* constants; any other value
+/// is rejected as an invalid argument. Never adds history.
+OTGY_C_API otgy_status otgy_chart_editor_select_range(
+    otgy_chart_editor* editor, uint64_t first_row, uint64_t last_row,
+    uint32_t mode, otgy_chart_session_result* out_result,
+    otgy_error** out_error);
+/// Deletes every selected dance move in one history entry, including the
+/// regular cleanup of empty groups, stale Showtimes and drills without events.
+OTGY_C_API otgy_status otgy_chart_editor_delete_selection(
+    otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
     otgy_error** out_error);
 OTGY_C_API otgy_status otgy_chart_editor_clear_selection(
     otgy_chart_editor* editor, otgy_chart_session_result* out_result,

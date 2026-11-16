@@ -1935,6 +1935,43 @@ external int otgy_chart_editor_select_all(
   ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
 );
 
+/// Selects every dance move with at least one event inside the inclusive row
+/// range. `mode` is one of the OTGY_CHART_SELECTION_* constants; any other value
+/// is rejected as an invalid argument. Never adds history.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Uint64,
+    ffi.Uint64,
+    ffi.Uint32,
+    ffi.Pointer<otgy_chart_session_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_select_range(
+  ffi.Pointer<otgy_chart_editor> editor,
+  int first_row,
+  int last_row,
+  int mode,
+  ffi.Pointer<otgy_chart_session_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
+/// Deletes every selected dance move in one history entry, including the
+/// regular cleanup of empty groups, stale Showtimes and drills without events.
+@ffi.Native<
+  otgy_status Function(
+    ffi.Pointer<otgy_chart_editor>,
+    ffi.Pointer<otgy_chart_edit_result>,
+    ffi.Pointer<ffi.Pointer<otgy_error>>,
+  )
+>()
+external int otgy_chart_editor_delete_selection(
+  ffi.Pointer<otgy_chart_editor> editor,
+  ffi.Pointer<otgy_chart_edit_result> out_result,
+  ffi.Pointer<ffi.Pointer<otgy_error>> out_error,
+);
+
 @ffi.Native<
   otgy_status Function(
     ffi.Pointer<otgy_chart_editor>,
@@ -3259,6 +3296,12 @@ const int OTGY_CHART_COLUMN_NPC = 0;
 const int OTGY_CHART_COLUMN_PLAYER = 1;
 
 const int OTGY_CHART_COLUMN_SHOWTIME = 2;
+
+const int OTGY_CHART_SELECTION_REPLACE = 0;
+
+const int OTGY_CHART_SELECTION_ADD = 1;
+
+const int OTGY_CHART_SELECTION_SUBTRACT = 2;
 
 const int OTGY_CHART_MARKER_NPC_BLOCK_START = 0;
 

@@ -495,6 +495,36 @@ struct EditorPair final {
     return result;
   }
 
+  otgy::core::ChartSessionResult selectRange(std::uint64_t first_row,
+                                             std::uint64_t last_row,
+                                             std::uint32_t mode) {
+    const auto result =
+        direct.select_range(first_row, last_row,
+                            static_cast<otgy::core::ChartSelectionMode>(mode));
+    otgy_chart_session_result projected{};
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_select_range(abi.get(), first_row, last_row, mode,
+                                          &projected, &error) == OTGY_STATUS_OK &&
+               error == nullptr,
+           "editor pair select-range failed");
+    compare_session(result, projected);
+    compare();
+    return result;
+  }
+
+  otgy::core::ChartEditResult deleteSelection() {
+    const auto result = direct.delete_selection();
+    otgy_chart_edit_result projected{};
+    otgy_error* error = nullptr;
+    expect(otgy_chart_editor_delete_selection(abi.get(), &projected, &error) ==
+                   OTGY_STATUS_OK &&
+               error == nullptr,
+           "editor pair delete-selection failed");
+    compare_edit(result, projected);
+    compare();
+    return result;
+  }
+
   otgy::core::ChartEditResult paste(std::uint64_t row) {
     const auto result = direct.paste(row);
     otgy_chart_edit_result projected{};
@@ -2441,6 +2471,68 @@ void test_select_all_consistency() {
          "select-all did not clear its result before validation");
 }
 
+void test_selection_range_and_delete_consistency() {
+  using Column = otgy::core::ChartColumn;
+  using Event = otgy::core::ChartRoleEventType;
+  EditorPair pair{empty_chart()};
+
+  expect(pair.click(Column::Npc, 0U).changed, "range NPC-C failed");
+  expect(pair.click(Column::Npc, 10U).changed, "range NPC-N failed");
+  expect(pair.click(Column::Npc, 10U).changed, "range NPC-S failed");
+  expect(pair.place(Column::Npc, 40U, Event::BlockStart).changed,
+         "range second NPC-C failed");
+  expect(pair.click(Column::Npc, 50U).changed, "range second NPC-N failed");
+  expect(pair.click(Column::Npc, 50U).changed, "range second NPC-S failed");
+
+  const auto first = pair.selectRange(0U, 0U, OTGY_CHART_SELECTION_REPLACE);
+  expect(first.code == otgy::core::ChartEditCode::Success && first.changed,
+         "replace range did not report a change");
+  expect(pair.direct.selections().size() == 1U, "replace range missed a move");
+
+  const auto added = pair.selectRange(40U, 40U, OTGY_CHART_SELECTION_ADD);
+  expect(added.changed && pair.direct.selections().size() == 2U,
+         "add range did not union the selection");
+
+  const auto subtracted =
+      pair.selectRange(40U, 40U, OTGY_CHART_SELECTION_SUBTRACT);
+  expect(subtracted.changed && pair.direct.selections().size() == 1U,
+         "subtract range did not remove the move");
+
+  const auto repeated = pair.selectRange(0U, 0U, OTGY_CHART_SELECTION_REPLACE);
+  expect(repeated.code == otgy::core::ChartEditCode::Success && !repeated.changed,
+         "repeated replace range reported a change");
+
+  const auto deleted = pair.deleteSelection();
+  expect(deleted.changed, "delete-selection did not report a change");
+  expect(pair.direct.selections().empty(),
+         "delete-selection kept the removed move selected");
+  expect(pair.direct.draft().dance_move_drills().size() == 1U,
+         "delete-selection removed the wrong number of drills");
+
+  otgy_chart_session_result projected{};
+  otgy_error* error = nullptr;
+  expect(otgy_chart_editor_select_range(pair.abi.get(), 0U, 0U, 99U,
+                                        &projected, &error) ==
+                 OTGY_STATUS_INVALID_ARGUMENT &&
+             error != nullptr,
+         "invalid selection mode was not rejected");
+  otgy_error_destroy(error);
+  error = nullptr;
+  expect(projected.code == 0U && projected.changed == 0U,
+         "invalid selection mode did not clear its result");
+
+  expect(otgy_chart_editor_select_range(nullptr, 0U, 0U,
+                                        OTGY_CHART_SELECTION_REPLACE,
+                                        &projected, &error) ==
+             OTGY_STATUS_INVALID_ARGUMENT,
+         "null select-range editor was not rejected");
+
+  otgy_chart_edit_result edit{};
+  expect(otgy_chart_editor_delete_selection(nullptr, &edit, &error) ==
+             OTGY_STATUS_INVALID_ARGUMENT,
+         "null delete-selection editor was not rejected");
+}
+
 void test_slk_finished_boundary(const std::vector<std::uint8_t>& bytes) {
   const auto direct_import =
       otgy::core::import_finished_slk(bytes.data(), bytes.size());
@@ -2625,6 +2717,7 @@ int main() {
     test_player_sync_click_effect_consistency();
     test_explicit_marker_consistency();
     test_select_all_consistency();
+    test_selection_range_and_delete_consistency();
     test_slk_finished_boundary(read_file(OTGY_C_API_SLK_FIXTURE));
     test_slk_position();
     return 0;

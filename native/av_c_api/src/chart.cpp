@@ -24,6 +24,12 @@ otgy::core::ChartRoleEventType chart_role_event_type(
       value <= OTGY_CHART_MARKER_NPC_MOVE_END ? value : UINT8_MAX);
 }
 
+otgy::core::ChartSelectionMode chart_selection_mode(
+    std::uint32_t value) noexcept {
+  return static_cast<otgy::core::ChartSelectionMode>(
+      value <= OTGY_CHART_SELECTION_SUBTRACT ? value : UINT8_MAX);
+}
+
 otgy_chart_marker from_core(const otgy::core::ChartMarker& value) noexcept {
   return {value.id.value, value.row,
           static_cast<std::uint32_t>(value.column),
@@ -617,6 +623,30 @@ otgy_status otgy_chart_editor_select_all(
     otgy_error** out_error) {
   return session_chart(editor, out_result, out_error,
                        [](auto& value) { return value.select_all(); });
+}
+
+otgy_status otgy_chart_editor_select_range(
+    otgy_chart_editor* editor, std::uint64_t first_row, std::uint64_t last_row,
+    std::uint32_t mode, otgy_chart_session_result* out_result,
+    otgy_error** out_error) {
+  if (out_result != nullptr) {
+    *out_result = otgy_chart_session_result{};
+  }
+  if (mode > OTGY_CHART_SELECTION_SUBTRACT) {
+    return boundary(out_error,
+                    [&out_error]() { return invalid_argument(out_error); });
+  }
+  return session_chart(editor, out_result, out_error, [&](auto& value) {
+    return value.select_range(first_row, last_row,
+                              chart_selection_mode(mode));
+  });
+}
+
+otgy_status otgy_chart_editor_delete_selection(
+    otgy_chart_editor* editor, otgy_chart_edit_result* out_result,
+    otgy_error** out_error) {
+  return edit_chart(editor, out_result, out_error,
+                    [](auto& value) { return value.delete_selection(); });
 }
 
 otgy_status otgy_chart_editor_clear_selection(

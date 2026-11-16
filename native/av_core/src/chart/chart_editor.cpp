@@ -3022,6 +3022,166 @@ ChartSessionResult ChartEditor::select_all() noexcept {
   }
 }
 
+ChartSessionResult ChartEditor::select_range(
+    std::uint64_t first_row, std::uint64_t last_row,
+    ChartSelectionMode mode) noexcept {
+  try {
+    if (first_row > last_row) {
+      std::swap(first_row, last_row);
+    }
+    // Only an event inside the range counts: a move that merely spans across it
+    // stays unselected.
+    std::vector<ChartDanceMoveDrillId> hits;
+    for (const auto& event : draft_.role_events()) {
+      if (event.row < first_row || event.row > last_row) {
+        continue;
+      }
+      const bool known = std::any_of(
+          hits.begin(), hits.end(), [&event](ChartDanceMoveDrillId id) {
+            return id.value == event.dance_move_drill_id.value;
+          });
+      if (!known) {
+        hits.push_back(event.dance_move_drill_id);
+      }
+    }
+
+    std::vector<ChartSelection> next;
+    if (mode != ChartSelectionMode::Replace) {
+      next.reserve(selections_.size() + hits.size());
+      for (const auto& item : selections_) {
+        ChartSelection derived{};
+        if (derive_selection(draft_, item.drill_id, derived)) {
+          next.push_back(derived);
+        }
+      }
+    }
+    if (mode == ChartSelectionMode::Subtract) {
+      for (const auto id : hits) {
+        next.erase(std::remove_if(next.begin(), next.end(),
+                                  [id](const ChartSelection& item) {
+                                    return item.drill_id.value == id.value;
+                                  }),
+                   next.end());
+      }
+    } else {
+      for (const auto id : hits) {
+        const bool present =
+            std::any_of(next.begin(), next.end(),
+                        [id](const ChartSelection& item) {
+                          return item.drill_id.value == id.value;
+                        });
+        if (present) {
+          continue;
+        }
+        ChartSelection derived{};
+        if (derive_selection(draft_, id, derived)) {
+          next.push_back(derived);
+        }
+      }
+    }
+    std::sort(next.begin(), next.end(), selection_less);
+    bool changed = next.size() != selections_.size();
+    if (!changed) {
+      for (std::size_t index = 0U; index < next.size(); ++index) {
+        const auto& left = next[index];
+        const auto& right = selections_[index];
+        if (left.drill_id.value != right.drill_id.value ||
+            left.first_row != right.first_row ||
+            left.last_row != right.last_row) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    selections_ = std::move(next);
+    return {ChartEditCode::Success, changed};
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false};
+  }
+}
+
+ChartEditResult ChartEditor::delete_selection() noexcept {
+  if (selections_.empty()) {
+    return {ChartEditCode::SelectionUnavailable, false, {0U}};
+  }
+  try {
+    std::vector<ChartDanceMoveDrillId> targets;
+    for (const auto& item : selections_) {
+      ChartSelection derived{};
+      if (!derive_selection(draft_, item.drill_id, derived)) {
+        continue;
+      }
+      const bool known =
+          std::any_of(targets.begin(), targets.end(),
+                      [&item](ChartDanceMoveDrillId id) {
+                        return id.value == item.drill_id.value;
+                      });
+      if (!known) {
+        targets.push_back(item.drill_id);
+      }
+    }
+    if (targets.empty()) {
+      return {ChartEditCode::SelectionUnavailable, false, {0U}};
+    }
+    const auto target_drill = [&targets](ChartDanceMoveDrillId id) {
+      return std::any_of(targets.begin(), targets.end(),
+                         [id](ChartDanceMoveDrillId candidate) {
+                           return candidate.value == id.value;
+                         });
+    };
+
+    MutableDraft candidate{draft_};
+    std::vector<std::uint64_t> erased_events;
+    std::vector<std::uint64_t> erased_groups;
+    for (const auto& event : draft_.role_events()) {
+      if (target_drill(event.dance_move_drill_id)) {
+        erased_events.push_back(event.id.value);
+      }
+    }
+    for (const auto& group : draft_.drill_groups()) {
+      if (target_drill(group.dance_move_drill_id)) {
+        erased_groups.push_back(group.id.value);
+      }
+    }
+    candidate.role_events.erase(
+        std::remove_if(candidate.role_events.begin(), candidate.role_events.end(),
+                       [&target_drill](const ChartRoleEvent& event) {
+                         return target_drill(event.dance_move_drill_id);
+                       }),
+        candidate.role_events.end());
+    candidate.drill_groups.erase(
+        std::remove_if(candidate.drill_groups.begin(), candidate.drill_groups.end(),
+                       [&target_drill](const ChartDrillGroup& group) {
+                         return target_drill(group.dance_move_drill_id);
+                       }),
+        candidate.drill_groups.end());
+    candidate.dance_move_drills.erase(
+        std::remove_if(candidate.dance_move_drills.begin(),
+                       candidate.dance_move_drills.end(),
+                       [&target_drill](const ChartDanceMoveDrill& drill) {
+                         return target_drill(drill.id);
+                       }),
+        candidate.dance_move_drills.end());
+    erase_event_references(candidate, erased_events);
+    for (auto& drill : candidate.dance_move_drills) {
+      auto& groups = drill.drill_group_ids;
+      groups.erase(std::remove_if(groups.begin(), groups.end(),
+                                  [&erased_groups](ChartDrillGroupId id) {
+                                    return std::find(erased_groups.begin(),
+                                                     erased_groups.end(),
+                                                     id.value) !=
+                                           erased_groups.end();
+                                  }),
+                   groups.end());
+    }
+    return commit(std::move(candidate).finish(),
+                  {ChartEditCode::Success, true, {0U}}, next_id_,
+                  id_available_);
+  } catch (const std::bad_alloc&) {
+    return {ChartEditCode::AllocationFailure, false, {0U}};
+  }
+}
+
 ChartSessionResult ChartEditor::prepare_clipboard(bool cut) noexcept {
   try {
     if (selections_.empty()) {

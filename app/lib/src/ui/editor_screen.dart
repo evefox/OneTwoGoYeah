@@ -1486,6 +1486,7 @@ class _EditorScreenState extends State<EditorScreen>
                             onOpenDrafts: _openDrafts,
                             onSave: _save,
                             onSaveAs: () => _save(saveAs: true),
+                            onExportSlk: _exportSlk,
                           ),
                         ),
                         _StatusBar(

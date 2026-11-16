@@ -107,6 +107,13 @@ struct ChartEditResult final {
   }
 };
 
+/// How a range selection combines with the existing selection set.
+enum class ChartSelectionMode : std::uint8_t {
+  Replace = 0,
+  Add = 1,
+  Subtract = 2,
+};
+
 /// The dance move selected in the current editor session. The row span is
 /// derived from the draft and covers every NPC and player event bound to the
 /// drill, so it stays correct for a draft that is still incomplete.
@@ -227,6 +234,22 @@ class ChartEditor final {
   /// drill with at least one bound role event, including incomplete drafts.
   /// The result is sorted like the regular selection set and is idempotent.
   [[nodiscard]] ChartSessionResult select_all() noexcept;
+
+  /// Selects every dance move with at least one role event inside the inclusive
+  /// row range. A move whose span merely covers the range without an event
+  /// inside it does not count. `Replace` swaps the whole set, `Add` unions and
+  /// `Subtract` removes; bounds are ordered internally. Never touches the draft
+  /// or its history.
+  [[nodiscard]] ChartSessionResult select_range(
+      std::uint64_t first_row, std::uint64_t last_row,
+      ChartSelectionMode mode) noexcept;
+
+  /// Deletes every selected dance move: all NPC and player events bound to the
+  /// drills disappear, then the regular commit cleanup removes empty groups,
+  /// stale Showtimes and drills without events. One history entry; a draft that
+  /// becomes incomplete stays editable.
+  [[nodiscard]] ChartEditResult delete_selection() noexcept;
+
   [[nodiscard]] ChartSessionResult clear_selection() noexcept;
   [[nodiscard]] ChartSessionResult copy_selection() noexcept;
   [[nodiscard]] ChartSessionResult clear_clipboard() noexcept;
