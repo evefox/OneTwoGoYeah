@@ -44,9 +44,10 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
 `OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
 `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
-
-      三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
-      `x86_64` 和 `arm64`。
+    ```
+    三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
+    `x86_64` 和 `arm64`。
+    ```
 
 ## 阶段 8.5：macOS 体验微调验收
 
@@ -587,10 +588,9 @@ Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多�
 
 上述测量只能排除截图全黑并确认颜色、平台路由与几何量级，不能代替对排版、遮挡、ghost 轮廓、焦点环形状和文本内容的视觉审查。Windows、iOS、Release 运行时和真实 Android 设备未在本轮执行。既有 `NPC-S` 拆分、边界删除合并和 Showtime 清理改动继续保留；既有 Release 进程与原模拟器数据保持原状。本轮未提交或推送。
 
-
-
 2026-11-16 桌面选区与批量删除已贯通核心、C ABI、Dart FFI 和画布。核心新增 `ChartEditor::select_range(first_row, last_row, mode)`：区间内只要出现某舞步的任一角色事件就命中，跨度覆盖但区间内无事件不算命中；`Replace`/`Add`/`Subtract` 分别替换、加选、减选，边界升序归一，不修改草稿或历史。新增 `ChartEditor::delete_selection()`：删除全部选中舞步的事件、演练组和舞步，复用引用清理后经 `finish()` 执行既有空组、失效 Showtime、空舞步清理，合并为一条历史。C ABI 追加 `otgy_chart_editor_select_range`（非法模式值拒绝为参数错误）与 `otgy_chart_editor_delete_selection`，`ffigen` 已重新生成绑定。Windows/macOS 画布把超过触摸阈值的左键拖动解释为区间选择，松手提交并显示只读预览带；普通拖框替换、`Shift` 加选、`Alt` 减选；选择模式内 `Shift`/`Alt` 点击按单行区间加选/减选。新增可改绑 `Delete` 删除选中舞步和 `Ctrl/Command+Shift+E` 导出成品 SLK，帮助页可改绑操作增至三十三项并补充拖框行。撤销只恢复内容、不恢复选择集合。本轮原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 全部通过，`flutter analyze` 与 `dart analyze` 无问题；未执行真机或平台构建验证。
 
 2026-11-16 桌面选区 macOS 真机验收：Release 构建成功并在真实窗口启动，工程恢复到上一份草稿。用户确认拖框、`Shift`/`Alt` 加减选、`Delete` 删除、`Ctrl/Command+Shift+E` 导出与帮助页三十三项的交互验收通过。Windows 侧尚未做界面级复验，该机器当前离线；推送也未执行。
 
 2026-11-16 选择单元细化到角色段：选择单位从完整舞步改为演练组内的四个单元——`NPC-C`、`NPC-N/S`、`PLY-C`、`PLY-N/S`。核心 `ChartSelection` 追加 `drill_group_id`、`role`、`part`、`event_count`，按 `(firstRow, lastRow, drillId, groupId, role, part)` 排序；`select` 在所属舞步未选中时选中全部单元、否则切换标记所属单元，`SHOW-D` 全选/全取消；`select_range` 按单元成员事件命中；`select_all` 收集全部单元；`delete_selection` 先删 NPC 动作段并触发既有玩家重算，再删 `NPC-C` 与玩家单元，同组同时选中时由重算自然去重。复制/剪切快照改为只含选中单元的事件、所在组和所属舞步，不自动补对侧；整舞步全选沿用源 `moveNCount`，部分选中按片段重算；片段可只含 `C` 或只含动作段，粘贴后形成不完整组，随后由 `NPC-C` 接管。无起始组接管现由显式 `1`、鼠标点击和触摸点击共用，不再区分入口。C ABI 版本提升为 `6`，动态库 `VERSION 6.0.0`/`SOVERSION 6`，新增 `OTGY_CHART_SELECTION_PART_*` 与 `otgy_chart_editor_clipboard_marker_count`，`ffigen` 已重新生成绑定。Flutter 选择控件与粘贴提示改为“N 个标记”，选择删除与拖框按单元生效。本轮原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 全部通过，`flutter analyze` 与 `dart analyze` 无问题；未执行真机或平台构建验证。
+
