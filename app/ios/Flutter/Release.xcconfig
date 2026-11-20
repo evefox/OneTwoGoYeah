@@ -1,1 +1,2 @@
+#include? "Local.xcconfig"
 #include "Generated.xcconfig"

@@ -1059,20 +1059,20 @@ Windows `waveOut`，并以约 33 毫秒轮询平台已播放帧数。模拟游�
 渲染，四个平台共用同一 `start/pause/resume/query/stop` 方法通道契约：
 
 - Android 使用 `AudioTrack` 的 `MODE_STREAM`、`PERFORMANCE_MODE_LOW_LATENCY`、
-  `USAGE_MEDIA`/`CONTENT_TYPE_MUSIC` 音频属性，在 urgent-audio 优先级线程上阻塞
-  写入；通过只做句柄转换、固定块渲染和完成状态查询的 JNI 桥调用 C ABI。
-  Release 使用 native-assets 链接钩子，`android_jni.cpp` 必须进入送给链接钩子的
-  静态库，最终 `.so` 必须导出两个 JNI 符号。设备原生采样率与歌曲采样率不同时，
-  Flutter 在开始模拟播放前调用共享核心 `otgy_pcm_resample` 把歌曲 PCM 重采样一次，
-  并以设备采样率创建引擎和 `AudioTrack`，使轨道能进入系统低延迟快速通道；块大小
-  取设备 `PROPERTY_OUTPUT_FRAMES_PER_BUFFER`，缓冲取平台最小值，并在轨道支持时用
-  `setBufferSizeInFrames` 收缩到两个设备块。重采样只作用于
-  本次模拟播放的内存副本，不改变歌曲文件、常规预听、波形、项目数据或导出结果。
+`USAGE_MEDIA`/`CONTENT_TYPE_MUSIC` 音频属性，在 urgent-audio 优先级线程上阻塞
+写入；通过只做句柄转换、固定块渲染和完成状态查询的 JNI 桥调用 C ABI。
+Release 使用 native-assets 链接钩子，`android_jni.cpp` 必须进入送给链接钩子的
+静态库，最终 `.so` 必须导出两个 JNI 符号。设备原生采样率与歌曲采样率不同时，
+Flutter 在开始模拟播放前调用共享核心 `otgy_pcm_resample` 把歌曲 PCM 重采样一次，
+并以设备采样率创建引擎和 `AudioTrack`，使轨道能进入系统低延迟快速通道；块大小
+取设备 `PROPERTY_OUTPUT_FRAMES_PER_BUFFER`，缓冲取平台最小值，并在轨道支持时用
+`setBufferSizeInFrames` 收缩到两个设备块。重采样只作用于
+本次模拟播放的内存副本，不改变歌曲文件、常规预听、波形、项目数据或导出结果。
 - iOS/macOS 使用 `AVAudioSourceNode` 的 Int16 交错格式回调直接调用 C ABI 渲染；
-  iOS 额外设置 `5 ms` 首选 IO 缓冲。适配层通过 `dlopen` 加载
-  `otgy_native.framework`，不复制音频或判定逻辑。
+iOS 额外设置 `5 ms` 首选 IO 缓冲。适配层通过 `dlopen` 加载
+`otgy_native.framework`，不复制音频或判定逻辑。
 - Windows 使用 WASAPI 共享模式、事件回调和 `AUTOCONVERTPCM`，事件线程以 MMCSS
-  优先级按块渲染并写入，暂停和停止由原子状态与事件控制。
+优先级按块渲染并写入，暂停和停止由原子状态与事件控制。
 
 Dart 负责创建引擎、入队按键和读取判定。暂停、自然结束、音频焦点丢失、输出中断或
 App 进入后台都先保留平台最后已播放帧，再调用共享帧推进/暂停入口；恢复焦点或返回
@@ -1229,14 +1229,14 @@ Flutter 底部状态栏把 `EditorController.currentRow` 通过共享核心 `six
 - `Playing` 只允许 `PausePlayback` 与 `ToggleWaveformVisibility`，其余返回 `PlaybackActive`。
 - `ExportingAudio` 只允许 `CancelAudioExport`，其余返回 `AudioExportActive`。
 - `ChartInteraction` 允许 `SelectionCommand`、`NavigationOrView`、`HistoryNavigation`、
-  `ToggleWaveformVisibility` 与 `PausePlayback`；`General` 和 `CancelAudioExport`
-  必须返回 `ChartInteractionActive = 5`，稳定消息为 `chart interaction is active`。
+`ToggleWaveformVisibility` 与 `PausePlayback`；`General` 和 `CancelAudioExport`
+必须返回 `ChartInteractionActive = 5`，稳定消息为 `chart interaction is active`。
 
 必须先校验操作类：未知操作类在任何模式（包括未知模式）下都返回 `InvalidOperation`；
 操作类合法后才校验模式，未知模式返回 `InvalidMode`。该入口不执行命令，也不得修改
 项目、播放、导出、视图或编辑器会话状态。
 
-Flutter `EditorController` 的私有模式阶梯必须按播放 > 导出音频 > 选择/待粘贴会话 > 空闲
+Flutter `EditorController` 的私有模式阶梯必须按播放 &gt; 导出音频 &gt; 选择/待粘贴会话 &gt; 空闲
 的优先级投影到上述模式。`generalActionsEnabled` 查询 `General` 并作为非白名单入口的
 统一禁用条件，会话中必须为假；`selectionCommandEnabled`、`navigationEnabled` 和
 `historyNavigationEnabled` 分别查询对应操作类。标记输入能力必须使用

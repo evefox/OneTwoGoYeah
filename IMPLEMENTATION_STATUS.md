@@ -44,14 +44,9 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
 `OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
 `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
-    ```text
-    79418516971a076c253f8831e82f83f95a78551113ef28adf3d3a991a9a0e978  OneTwoGoYeah-1.0.0+1-android-bundle.zip
-    3bfbbf0f2c3f8c63386353e5275d76dec0fb8c2fa14a0545ff54affea20ce1aa  OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip
-    9ab041eacc50b8a8a4d58182c175b3ffc394428033f5a5bae1eff392d2f43f4a  OneTwoGoYeah-1.0.0+1-macos-universal-release.zip
-    ```
 
-    三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
-    `x86_64` 和 `arm64`。
+      三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
+      `x86_64` 和 `arm64`。
 
 ## 阶段 8.5：macOS 体验微调验收
 
@@ -559,7 +554,7 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 2026-11-15 桌面判定层：Windows/macOS 模拟播放且未打开屏幕键盘时，编辑画布覆盖与屏幕键盘同款半透明底色，并把同一判定文字显示在编辑画布高度约 `25%`、判定线上方；该层绘制在右侧悬浮条之前且不接收指针，播放期间仍可切换波形显隐；暂停、停止、普通播放、谱面预览与节奏测试都不显示，判定开关关闭时只留底色。判定文字的颜色与字号已抽成共享 `judgement_display.dart`，屏幕键盘与桌面渲染同一组件，控制器仍独占 `320 ms` 显示窗口。新增 `desktop_judgement_layer_test.dart`，覆盖显示/清除、预览与节奏测试不显示、判定关闭只剩底色、悬浮条可点击、屏幕键盘打开时由键盘独占显示和移动端不渲染。Flutter `310/310` 通过，`flutter analyze` 无问题；本轮未改原生代码，未执行真机或平台构建验证。
 
-2026-11-15 Windows 验收：main 已 rebase 到 `worktree-msvc-portability` 的 f5aec4e 并包含桌面快捷键提交 2989bab。在 otgy-win 上干净 Release 构建成功；Debug CTest `57/59`，仅 `av_core.ogg_vorbis_decoder/encoder` 两个已知 1 LSB 差异，`av_core.chart_editor`、分配失败注入和 `av_c_api.chart_consistency` 全部通过。诊断版 Release 注入按键确认 `placeMarker`（0/1/2）、`selectAll`、`copy`、`End`、`paste`（判定线 64）、右键清除和 `Esc` 退出真正到达核心。该机出现已知 DXGI 白屏，应用窗口内容全白，因此 F1、Ctrl+O/S、Scale 的界面结果未做视觉验收；真实键盘仍需用户亲手按一次。Visual Studio 多配置必须用 `ctest -C Debug`，`-C Release` 会因 `NDEBUG` 关闭断言而 SEGFAULT，不能作为测试结果（已记录在 TESTING.md）。
+2026-11-15 Windows 验收：main 已 rebase 到 `worktree-msvc-portability` 的 f5aec4e 并包含桌面快捷键提交 2989bab。在 Windows 验收机（`otgy-win`）上干净 Release 构建成功；Debug CTest `57/59`，仅 `av_core.ogg_vorbis_decoder/encoder` 两个已知 1 LSB 差异，`av_core.chart_editor`、分配失败注入和 `av_c_api.chart_consistency` 全部通过。诊断版 Release 注入按键确认 `placeMarker`（0/1/2）、`selectAll`、`copy`、`End`、`paste`（判定线 64）、右键清除和 `Esc` 退出真正到达核心。该机出现已知 DXGI 白屏，应用窗口内容全白，因此 F1、Ctrl+O/S、Scale 的界面结果未做视觉验收；真实键盘仍需用户亲手按一次。Visual Studio 多配置必须用 `ctest -C Debug`，`-C Release` 会因 `NDEBUG` 关闭断言而 SEGFAULT，不能作为测试结果（已记录在 TESTING.md）。
 
 2026-11-15 桌面入口快捷键与全选已接通：会话内右键清除选择/退出，`F1` 打开使用指南，`Ctrl/Command+O` 打开草稿，`Ctrl/Command+S` 与 `Ctrl/Command+Shift+S` 保存/另存为，`Ctrl/Command+小键盘 +/-` 调整 Scale；`Ctrl/Command+A` 通过新增核心 `select_all` 全选所有可选舞步并从普通模式进入选择模式，`Ctrl/Command+Home/End` 跳到选区首尾。文件、帮助和 Scale 键与对应按钮/菜单共用门控，右键只在会话内响应。C ABI 追加 `otgy_chart_editor_select_all`，`ffigen` 已重新生成绑定。按约定，`Tab`、`Ctrl+Shift+E`、`Delete` 删除选中舞步、拖框与 `Shift/Alt` 加减选、`Shift+Home/End` 仍待确认后再实现。本轮原生 `59/59`、Flutter `300/300` 通过，`flutter analyze` 无问题；未执行真机或平台构建验证。
 
@@ -583,7 +578,7 @@ Release 不受支持），不作为产品构建失败。当前机器没有 Windo
 
 `MouseRegion.onEnter` 与 `onHover` 继续复用悬停投影入口。会话内音频导出被门控、音频导出期间不能进入会话，因此原来“待粘贴中触发导出 busy 遮罩”的用例已不再属于合法 UI 路径。对应测试改为断言会话内导出被拒绝、保存回调不执行且预览保持；静止鼠标下导航和缩放后的预览重投影回归继续保留。
 
-Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多选高亮和待粘贴预览三种状态截图写到系统临时目录。Android 包在集成测试结束时被卸载，设备内文件随之消失，因此本轮在测试运行期间用 `adb exec-out run-as … cat` 轮询 `code_cache/`，以 PNG 魔数校验后把三张 `1080x2337` 设备截图复制到主机临时目录保留；macOS 三张 `800x600` 截图保留在沙盒容器 `Data/tmp/`。本会话的图像工具无法呈现图像（`read_image` 返回 "cannot get property \"attachments\" without inject"），因此不能声明视觉布局、ghost、焦点环、提示文本或遮挡情况已通过人工视觉审查，该缺口继续保留。已取得的替代证据是程序化解码与几何测量：
+Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多选高亮和待粘贴预览三种状态截图写到系统临时目录。Android 包在集成测试结束时被卸载，设备内文件随之消失，因此本轮在测试运行期间用 `adb exec-out run-as … cat` 轮询 `code_cache/`，以 PNG 魔数校验后把三张 `1080x2337` 设备截图复制到主机临时目录保留；macOS 三张 `800x600` 截图保留在沙盒容器 `Data/tmp/`。本会话的图像工具无法呈现图像（`read_image` 返回 "cannot get property "attachments" without inject"），因此不能声明视觉布局、ghost、焦点环、提示文本或遮挡情况已通过人工视觉审查，该缺口继续保留。已取得的替代证据是程序化解码与几何测量：
 
 - 平台路由：移动端提交按钮的填充色 `#82D3E0` 只出现在 Android 待粘贴截图，边界框 `x=[207,659] y=[2001,2126]`，即 `172.6x48.0` 逻辑像素（与 `ValueKey('paste-at-current-cursor')` 的 `minimumSize: Size(0, 48)` 一致）；该颜色在 Android 焦点截图与多选截图中为 `0` 像素，可确认归属；在 macOS 三张截图中同样为 `0` 像素，桌面端未绘制该移动端按钮。
 - 固定判定线：`judgement` `#E6B75A` 在 Android 待粘贴与多选截图中为 `x=[0,1079] y=[866,880]`（整宽 `411.4` 逻辑像素、高 `5.7`），macOS 对应截图为 `x=[0,799] y=[208,212]`（整宽、高 `5.0`）；Android 焦点截图中该色带扩展到 `y=[816,930]`，与 `app/lib/src/ui/editor_canvas.dart:1005` 的标记焦点绘制一致。

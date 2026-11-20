@@ -26,3 +26,8 @@
 - 已确认的界面、控件和用户可见行为：`FUNCTIONAL_SPEC.md`
 - 架构与数值契约：`ARCHITECTURE.md`
 - 测试层级、黄金数据和工具契约：`TESTING.md`
+
+## 本机配置
+
+签名、SDK、密钥、Git 身份和远端别名都不入库。首次构建前按 `docs/local-build-config.md` 补齐本机文件；不得把实际 Team ID、keystore 或密码写入仓库。
+

@@ -29,3 +29,12 @@ __pycache__/
 
 # SeaWork 会话数据与临时产物不纳入版本控制
 /.seaharness/
+
+# 本机签名与开发配置不得提交
+/app/ios/Flutter/Local.xcconfig
+
+# 本机 Windows 交接资料与临时研究笔记不纳入版本控制
+/docs/windows-handoff.md
+
+# 本地资产索引缓存
+/app/assets/.genoffice-assets.json

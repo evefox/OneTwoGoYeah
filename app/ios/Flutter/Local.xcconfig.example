@@ -1,0 +1,8 @@
+// 本机 iOS 签名配置模板。
+// 复制为同目录下的 Local.xcconfig，并填入自己的 Apple Developer Team ID。
+// Local.xcconfig 已被 .gitignore 忽略，不得提交。
+//
+// 示例：
+// OTGY_DEVELOPMENT_TEAM = XXXXXXXXXX
+
+OTGY_DEVELOPMENT_TEAM =
