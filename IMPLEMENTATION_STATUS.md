@@ -598,3 +598,5 @@ Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多�
 
 2026-11-24 Showtime 时长阈值调整：舞步 N 数 `1..5` 对应 1 小节（16 个 1/16 位置），`6` 及以上对应 2 小节（32 个），原 `1..6`/`7+` 阈值作废。同步修改自动补全锚点、`project_showtime_moves`、成品校验范围溢出检查和兼容导出边界计算四处核心逻辑；更新架构、功能规格、测试边界（至少覆盖 `1`、`5`、`6`、`11` 和大于 `11`）及投影回归。原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 通过，`flutter analyze` 无问题；未执行平台构建或真机验证。
 
+2026-11-24 发布 1.2.3+9：版本从 `1.2.2+8` 升到 `1.2.3+9`。Android Release arm64 包已生成并校验：`build/releases/OneTwoGoYeah-1.2.3-arm64.apk`，`22,772,193` 字节，SHA-256 `4f6cd96a01fa0f58f3294c527613eaf80bfb24f475b08e5b951baa33d67ea710`，versionCode `9`、versionName `1.2.3`，仅包含 `arm64-v8a`，使用本机 Android Debug 证书，仅适合本机测试；`libotgy_native.so` 导出 `otgy_chart_create_empty`/`otgy_chart_editor_place_marker`，仅依赖 `libm.so`/`libdl.so`/`libc.so`。本机无法访问 Google Maven，`scripts/build_android_release.py` 在 `:integration_test` 的 release 动态依赖解析处失败；改用 Android Studio JDK 与 Gradle `--offline` 使用缓存构建，版本字段、ABI 和原生符号均正确。iOS Release 使用本机 Apple Development 证书签名并安装到 iPhone 16（iOS 18.2.1），设备查询为 `1.2.3 (9)`；`devicectl` 启动被系统拒绝，原因是开发描述文件尚未在设备上显式信任，需在 设置→通用→VPN与设备管理 中信任开发者后手动启动。未执行 Android 真机安装；本轮未重新构建 macOS 包。
+
