@@ -1,6 +1,6 @@
 # 实现状态
 
-更新时间：2026-11-15
+更新时间：2026-11-24
 
 ## 当前阶段
 
@@ -44,10 +44,6 @@ Flutter 不支持 simulator 的 Release 模式，因此该命令不作为失败�
 `OneTwoGoYeah-1.0.0+1-android-bundle.zip`、
 `OneTwoGoYeah-1.0.0+1-macos-universal-release.zip` 和
 `OneTwoGoYeah-1.0.0+1-macos-universal-bundle.zip`。当前 SHA-256 分别为：
-    ```
-    三个 ZIP 均通过 `unzip -t`；macOS 归档中的主程序再次确认同时包含
-    `x86_64` 和 `arm64`。
-    ```
 
 ## 阶段 8.5：macOS 体验微调验收
 
@@ -593,4 +589,6 @@ Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多�
 2026-11-16 桌面选区 macOS 真机验收：Release 构建成功并在真实窗口启动，工程恢复到上一份草稿。用户确认拖框、`Shift`/`Alt` 加减选、`Delete` 删除、`Ctrl/Command+Shift+E` 导出与帮助页三十三项的交互验收通过。Windows 侧尚未做界面级复验，该机器当前离线；推送也未执行。
 
 2026-11-16 选择单元细化到角色段：选择单位从完整舞步改为演练组内的四个单元——`NPC-C`、`NPC-N/S`、`PLY-C`、`PLY-N/S`。核心 `ChartSelection` 追加 `drill_group_id`、`role`、`part`、`event_count`，按 `(firstRow, lastRow, drillId, groupId, role, part)` 排序；`select` 在所属舞步未选中时选中全部单元、否则切换标记所属单元，`SHOW-D` 全选/全取消；`select_range` 按单元成员事件命中；`select_all` 收集全部单元；`delete_selection` 先删 NPC 动作段并触发既有玩家重算，再删 `NPC-C` 与玩家单元，同组同时选中时由重算自然去重。复制/剪切快照改为只含选中单元的事件、所在组和所属舞步，不自动补对侧；整舞步全选沿用源 `moveNCount`，部分选中按片段重算；片段可只含 `C` 或只含动作段，粘贴后形成不完整组，随后由 `NPC-C` 接管。无起始组接管现由显式 `1`、鼠标点击和触摸点击共用，不再区分入口。C ABI 版本提升为 `6`，动态库 `VERSION 6.0.0`/`SOVERSION 6`，新增 `OTGY_CHART_SELECTION_PART_*` 与 `otgy_chart_editor_clipboard_marker_count`，`ffigen` 已重新生成绑定。Flutter 选择控件与粘贴提示改为“N 个标记”，选择删除与拖框按单元生效。本轮原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 全部通过，`flutter analyze` 与 `dart analyze` 无问题；未执行真机或平台构建验证。
+
+2026-11-24 粘贴对称接管：修复诊断包（recovery `1795493836358233`）暴露的问题——先放 `NPC-C`、再在其后粘贴只含动作段的片段，会留下一个只含 `C` 的孤立组，块在画布上看起来完整，但成品校验报 `InvalidDrillBlock`/`DrillBlockMismatch`/`InvalidDanceMoveDrill`，无法导出。`ChartEditor::paste` 现在复用放置接管的对称规则：片段首组包含 `NPC-N` 且不含 `NPC-C`、目标锚点之前紧邻的 `NPC-C` 只含自身事件且其舞步未被 Showtime 引用时，把该起始标记并入粘贴生成的组和舞步；前置标记不是 `NPC-C`、起始组已有其他事件或片段首组自带 `NPC-C` 时不接管。接管、插入与空组/空舞步清理仍在同一次 `commit()` 和同一条历史内，粘贴预览不变。起始判断按事件成员关系而不是存储的组事件列表，并用反序放置共用的 Showtime 归属助手拒绝已被 Showtime 引用的舞步；前置舞步尚未结束时新起始暂与其共用舞步，粘贴仍会把它移入粘贴组并保留原舞步其余内容。新增核心回归覆盖两种操作顺序的结构一致（含未结束前置舞步、片段首个标记为玩家而同一组后接 `NPC-N` 两种情形，标识按顺序分配）、前置不是 `NPC-C`/起始组已含事件/舞步被 Showtime 引用/片段首组自带 `NPC-C` 的反例、组事件列表不完整的恢复草稿，以及首次剪切落点；原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 通过，`flutter analyze` 无问题。用该诊断包的真实恢复快照在 C ABI 上复现：修复前单块 9 条、两块共 18 条成品校验错误，修复后两种顺序均 `0` 条。既有分裂草稿不受加载修复影响，仍需在起始行按两次 `1` 完成接管。规格与测试文档同步更新；未执行平台构建或真机验证。
 

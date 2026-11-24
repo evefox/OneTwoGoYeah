@@ -1076,6 +1076,8 @@ OTGY_C_API otgy_status otgy_chart_editor_cut_selection(
 
 /// Each success adds one history entry. First cut placement atomically removes
 /// the verified source and inserts the batch; subsequent placements are copies.
+/// A paste immediately after a lone NPC block start moves that start into the
+/// pasted group/dance move and removes its former empty group in the same entry.
 OTGY_C_API otgy_status otgy_chart_editor_paste(
     otgy_chart_editor* editor, uint64_t anchor_row,
     otgy_chart_edit_result* out_result, otgy_error** out_error);

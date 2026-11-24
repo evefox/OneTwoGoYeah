@@ -298,6 +298,11 @@ class ChartEditor final {
 
   /// Translates all clipboard content in one history entry. The smallest source
   /// row is anchored on anchor_row; roles, columns and relative gaps survive.
+  /// When that row immediately follows a lone NPC block start, the paste moves
+  /// that start into the pasted group and dance move, exactly as the reverse
+  /// placement order adopts a start-less group. Its former group is removed in
+  /// the same entry, and so is its former dance move once that move has no
+  /// remaining content.
   [[nodiscard]] ChartEditResult paste(std::uint64_t anchor_row) noexcept;
 
  private:

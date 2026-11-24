@@ -951,6 +951,30 @@ void test_player_failures_preserve_draft_and_history() {
   return ids;
 }
 
+/// Identifier-free shape of every dance move: each move is the sorted list of
+/// its events as (row, role and type). Two drafts built in a different operation
+/// order must produce the same multiset of shapes even though the allocated
+/// identifiers differ.
+[[nodiscard]] std::vector<std::vector<std::pair<std::uint64_t, std::uint32_t>>>
+drill_shapes(const ChartDraft& draft) {
+  std::vector<std::vector<std::pair<std::uint64_t, std::uint32_t>>> shapes;
+  for (const auto& drill : draft.dance_move_drills()) {
+    std::vector<std::pair<std::uint64_t, std::uint32_t>> shape;
+    for (const auto& event : draft.role_events()) {
+      if (event.dance_move_drill_id.value != drill.id.value) {
+        continue;
+      }
+      shape.push_back(
+          {event.row, static_cast<std::uint32_t>(event.role) * 3U +
+                          static_cast<std::uint32_t>(event.type)});
+    }
+    std::sort(shape.begin(), shape.end());
+    shapes.push_back(std::move(shape));
+  }
+  std::sort(shapes.begin(), shapes.end());
+  return shapes;
+}
+
 /// Independent derivation of the selectable units of one drill, matching the
 /// editor's unit order. Used to assert the selection without repeating the
 /// production helper.
@@ -4742,6 +4766,419 @@ void test_unit_copy_partial_and_paste_adoption() {
          std::vector<std::uint64_t>({199U, 200U, 202U, 204U}));
 }
 
+void test_paste_npc_actions_after_open_start_adopts_group() {
+  auto editor = build_two_complete_moves();
+  // Copy one move's NPC actions and both player units, without its NPC-C.
+  assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+  assert(editor.select_range(8U, 14U, ChartSelectionMode::Add));
+  assert(editor.selections().size() == 3U);
+  assert(editor.copy_selection());
+  assert(editor.clipboard_marker_count() == 7U);
+  const auto drill_count = editor.draft().dance_move_drills().size();
+
+  // The block start placed before the target owns its own group until the
+  // paste either adopts it or leaves a second, incomplete block behind.
+  assert(editor.place_marker(ChartColumn::Npc, 100U,
+                             ChartRoleEventType::BlockStart));
+  assert(editor.draft().dance_move_drills().size() == drill_count + 1U);
+  const auto before_paste = editor.draft();
+
+  const auto preview = editor.preview_paste(101U);
+  assert(preview);
+  assert(preview.anchor_row == 101U && preview.last_row == 113U);
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before_paste));
+
+  assert(editor.paste(101U));
+  // The lone start joins the pasted group, so no second dance move is added.
+  assert(editor.draft().dance_move_drills().size() == drill_count + 1U);
+  const otgy::core::ChartRoleEvent* start = nullptr;
+  for (const auto& event : editor.draft().role_events()) {
+    if (event.row == 100U) {
+      start = &event;
+      break;
+    }
+  }
+  assert(start != nullptr && start->role == ChartRole::Npc &&
+         start->type == ChartRoleEventType::BlockStart);
+  const auto drill_id = start->dance_move_drill_id;
+  assert(drill_rows(editor.draft(), drill_id) ==
+         std::vector<std::uint64_t>(
+             {100U, 101U, 103U, 105U, 107U, 109U, 111U, 113U}));
+  const otgy::core::ChartDrillGroup* group = nullptr;
+  for (const auto& candidate : editor.draft().drill_groups()) {
+    if (candidate.id.value == start->drill_group_id.value) {
+      group = &candidate;
+      break;
+    }
+  }
+  assert(group != nullptr && group->npc_event_ids.size() == 4U &&
+         group->player_event_ids.size() == 4U);
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+
+  // Adoption stays inside the paste's single history entry.
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before_paste));
+}
+
+void test_paste_npc_actions_adoption_rejections() {
+  // No preceding block start: the pasted run keeps its own start-less group.
+  {
+    auto editor = build_two_complete_moves();
+    assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+    assert(editor.copy_selection());
+    const auto drill_count = editor.draft().dance_move_drills().size();
+    assert(editor.paste(200U));
+    assert(editor.draft().dance_move_drills().size() == drill_count + 1U);
+    const auto pasted_drill = editor.draft().dance_move_drills().back().id;
+    assert(drill_rows(editor.draft(), pasted_drill) ==
+           std::vector<std::uint64_t>({200U, 202U, 204U}));
+    for (const auto& event : editor.draft().role_events()) {
+      assert(event.dance_move_drill_id.value != pasted_drill.value ||
+             event.type != ChartRoleEventType::BlockStart);
+    }
+  }
+
+  // The preceding marker is an NPC note, not a block start.
+  {
+    ChartEditor editor{ChartDraft{{}, {}, {}, {}, {}, {}}};
+    assert(editor.click(ChartColumn::Npc, 0U));
+    assert(editor.click(ChartColumn::Npc, 2U));
+    assert(editor.click(ChartColumn::Npc, 4U));
+    assert(editor.click(ChartColumn::Npc, 6U));
+    assert(editor.click(ChartColumn::Npc, 6U));
+    assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+    assert(editor.copy_selection());
+    assert(editor.paste(7U));
+    assert(editor.draft().dance_move_drills().size() == 2U);
+    const auto pasted_drill = editor.draft().dance_move_drills().back().id;
+    for (const auto& event : editor.draft().role_events()) {
+      assert(event.dance_move_drill_id.value != pasted_drill.value ||
+             event.type != ChartRoleEventType::BlockStart);
+    }
+  }
+
+  // The block start already owns another note, so it is not a lone start.
+  {
+    auto editor = build_two_complete_moves();
+    assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+    assert(editor.copy_selection());
+    assert(editor.place_marker(ChartColumn::Npc, 100U,
+                               ChartRoleEventType::BlockStart));
+    assert(editor.place_marker(ChartColumn::Npc, 200U,
+                               ChartRoleEventType::Note));
+    const auto drill_count = editor.draft().dance_move_drills().size();
+    assert(editor.paste(101U));
+    assert(editor.draft().dance_move_drills().size() == drill_count + 1U);
+    const auto pasted_drill = editor.draft().dance_move_drills().back().id;
+    assert(drill_rows(editor.draft(), pasted_drill) ==
+           std::vector<std::uint64_t>({101U, 103U, 105U}));
+    const otgy::core::ChartRoleEvent* start = nullptr;
+    for (const auto& event : editor.draft().role_events()) {
+      if (event.row == 100U) {
+        start = &event;
+        break;
+      }
+    }
+    assert(start != nullptr && start->dance_move_drill_id.value !=
+                                   pasted_drill.value);
+  }
+
+  // A fragment that carries its own block start is not merged.
+  {
+    auto editor = build_two_complete_moves();
+    assert(editor.select(ChartColumn::Npc, 0U));
+    assert(editor.selections().size() == 4U);
+    assert(editor.copy_selection());
+    assert(editor.place_marker(ChartColumn::Npc, 100U,
+                               ChartRoleEventType::BlockStart));
+    assert(editor.paste(101U));
+    assert(editor.draft().dance_move_drills().size() == 4U);
+    const otgy::core::ChartRoleEvent* start = nullptr;
+    for (const auto& event : editor.draft().role_events()) {
+      if (event.row == 100U) {
+        start = &event;
+        break;
+      }
+    }
+    assert(start != nullptr);
+    const auto drill_id = start->dance_move_drill_id;
+    assert(drill_rows(editor.draft(), drill_id) ==
+           std::vector<std::uint64_t>({100U}));
+  }
+}
+
+void test_cut_npc_actions_adopts_open_start() {
+  auto editor = build_two_complete_moves();
+  assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+  assert(editor.select_range(8U, 14U, ChartSelectionMode::Add));
+  const auto source_drill = editor.selections().front().drill_id;
+  assert(editor.cut_selection());
+  assert(editor.has_pending_cut());
+  assert(editor.place_marker(ChartColumn::Npc, 100U,
+                             ChartRoleEventType::BlockStart));
+  const auto before_paste = editor.draft();
+  const auto undo_count = editor.undo_count();
+
+  // The first cut placement removes the source and adopts the target start in
+  // the same atomically committed history entry.
+  assert(editor.paste(101U));
+  assert(!editor.has_pending_cut());
+  assert(editor.undo_count() == undo_count + 1U);
+  assert(drill_rows(editor.draft(), source_drill).empty());
+  assert(editor.draft().dance_move_drills().size() == 2U);
+  const otgy::core::ChartRoleEvent* start = nullptr;
+  for (const auto& event : editor.draft().role_events()) {
+    if (event.row == 100U) {
+      start = &event;
+      break;
+    }
+  }
+  assert(start != nullptr);
+  assert(drill_rows(editor.draft(), start->dance_move_drill_id) ==
+         std::vector<std::uint64_t>(
+             {100U, 101U, 103U, 105U, 107U, 109U, 111U, 113U}));
+
+  assert(editor.undo());
+  assert(otgy::core::chart_drafts_equal(editor.draft(), before_paste));
+}
+
+void test_paste_adopts_start_with_incomplete_group_list() {
+  // A recovered draft may keep the block start event without listing it in the
+  // group's stored member array; event membership is authoritative.
+  auto base = build_two_complete_moves().draft();
+  auto events = base.role_events();
+  auto groups = base.drill_groups();
+  auto drills = base.dance_move_drills();
+  events.push_back({{900U}, 100U, ChartRole::Npc,
+                    ChartRoleEventType::BlockStart, {901U}, {902U}});
+  groups.push_back({{901U}, {902U}, {}, {}});
+  drills.push_back({{902U}, 0U, {{901U}}});
+  std::sort(events.begin(), events.end(),
+            [](const ChartRoleEvent& left, const ChartRoleEvent& right) {
+              return left.row < right.row;
+            });
+  ChartEditor editor{ChartDraft{events, {}, {}, groups, drills, {}}};
+
+  assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+  assert(editor.select_range(8U, 14U, ChartSelectionMode::Add));
+  assert(editor.copy_selection());
+  assert(editor.paste(101U));
+  const otgy::core::ChartRoleEvent* start = nullptr;
+  for (const auto& event : editor.draft().role_events()) {
+    if (event.row == 100U) {
+      start = &event;
+      break;
+    }
+  }
+  assert(start != nullptr);
+  assert(drill_rows(editor.draft(), start->dance_move_drill_id) ==
+         std::vector<std::uint64_t>(
+             {100U, 101U, 103U, 105U, 107U, 109U, 111U, 113U}));
+  assert(otgy::core::validate_finished_chart(editor.draft()).is_finished());
+  for (const auto& group : editor.draft().drill_groups()) {
+    assert(group.id.value != 901U);
+  }
+  for (const auto& drill : editor.draft().dance_move_drills()) {
+    assert(drill.id.value != 902U);
+  }
+}
+
+void test_paste_adoption_rejects_showtime_owned_start() {
+  ChartEditor source{ChartDraft{{}, {}, {}, {}, {}, {}}};
+  assert(source.click(ChartColumn::Npc, 0U));
+  assert(source.click(ChartColumn::Npc, 2U));
+  assert(source.click(ChartColumn::Npc, 4U));
+  assert(source.click(ChartColumn::Npc, 6U));
+  assert(source.click(ChartColumn::Npc, 6U));
+  assert(source.click(ChartColumn::Player, 8U));
+  assert(source.click(ChartColumn::Player, 10U));
+  assert(source.click(ChartColumn::Showtime, 16U));
+  assert(source.draft().showtimes().size() == 1U);
+  auto draft = source.draft();
+  const auto drill_id = draft.dance_move_drills().front().id;
+  auto events = draft.role_events();
+  auto groups = draft.drill_groups();
+  auto drills = draft.dance_move_drills();
+  events.push_back({{900U}, 100U, ChartRole::Npc,
+                    ChartRoleEventType::BlockStart, {901U}, drill_id});
+  groups.push_back({{901U}, drill_id, {{900U}}, {}});
+  for (auto& drill : drills) {
+    if (drill.id.value == drill_id.value) {
+      drill.drill_group_ids.push_back({901U});
+      break;
+    }
+  }
+  std::sort(events.begin(), events.end(),
+            [](const ChartRoleEvent& left, const ChartRoleEvent& right) {
+              return left.row < right.row;
+            });
+  ChartEditor editor{ChartDraft{
+      events, draft.showtime_start_events(), draft.showtime_move_events(),
+      groups, drills, draft.showtimes()}};
+  assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+  assert(editor.select_range(8U, 14U, ChartSelectionMode::Add));
+  assert(editor.copy_selection());
+  assert(editor.paste(101U));
+
+  // The start stays in the Showtime-owned dance move; the pasted block keeps
+  // its own start-less group instead of rebuilding a recorded move.
+  const otgy::core::ChartRoleEvent* start = nullptr;
+  for (const auto& event : editor.draft().role_events()) {
+    if (event.row == 100U) {
+      start = &event;
+      break;
+    }
+  }
+  assert(start != nullptr && start->drill_group_id.value == 901U &&
+         start->dance_move_drill_id.value == drill_id.value);
+  const auto pasted_drill = editor.draft().dance_move_drills().back().id;
+  assert(pasted_drill.value != drill_id.value);
+  for (const auto& event : editor.draft().role_events()) {
+    assert(event.dance_move_drill_id.value != pasted_drill.value ||
+           event.role != ChartRole::Npc ||
+           event.type != ChartRoleEventType::BlockStart);
+  }
+}
+
+void test_paste_adoption_accepts_group_with_leading_player_marker() {
+  // A group can keep player rows before its NPC action rows in a recovered
+  // draft. The clipboard's earliest event is then a player marker while the
+  // same group still carries the NPC notes an existing start completes.
+  const ChartDraft base{
+      {{{1U}, 0U, ChartRole::Npc, ChartRoleEventType::BlockStart, {10U}, {20U}},
+       {{2U}, 1U, ChartRole::Player, ChartRoleEventType::BlockStart, {10U},
+        {20U}},
+       {{3U}, 2U, ChartRole::Player, ChartRoleEventType::Note, {10U}, {20U}},
+       {{4U}, 3U, ChartRole::Player, ChartRoleEventType::Note, {10U}, {20U}},
+       {{5U}, 5U, ChartRole::Player, ChartRoleEventType::MoveEnd, {10U}, {20U}},
+       {{6U}, 10U, ChartRole::Npc, ChartRoleEventType::Note, {10U}, {20U}},
+       {{7U}, 12U, ChartRole::Npc, ChartRoleEventType::Note, {10U}, {20U}},
+       {{8U}, 14U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {10U}, {20U}}},
+      {},
+      {},
+      {{{10U}, {20U}, {{1U}, {6U}, {7U}, {8U}}, {{2U}, {3U}, {4U}, {5U}}}},
+      {{{20U}, 2U, {{10U}}}},
+      {}};
+  const auto copy_source = [](ChartEditor& editor) {
+    assert(editor.select_range(1U, 5U, ChartSelectionMode::Replace));
+    assert(editor.select_range(10U, 14U, ChartSelectionMode::Add));
+    assert(editor.selections().size() == 3U);
+    assert(editor.copy_selection());
+  };
+
+  auto forward_events = base.role_events();
+  auto forward_groups = base.drill_groups();
+  auto forward_drills = base.dance_move_drills();
+  forward_events.push_back({{900U}, 100U, ChartRole::Npc,
+                            ChartRoleEventType::BlockStart, {901U}, {902U}});
+  forward_groups.push_back({{901U}, {902U}, {{900U}}, {}});
+  forward_drills.push_back({{902U}, 0U, {{901U}}});
+  std::sort(forward_events.begin(), forward_events.end(),
+            [](const ChartRoleEvent& left, const ChartRoleEvent& right) {
+              return left.row < right.row;
+            });
+  ChartEditor forward{ChartDraft{forward_events, {}, {}, forward_groups,
+                                 forward_drills, {}}};
+  copy_source(forward);
+  assert(forward.paste(101U));
+
+  ChartEditor reverse{base};
+  copy_source(reverse);
+  assert(reverse.paste(101U));
+  assert(reverse.place_marker(ChartColumn::Npc, 100U,
+                              ChartRoleEventType::BlockStart));
+
+  assert(drill_shapes(forward.draft()) == drill_shapes(reverse.draft()));
+  const otgy::core::ChartRoleEvent* start = nullptr;
+  for (const auto& event : forward.draft().role_events()) {
+    if (event.row == 100U) {
+      start = &event;
+      break;
+    }
+  }
+  assert(start != nullptr);
+  assert(drill_rows(forward.draft(), start->dance_move_drill_id) ==
+         std::vector<std::uint64_t>(
+             {100U, 101U, 102U, 103U, 105U, 110U, 112U, 114U}));
+}
+
+void test_paste_and_placement_orders_produce_same_moves() {
+  const auto copy_actions = [](ChartEditor& editor) {
+    assert(editor.select_range(2U, 6U, ChartSelectionMode::Replace));
+    assert(editor.select_range(8U, 14U, ChartSelectionMode::Add));
+    assert(editor.copy_selection());
+  };
+
+  // A complete preceding move: both orders end as three complete moves.
+  {
+    auto forward = build_two_complete_moves();
+    auto reverse = build_two_complete_moves();
+    copy_actions(forward);
+    copy_actions(reverse);
+    assert(forward.place_marker(ChartColumn::Npc, 100U,
+                                ChartRoleEventType::BlockStart));
+    assert(forward.paste(101U));
+    assert(reverse.paste(101U));
+    assert(reverse.place_marker(ChartColumn::Npc, 100U,
+                                ChartRoleEventType::BlockStart));
+    assert(otgy::core::validate_finished_chart(forward.draft()).is_finished());
+    assert(otgy::core::validate_finished_chart(reverse.draft()).is_finished());
+    assert(drill_shapes(forward.draft()) == drill_shapes(reverse.draft()));
+  }
+
+  // A preceding move without an NPC-S keeps a newly placed start in the same
+  // dance move as a second group. The paste must still adopt that start, so the
+  // place-then-paste order matches paste-then-place and leaves the unfinished
+  // move exactly as it was.
+  {
+    const auto build_unfinished = []() {
+      auto editor = build_two_complete_moves();
+      assert(editor.place_marker(ChartColumn::Npc, 60U,
+                                 ChartRoleEventType::BlockStart));
+      assert(editor.place_marker(ChartColumn::Npc, 62U,
+                                 ChartRoleEventType::Note));
+      assert(editor.place_marker(ChartColumn::Npc, 64U,
+                                 ChartRoleEventType::Note));
+      return editor;
+    };
+    auto forward = build_unfinished();
+    auto reverse = build_unfinished();
+    copy_actions(forward);
+    copy_actions(reverse);
+    assert(forward.place_marker(ChartColumn::Npc, 100U,
+                                ChartRoleEventType::BlockStart));
+    assert(forward.draft().dance_move_drills().back().drill_group_ids.size() ==
+           2U);
+    assert(forward.paste(101U));
+    assert(reverse.paste(101U));
+    assert(reverse.place_marker(ChartColumn::Npc, 100U,
+                                ChartRoleEventType::BlockStart));
+    assert(drill_shapes(forward.draft()) == drill_shapes(reverse.draft()));
+
+    const otgy::core::ChartRoleEvent* start = nullptr;
+    for (const auto& event : forward.draft().role_events()) {
+      if (event.row == 100U) {
+        start = &event;
+        break;
+      }
+    }
+    assert(start != nullptr);
+    assert(drill_rows(forward.draft(), start->dance_move_drill_id) ==
+           std::vector<std::uint64_t>(
+               {100U, 101U, 103U, 105U, 107U, 109U, 111U, 113U}));
+    bool found_unfinished = false;
+    for (const auto& drill : forward.draft().dance_move_drills()) {
+      const auto rows = drill_rows(forward.draft(), drill.id);
+      if (std::find(rows.begin(), rows.end(), 60U) == rows.end()) {
+        continue;
+      }
+      found_unfinished = true;
+      assert(rows == std::vector<std::uint64_t>({60U, 62U, 64U}));
+    }
+    assert(found_unfinished);
+  }
+}
+
 void test_result_messages() {
   for (unsigned int raw = 1U;
        raw <= static_cast<unsigned int>(ChartEditCode::EmptyDanceMoveEnd);
@@ -4826,6 +5263,13 @@ int main() {
   test_unit_selection_toggle_rules();
   test_unit_delete_selection_and_player_sync();
   test_unit_copy_partial_and_paste_adoption();
+  test_paste_npc_actions_after_open_start_adopts_group();
+  test_paste_npc_actions_adoption_rejections();
+  test_cut_npc_actions_adopts_open_start();
+  test_paste_adopts_start_with_incomplete_group_list();
+  test_paste_adoption_rejects_showtime_owned_start();
+  test_paste_adoption_accepts_group_with_leading_player_marker();
+  test_paste_and_placement_orders_produce_same_moves();
   test_result_messages();
   return 0;
 }

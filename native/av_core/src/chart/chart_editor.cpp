@@ -846,9 +846,10 @@ void erase_role_events(MutableDraft& draft,
   return false;
 }
 
-[[nodiscard]] bool drill_is_owned_by_showtime(
-    const MutableDraft& draft, ChartDanceMoveDrillId drill_id) noexcept {
-  for (const auto& showtime : draft.showtimes) {
+[[nodiscard]] bool showtime_owns_drill(
+    const std::vector<ChartShowtime>& showtimes,
+    ChartDanceMoveDrillId drill_id) noexcept {
+  for (const auto& showtime : showtimes) {
     for (const auto id : showtime.dance_move_drill_ids) {
       if (id.value == drill_id.value) {
         return true;
@@ -856,6 +857,16 @@ void erase_role_events(MutableDraft& draft,
     }
   }
   return false;
+}
+
+[[nodiscard]] bool drill_is_owned_by_showtime(
+    const MutableDraft& draft, ChartDanceMoveDrillId drill_id) noexcept {
+  return showtime_owns_drill(draft.showtimes, drill_id);
+}
+
+[[nodiscard]] bool drill_is_owned_by_showtime(
+    const ChartDraft& draft, ChartDanceMoveDrillId drill_id) noexcept {
+  return showtime_owns_drill(draft.showtimes(), drill_id);
 }
 
 [[nodiscard]] ChartEditResult add_npc_start(
@@ -1221,6 +1232,18 @@ void erase_role_events(MutableDraft& draft,
 [[nodiscard]] bool group_has_npc_start(const MutableDraft& draft,
                                        ChartDrillGroupId group_id) noexcept {
   for (const auto& event : draft.role_events) {
+    if (event.role == ChartRole::Npc &&
+        event.type == ChartRoleEventType::BlockStart &&
+        event.drill_group_id.value == group_id.value) {
+      return true;
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] bool group_has_npc_start(const ChartDraft& draft,
+                                       ChartDrillGroupId group_id) noexcept {
+  for (const auto& event : draft.role_events()) {
     if (event.role == ChartRole::Npc &&
         event.type == ChartRoleEventType::BlockStart &&
         event.drill_group_id.value == group_id.value) {
@@ -2579,6 +2602,107 @@ void erase_showtime_events(MutableDraft& draft,
   return {ChartEditCode::Success, true, current.id};
 }
 
+/// A block start placed immediately before the future paste target stays its
+/// own group unless the pasted block is complete. The start adoption used by
+/// placement applies to that order as well: when the pasted group is start-less
+/// and carries NPC notes, and the destination's nearest preceding marker is a
+/// block start that owns its group alone, the start joins the pasted group. The
+/// later placement order is therefore not the only one that produces one block.
+struct PasteStartAdoption final {
+  bool applies;
+  ChartEventId start_event_id;
+  ChartDrillGroupId start_group_id;
+  ChartDrillGroupId content_group_id;
+};
+
+[[nodiscard]] PasteStartAdoption plan_paste_start_adoption(
+    const ChartDraft& destination, const std::vector<ChartMarker>& markers,
+    const ChartClipboardFragment& clipboard, std::uint64_t anchor) noexcept {
+  PasteStartAdoption adoption{false, {0U}, {0U}, {0U}};
+  const auto& content = clipboard.content;
+  if (content.role_events().empty()) {
+    return adoption;
+  }
+  const ChartRoleEvent* first = &content.role_events().front();
+  for (const auto& event : content.role_events()) {
+    if (event.row < first->row) {
+      first = &event;
+    }
+  }
+  // Clipboard rows are normalized to the earliest selected row.
+  if (first->row != 0U) {
+    return adoption;
+  }
+  // The block starting at the anchor must be a start-less group that also
+  // carries NPC notes; otherwise the existing start cannot complete it. The
+  // group is chosen by its earliest event, so a player marker that precedes
+  // the NPC notes in the same group still adopts.
+  const auto* content_group =
+      find_group_in(content, first->drill_group_id.value);
+  if (content_group == nullptr ||
+      group_has_npc_start(content, content_group->id)) {
+    return adoption;
+  }
+  bool content_has_npc_note = false;
+  for (const auto& event : content.role_events()) {
+    if (event.drill_group_id.value == content_group->id.value &&
+        event.role == ChartRole::Npc &&
+        event.type == ChartRoleEventType::Note) {
+      content_has_npc_note = true;
+      break;
+    }
+  }
+  if (!content_has_npc_note) {
+    return adoption;
+  }
+  const auto* previous = previous_chart_marker(markers, anchor);
+  if (previous == nullptr ||
+      previous->type != ChartMarkerType::NpcBlockStart) {
+    return adoption;
+  }
+  const auto* start = find_role_event_in(destination, previous->id.value);
+  if (start == nullptr || start->role != ChartRole::Npc ||
+      start->type != ChartRoleEventType::BlockStart) {
+    return adoption;
+  }
+  const auto* start_group =
+      find_group_in(destination, start->drill_group_id.value);
+  if (start_group == nullptr) {
+    return adoption;
+  }
+  // Event membership is authoritative, so a recovered draft whose stored group
+  // lists are incomplete can still adopt a start that owns its group.
+  std::size_t group_events = 0U;
+  for (const auto& event : destination.role_events()) {
+    if (event.drill_group_id.value != start_group->id.value) {
+      continue;
+    }
+    if (event.id.value != start->id.value) {
+      return adoption;
+    }
+    ++group_events;
+  }
+  if (group_events != 1U) {
+    return adoption;
+  }
+  const ChartDanceMoveDrill* start_drill = nullptr;
+  for (const auto& drill : destination.dance_move_drills()) {
+    if (drill.id.value == start_group->dance_move_drill_id.value) {
+      start_drill = &drill;
+      break;
+    }
+  }
+  // A preceding unfinished move keeps the new start in its drill until the
+  // paste adopts it; removing that empty group leaves the unfinished move as it
+  // was. A Showtime-owned drill keeps its stored layout untouched.
+  if (start_drill == nullptr ||
+      drill_is_owned_by_showtime(destination, start_drill->id)) {
+    return adoption;
+  }
+  adoption = {true, start->id, start_group->id, content_group->id};
+  return adoption;
+}
+
 struct PastePlan final {
   ChartPastePreview preview;
   ChartDraft destination{{}, {}, {}, {}, {}, {}};
@@ -2586,6 +2710,7 @@ struct PastePlan final {
   std::vector<std::uint64_t> drill_ids;
   std::vector<std::uint64_t> group_ids;
   std::vector<std::uint64_t> event_ids;
+  PasteStartAdoption start_adoption;
 };
 
 /// Preview and commit share the exact same source verification, cleanup,
@@ -2594,7 +2719,8 @@ struct PastePlan final {
     const ChartDraft& draft, const ChartClipboardFragment& clipboard,
     const ChartDraft* cut_source, std::uint64_t anchor, IdState ids) {
   PastePlan plan{{ChartEditCode::ClipboardEmpty, anchor, anchor, {}, {}},
-                 ChartDraft{{}, {}, {}, {}, {}, {}}, ids, {}, {}, {}};
+                 ChartDraft{{}, {}, {}, {}, {}, {}}, ids, {}, {}, {},
+                 {false, {0U}, {0U}, {0U}}};
   const auto& content = clipboard.content;
   if (content.role_events().empty() || content.dance_move_drills().empty()) {
     return plan;
@@ -2723,6 +2849,8 @@ struct PastePlan final {
       return plan;
     }
   }
+  plan.start_adoption =
+      plan_paste_start_adoption(plan.destination, markers, clipboard, anchor);
   plan.drill_ids.resize(content.dance_move_drills().size());
   plan.group_ids.resize(content.drill_groups().size());
   plan.event_ids.resize(content.role_events().size());
@@ -3541,6 +3669,37 @@ ChartEditResult ChartEditor::paste(std::uint64_t anchor_row) noexcept {
       sort_drill_group_ids(candidate, candidate.dance_move_drills.back());
     }
     sort_role_events(candidate);
+
+    if (plan.start_adoption.applies) {
+      auto* start =
+          find_role_event(candidate, plan.start_adoption.start_event_id.value);
+      auto* target_group =
+          find_group(candidate,
+                     mapped_group(plan.start_adoption.content_group_id).value);
+      auto* start_group =
+          find_group(candidate, plan.start_adoption.start_group_id.value);
+      if (start == nullptr || target_group == nullptr ||
+          start_group == nullptr ||
+          find_drill(candidate, target_group->dance_move_drill_id.value) ==
+              nullptr) {
+        return {ChartEditCode::InvalidDraft, false, {0U}};
+      }
+      // The existing start becomes the pasted block's start, exactly as when it
+      // is placed after the paste. The shared finish() cleanup drops the now
+      // eventless group and drill inside this same history entry.
+      const auto start_id = start->id;
+      start->drill_group_id = target_group->id;
+      start->dance_move_drill_id = target_group->dance_move_drill_id;
+      const auto is_start = [start_id](ChartEventId id) {
+        return id.value == start_id.value;
+      };
+      start_group->npc_event_ids.erase(
+          std::remove_if(start_group->npc_event_ids.begin(),
+                         start_group->npc_event_ids.end(), is_start),
+          start_group->npc_event_ids.end());
+      target_group->npc_event_ids.push_back(start_id);
+      sort_relation_ids(candidate, target_group->npc_event_ids);
+    }
 
     // Allocate the complete new selection before commit; no session mutation
     // after a successful draft commit may fail with an allocation error.
