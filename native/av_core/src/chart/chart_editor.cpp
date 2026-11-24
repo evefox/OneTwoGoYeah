@@ -1471,10 +1471,14 @@ void erase_role_events(MutableDraft& draft,
 /// Read source data from a fixed post-NPC snapshot, but check occupied rows in
 /// the current candidate for each block. Failed blocks are never retried after
 /// another block is cleared. Everything remains inside the click transaction.
+/// Groups in excluded_groups already have a player unit selected by the same
+/// delete command, which removes that unit itself; recomputing the block would
+/// silently change unselected player events.
 void synchronize_npc_edit(const ChartDraft& original,
                           const std::vector<ChartMarker>& before,
                           MutableDraft& after, IdState& ids,
-                          ChartEditResult& result) {
+                          ChartEditResult& result,
+                          const std::vector<ChartDrillGroupId>& excluded_groups) {
   const auto projection = project_chart_markers(ChartDraft{
       after.role_events, after.showtime_start_events, after.showtime_move_events,
       after.drill_groups, after.dance_move_drills, after.showtimes});
@@ -1493,6 +1497,12 @@ void synchronize_npc_edit(const ChartDraft& original,
         old_player_c->drill_group_id.value != old_npc_c->drill_group_id.value ||
         old_player_c->dance_move_drill_id.value != old_npc_c->dance_move_drill_id.value)
       continue;
+    if (std::any_of(excluded_groups.begin(), excluded_groups.end(),
+                    [old_player_c](ChartDrillGroupId id) {
+                      return id.value == old_player_c->drill_group_id.value;
+                    })) {
+      continue;
+    }
     std::vector<std::uint64_t> old_ids;
     const ChartMarker* old_player_anchor = nullptr;
     for (auto i = index + 1U; i < before.size(); ++i) {
@@ -2110,11 +2120,12 @@ struct CompleteDrill final {
     }
   }
   const auto* start = find_showtime_start_event(draft, showtime.start_event_id);
-  if (start != nullptr &&
-      !showtime_moves_remain_contiguous(draft, showtime, start->row)) {
+  if (start == nullptr) {
+    // A Showtime without its SHOW-C row cannot be placed or rebuilt; a loaded
+    // or recovered draft that lost the event is invalid content.
     return true;
   }
-  return false;
+  return !showtime_moves_remain_contiguous(draft, showtime, start->row);
 }
 
 struct StageDrill final {
@@ -2782,51 +2793,15 @@ struct PastePlan final {
   }
   MutableDraft candidate{draft};
   if (cut_source != nullptr) {
-    const auto erased_drill = [cut_source](ChartDanceMoveDrillId id) {
-      return std::any_of(cut_source->dance_move_drills().begin(),
-                         cut_source->dance_move_drills().end(),
-                         [id](const ChartDanceMoveDrill& drill) {
-                           return id.value == drill.id.value;
-                         });
-    };
     std::vector<std::uint64_t> erased_events;
-    std::vector<std::uint64_t> erased_groups;
+    erased_events.reserve(cut_source->role_events().size());
     for (const auto& event : cut_source->role_events()) {
       erased_events.push_back(event.id.value);
     }
-    for (const auto& group : cut_source->drill_groups()) {
-      erased_groups.push_back(group.id.value);
-    }
-    candidate.role_events.erase(
-        std::remove_if(candidate.role_events.begin(), candidate.role_events.end(),
-                       [&erased_drill](const ChartRoleEvent& event) {
-                         return erased_drill(event.dance_move_drill_id);
-                       }),
-        candidate.role_events.end());
-    candidate.drill_groups.erase(
-        std::remove_if(candidate.drill_groups.begin(), candidate.drill_groups.end(),
-                       [&erased_drill](const ChartDrillGroup& group) {
-                         return erased_drill(group.dance_move_drill_id);
-                       }),
-        candidate.drill_groups.end());
-    candidate.dance_move_drills.erase(
-        std::remove_if(candidate.dance_move_drills.begin(),
-                       candidate.dance_move_drills.end(),
-                       [&erased_drill](const ChartDanceMoveDrill& drill) {
-                         return erased_drill(drill.id);
-                       }),
-        candidate.dance_move_drills.end());
-    erase_event_references(candidate, erased_events);
-    for (auto& drill : candidate.dance_move_drills) {
-      auto& groups = drill.drill_group_ids;
-      groups.erase(std::remove_if(groups.begin(), groups.end(),
-                                  [&erased_groups](ChartDrillGroupId id) {
-                                    return std::find(erased_groups.begin(),
-                                                     erased_groups.end(), id.value) !=
-                                           erased_groups.end();
-                                  }),
-                   groups.end());
-    }
+    // A cut moves exactly the selected events. Events of the same dance move
+    // that were not selected stay in place; finish() prunes only groups and
+    // drills that no longer bind any event.
+    erase_role_events(candidate, erased_events);
     // finish() applies the same cleanup as every other committed edit, before
     // checking whether the now-vacant Showtime/source rows can be reused.
     plan.destination = std::move(candidate).finish();
@@ -3475,6 +3450,15 @@ ChartEditResult ChartEditor::delete_selection() noexcept {
     // NPC actions go first so the player practice can be resynchronized while
     // every block start still exists. A start deletion must not touch the
     // player block, so starts and explicit player units are removed afterwards.
+    // A group that also has a selected player unit is not resynchronized: that
+    // unit is removed by this command, and recomputing would edit the
+    // unselected player events it shares the group with.
+    std::vector<ChartDrillGroupId> excluded_groups;
+    for (const auto& unit : units) {
+      if (unit.role == ChartRole::Player) {
+        excluded_groups.push_back(unit.drill_group_id);
+      }
+    }
     std::vector<std::uint64_t> npc_action_ids;
     for (const auto& event : draft_.role_events()) {
       if (event.role != ChartRole::Npc ||
@@ -3486,7 +3470,8 @@ ChartEditResult ChartEditor::delete_selection() noexcept {
     }
     if (!npc_action_ids.empty()) {
       erase_role_events(candidate, npc_action_ids);
-      synchronize_npc_edit(draft_, markers, candidate, ids, result);
+      synchronize_npc_edit(draft_, markers, candidate, ids, result,
+                           excluded_groups);
     }
 
     std::vector<std::uint64_t> npc_start_ids;
@@ -3771,7 +3756,7 @@ ChartEditResult ChartEditor::click(ChartColumn column,
       return result;
     }
     if (npc_command) {
-      synchronize_npc_edit(draft_, markers, candidate, ids, result);
+      synchronize_npc_edit(draft_, markers, candidate, ids, result, {});
     }
     return commit(std::move(candidate).finish(), result, ids.next,
                   ids.available);
@@ -3869,7 +3854,7 @@ ChartEditResult ChartEditor::place_marker(ChartColumn column,
     if (!result.changed) {
       return result;
     }
-    synchronize_npc_edit(draft_, markers, candidate, ids, result);
+    synchronize_npc_edit(draft_, markers, candidate, ids, result, {});
     return commit(std::move(candidate).finish(), result, ids.next,
                   ids.available);
   } catch (const std::bad_alloc&) {
@@ -3920,7 +3905,7 @@ ChartEditResult ChartEditor::remove_marker(ChartColumn column,
     // stay, and the draft may become incomplete. Notes and end markers still
     // synchronize the corresponding player practice.
     if (current->type != ChartMarkerType::NpcBlockStart) {
-      synchronize_npc_edit(draft_, markers, candidate, ids, result);
+      synchronize_npc_edit(draft_, markers, candidate, ids, result, {});
     }
     return commit(std::move(candidate).finish(), result, ids.next,
                   ids.available);
