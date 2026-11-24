@@ -5866,6 +5866,60 @@ void test_repeated_random_edits_preserve_invariants() {
   }
 }
 
+void test_showtime_stage_order_uses_first_note_row() {
+  // Move A starts with NPC-C at row 0 but its first N is at row 40. Move B has
+  // its C at row 10 and its first N at row 12. The stage order is defined by the
+  // first N, not by the block start, so B must be completed before A.
+  const ChartDraft draft{
+      {
+          {{1U}, 0U, ChartRole::Npc, ChartRoleEventType::BlockStart, {2U}, {3U}},
+          {{9U}, 10U, ChartRole::Npc, ChartRoleEventType::BlockStart, {10U},
+           {11U}},
+          {{12U}, 12U, ChartRole::Npc, ChartRoleEventType::Note, {10U}, {11U}},
+          {{13U}, 14U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {10U},
+           {11U}},
+          {{14U}, 16U, ChartRole::Player, ChartRoleEventType::BlockStart, {10U},
+           {11U}},
+          {{15U}, 18U, ChartRole::Player, ChartRoleEventType::Note, {10U},
+           {11U}},
+          {{16U}, 20U, ChartRole::Player, ChartRoleEventType::MoveEnd, {10U},
+           {11U}},
+          {{4U}, 40U, ChartRole::Npc, ChartRoleEventType::Note, {2U}, {3U}},
+          {{5U}, 42U, ChartRole::Npc, ChartRoleEventType::MoveEnd, {2U}, {3U}},
+          {{6U}, 44U, ChartRole::Player, ChartRoleEventType::BlockStart, {2U},
+           {3U}},
+          {{7U}, 46U, ChartRole::Player, ChartRoleEventType::Note, {2U}, {3U}},
+          {{8U}, 48U, ChartRole::Player, ChartRoleEventType::MoveEnd, {2U},
+           {3U}},
+      },
+      {},
+      {},
+      {
+          {{2U}, {3U}, {{1U}, {4U}, {5U}}, {{6U}, {7U}, {8U}}},
+          {{10U}, {11U}, {{9U}, {12U}, {13U}}, {{14U}, {15U}, {16U}}},
+      },
+      {
+          {{3U}, 1U, {{2U}}},
+          {{11U}, 1U, {{10U}}},
+      },
+      {}};
+  ChartEditor editor{draft};
+  assert(editor.click(ChartColumn::Showtime, 50U));
+  assert(editor.draft().showtimes().size() == 1U);
+  const auto& showtime = editor.draft().showtimes().front();
+  assert(showtime.dance_move_drill_ids.size() == 2U);
+  assert(showtime.dance_move_drill_ids[0].value == 11U);
+  assert(showtime.dance_move_drill_ids[1].value == 3U);
+  assert(showtime.show_move_event_ids.size() == 2U);
+  std::vector<std::uint64_t> move_rows;
+  for (const auto& move : editor.draft().showtime_move_events()) {
+    move_rows.push_back(move.row);
+  }
+  std::sort(move_rows.begin(), move_rows.end());
+  assert(move_rows == std::vector<std::uint64_t>({64U, 80U}));
+  assert_draft_invariants(editor.draft());
+}
+
 void test_result_messages() {
   for (unsigned int raw = 1U;
        raw <= static_cast<unsigned int>(ChartEditCode::EmptyDanceMoveEnd);
@@ -5967,6 +6021,7 @@ int main() {
   test_repair_rebuilds_showtime_when_earlier_move_is_inserted();
   test_repeated_edit_sequence_preserves_invariants();
   test_repeated_random_edits_preserve_invariants();
+  test_showtime_stage_order_uses_first_note_row();
   test_result_messages();
   return 0;
 }

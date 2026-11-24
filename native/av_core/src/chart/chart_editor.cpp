@@ -1842,8 +1842,10 @@ struct CompleteDrill final {
   }
   std::sort(result.begin(), result.end(),
             [](const CompleteDrill& left, const CompleteDrill& right) {
-              return left.first_row != right.first_row
-                         ? left.first_row < right.first_row
+              // The move starts at its first N, not at the NPC-C; a block start
+              // is not part of the dance move content.
+              return left.first_note_row != right.first_note_row
+                         ? left.first_note_row < right.first_note_row
                          : left.id.value < right.id.value;
             });
   return result;
@@ -2035,7 +2037,7 @@ struct CompleteDrill final {
   }
   struct StageDrill final {
     const ChartDanceMoveDrill* drill;
-    std::uint64_t first_row;
+    std::uint64_t first_note_row;
   };
   std::vector<StageDrill> stage;
   for (const auto& drill : draft.dance_move_drills) {
@@ -2044,12 +2046,12 @@ struct CompleteDrill final {
         complete.last_row >= start_row) {
       continue;
     }
-    stage.push_back({&drill, complete.first_row});
+    stage.push_back({&drill, complete.first_note_row});
   }
   std::sort(stage.begin(), stage.end(),
             [](const StageDrill& left, const StageDrill& right) {
-              return left.first_row != right.first_row
-                         ? left.first_row < right.first_row
+              return left.first_note_row != right.first_note_row
+                         ? left.first_note_row < right.first_note_row
                          : left.drill->id.value < right.drill->id.value;
             });
   std::size_t position = stage.size();
