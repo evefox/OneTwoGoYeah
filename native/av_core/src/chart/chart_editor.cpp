@@ -1960,7 +1960,7 @@ struct CompleteDrill final {
       break;
     }
     const auto range_start = row - row % 16U;
-    const std::uint64_t duration = drills[index].move_n_count <= 6U ? 16U : 32U;
+    const std::uint64_t duration = drills[index].move_n_count <= 5U ? 16U : 32U;
     if (range_start >
         std::numeric_limits<std::uint64_t>::max() - duration) {
       return {ChartEditCode::RangeOverflow, false, {0U}};

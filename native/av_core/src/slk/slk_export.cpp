@@ -365,7 +365,7 @@ struct EncodedRow final {
   const std::uint64_t range_start =
       last_show_move->row - last_show_move->row % 16U;
   const std::uint64_t duration =
-      last_show_move->show_n_count <= 6U ? 16U : 32U;
+      last_show_move->show_n_count <= 5U ? 16U : 32U;
   if (range_start > std::numeric_limits<std::uint64_t>::max() - duration) {
     return SlkExportError::InvalidFinishedChart;
   }

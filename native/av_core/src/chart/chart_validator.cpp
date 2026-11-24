@@ -538,7 +538,7 @@ ChartValidationResult validate_finished_chart(
         if (event->show_n_count >= 1U && event->show_n_count <= 11U) {
           const auto range_start = event->row - event->row % 16U;
           const std::uint64_t duration =
-              event->show_n_count <= 6U ? 16U : 32U;
+              event->show_n_count <= 5U ? 16U : 32U;
           if (range_start >
               std::numeric_limits<std::uint64_t>::max() - duration) {
             valid = false;

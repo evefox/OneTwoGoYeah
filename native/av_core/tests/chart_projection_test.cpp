@@ -95,7 +95,7 @@ void test_showtime_ranges_and_sequence_roles() {
   assert(!moves[0].is_last_in_sequence);
   assert(moves[0].range_start == 0U && moves[0].range_end == 16U);
   assert(!moves[1].is_first_in_sequence);
-  assert(moves[1].range_end == 32U);
+  assert(moves[1].range_end == 48U);
   assert(moves[2].range_end == 64U);
   assert(moves[3].is_last_in_sequence);
   assert(moves[3].range_end == 96U);
@@ -115,6 +115,22 @@ void test_showtime_ranges_and_sequence_roles() {
       {}};
   assert(otgy::core::project_showtime_moves(draft).error() ==
          ChartProjectionError::RangeOverflow);
+}
+
+void test_showtime_duration_boundary() {
+  const auto range_end = [](std::uint64_t count) {
+    const ChartDraft draft{
+        {}, {}, {{{1U}, 0U, {1U}, {2U}, count}}, {}, {}, {}};
+    const auto result = otgy::core::project_showtime_moves(draft);
+    assert(result);
+    assert(result.moves()->size() == 1U);
+    return result.moves()->front().range_end;
+  };
+  assert(range_end(1U) == 16U);
+  assert(range_end(5U) == 16U);
+  assert(range_end(6U) == 32U);
+  assert(range_end(11U) == 32U);
+  assert(range_end(12U) == 32U);
 }
 
 void test_note_ordinals_ignore_other_roles_and_block_starts() {
@@ -202,6 +218,7 @@ void test_error_messages() {
 int main() {
   test_global_projection_and_queries();
   test_showtime_ranges_and_sequence_roles();
+  test_showtime_duration_boundary();
   test_note_ordinals_ignore_other_roles_and_block_starts();
   test_chart_timeline_range_scans_model_in_core();
   test_error_messages();

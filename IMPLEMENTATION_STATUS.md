@@ -596,3 +596,5 @@ Android 和 macOS 集成测试均按测试根 `RepaintBoundary` 把焦点、多�
 
 2026-11-24 Showtime 阶段排序修复：`collect_complete_drills`（自动补全候选与修复前缀比较）和 `showtime_moves_remain_contiguous`（记录舞步连续性）原先按舞步首个事件行排序，`NPC-C` 参与了起点；规格和其余阶段收集明确要求按 NPC/玩家列首个 N 行排序、`NPC-C` 不计入。现统一为首个 N 行排序，与 `showtime_stage_drills` 及成品校验一致。新增 `NPC-C` 行序与首个 N 行序不一致的手工草稿回归，确认补全按首个 N 记录舞步并生成对应 `SHOW-D`。原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 通过，`flutter analyze` 无问题；未执行平台构建或真机验证。
 
+2026-11-24 Showtime 时长阈值调整：舞步 N 数 `1..5` 对应 1 小节（16 个 1/16 位置），`6` 及以上对应 2 小节（32 个），原 `1..6`/`7+` 阈值作废。同步修改自动补全锚点、`project_showtime_moves`、成品校验范围溢出检查和兼容导出边界计算四处核心逻辑；更新架构、功能规格、测试边界（至少覆盖 `1`、`5`、`6`、`11` 和大于 `11`）及投影回归。原生 `59/59`、Dart FFI `32/32`、Flutter `318/318` 通过，`flutter analyze` 无问题；未执行平台构建或真机验证。
+

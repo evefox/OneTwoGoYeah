@@ -214,7 +214,7 @@ ShowtimeMoveProjectionResult project_showtime_moves(
       }
       const auto range_start = marker.row - marker.row % 16U;
       const std::uint64_t duration =
-          marker.show_n_count <= 6U ? 16U : 32U;
+          marker.show_n_count <= 5U ? 16U : 32U;
       if (range_start >
           std::numeric_limits<std::uint64_t>::max() - duration) {
         return ShowtimeMoveProjectionResult{
